@@ -178,7 +178,7 @@ onCreate() {
 
 这里使用的是IntelliJ Idea，也可以使用Eclipse等工具，步骤类似，首先实现注解处理器需要单独的Module，因为它需要被以jar方法引入示例Module，新建Module时需要选择Maven支持，因为需要添加 `maven-compiler-plugin` 的支持，而编译示例Module时，需要指定注解处理器所在位置，即为jar所在位置，下面会细说
 
-![](/image/view_injector/20160619203839648.png)
+![](/image/android_view_injector/20160619203839648.png)
 
 新建Moudle完还需要对pom.xml进行配置，添加 `maven-compiler-plugin` 后如下所示
 
@@ -264,13 +264,13 @@ public final class MyProcessor extends AbstractProcessor {
 com.example.InjectTest
 ```
 
-![](/image/view_injector/20160619203938378.png)
+![](/image/android_view_injector/20160619203938378.png)
 
 ### 测试a
 
 在测试之前需要确认开启注解处理，开启方法 点击 `Setting->Annotation Processor`，设置注解处理器路径，为jar包所在位置
 
-![](/image/view_injector/20160619204042005.png)
+![](/image/android_view_injector/20160619204042005.png)
 
 首先需要将当前Module打包成jar，点击 `File->Project Structure->Artifacts` 添加当前Module，然后返回Module选择 `Build->Build Artifacts` 即可生成jar包路径是 `out/artifacts`，然后新建示例Module，新建一个类，像这样
 
@@ -290,7 +290,7 @@ public class MainClass {
 
 直接编译，无需运行，即可看到打印信息
 
-![](/image/view_injector/20160619204114509.png)
+![](/image/android_view_injector/20160619204114509.png)
 
 至此，我们就实现了一个简单的编译时注解的例子，不过没有什么用，因为注解处理方法里什么都没有，只是输出了几行信息，这只是实现一个编译时处理注解的流程，下面我们来实现一个完整的Android的View注入工具
 
@@ -824,7 +824,7 @@ final class MainActivity$MyAdapter$ViewHolder$$Proxy<T extends MainActivity.MyAd
 
 效果展示
 
-![](/image/view_injector/20160619204153962.gif)
+![](/image/android_view_injector/20160619204153962.gif)
 
 ## **项目代码**
 
