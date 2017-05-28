@@ -4,16 +4,16 @@
   * [定义注解](#定义注解)
   * [实现注入方法](#实现注入方法)
 * [java实现编译时注解](#java实现编译时注解)
-  * [准备工作a](#准备工作a)
+  * [准备工作](#准备工作a)
   * [实现注解处理器](#实现注解处理器)
   * [配置注解处理器](#配置注解处理器)
-  * [测试a](#测试a)
+  * [测试](#测试a)
 * [android实现编译时注解view注入工具](#android实现编译时注解view注入工具)
-  * [准备工作b](#准备工作b)
+  * [准备工作](#准备工作b)
   * [实现思路](#实现思路)
   * [整体设计](#整体设计)
   * [具体实现](#具体实现)
-  * [测试b](#测试b)
+  * [测试](#测试b)
 * [项目代码](#项目代码)
 * [参考](#参考)
 
@@ -174,7 +174,7 @@ onCreate() {
 
 所谓编译时注解就是编译时对注解进行处理，而不是运行时，主要思想是，定义一个注解处理器，指定需要处理的注解，当项目编译时，注解处理器的处理方法将被回调，然后在处理方法内进行处理，一般可以在处理方法里生成Java文件供程序调用，或者生成日志文档，所以主要是实现注解处理方法，下面只是一个实现注解处理的简单例子，不过重点是实现Android注入工具
 
-### 准备工作a
+<h3 id="准备工作a">准备工作</h3>
 
 这里使用的是IntelliJ Idea，也可以使用Eclipse等工具，步骤类似，首先实现注解处理器需要单独的Module，因为它需要被以jar方法引入示例Module，新建Module时需要选择Maven支持，因为需要添加 `maven-compiler-plugin` 的支持，而编译示例Module时，需要指定注解处理器所在位置，即为jar所在位置，下面会细说
 
@@ -266,7 +266,7 @@ com.example.InjectTest
 
 ![](/image/android_view_injector/20160619203938378.png)
 
-### 测试a
+<h3 id="测试a">测试</h3>
 
 在测试之前需要确认开启注解处理，开启方法 点击 `Setting->Annotation Processor`，设置注解处理器路径，为jar包所在位置
 
@@ -296,7 +296,7 @@ public class MainClass {
 
 ## android实现编译时注解view注入工具
 
-### 准备工作b
+<h3 id="准备工作b">准备工作</h3>
 
 首先使用AndroidStudio建立一个Project，这里的配置和IntelliJ Idea不太一样，Android中没有注解处理器的配置，需要引入apt插件，在Porject的build.gradle内加入如下 `classpath`
 
@@ -714,7 +714,7 @@ OK，所有的类都已经完成编写，现在看看Project结构
 
 >> `ViewInjectProcessor` 注解处理器
 
-### 测试b
+<h3 id="测试b">测试</h3>
 
 测试代码很简单，在MainActivity中实现了一个带有ViewHolder的ListAdapter，使用注解绑定了一个Button、一个TextView、一个ListView，ViewHolder里还绑定了一个TextView
 
