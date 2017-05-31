@@ -4,7 +4,7 @@
 * [使用](#使用)
   * [输入/输出](#输入-输出)
   * [keep(保持)](#keep(保持))
-  * [shrinking(压缩) ](#shrinking(压缩))
+  * [shrinking(压缩) ](#shrinking)
   * [optimization(优化)](#optimization(优化))
   * [obfuscation(混淆)](#obfuscation(混淆))
   * [preverification(预校验)](#preverification(预校验))
@@ -148,7 +148,7 @@ AtomicReferenceFieldUpdater.newUpdater(SomeClass.class, SomeType.class, "someFie
 
 `printseeds` [filename] 指定通过-keep配置匹配的类或者类成员的详细列表。列表可以打印到标准输出流或者文件里面。这个列表可以看到我们想要保护的类或者成员有没有被真正的保护到，尤其是那些使用通配符匹配的类。
 
-<h3 id="shrinking(压缩) ">shrinking(压缩) </h3>
+<h3 id="shrinking">shrinking(压缩) </h3>
 
 `-dontshrink` 声明不压缩输入文件。默认情况下，除了-keep相关配置指定的类，所有其它没有被引用到的类都会被移除。每次optimizate操作之后，也会执行一次压缩操作，因为每次optimizate操作可能移除一部分不再需要的类。
 
