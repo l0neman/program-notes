@@ -20,7 +20,7 @@
 
 ## android二维坐标系
 
-和java图形化界面开发类似，android也有一种坐标系，这里说说二维平面的坐标系，在android中，坐标起始点以左上角为原点，竖直向下是y轴的方向，横向向右是x轴延伸方向，对于android中的view来说，它本身所具有的一些位置相关的参数会根据这个坐标系来确定数值和正负，掌握这些有助于理解view在布局层次中所处位置的意义。
+和java图形化界面开发类似，android中也有一种坐标系，这里说说二维平面的坐标系，在android中，坐标系起始点以左上角为原点，竖直向下是y轴的方向，横向向右是x轴延伸方向，对于android中的view来说，它本身所具有的一些位置相关的参数会根据这个坐标系来确定数值和正负，掌握这些有助于理解view在布局层次中所处位置的意义。
 
 下面用一个典型例子来说明android中的坐标系：
 
@@ -62,7 +62,7 @@
 
 <h3 id="motion_event">motion event</h3>
 
-现在假设在child view上发生一个触摸事件，下面将会是从child view的 `onTouchEvent(MotionEvent event)` 或者 `onTouchListener` 的 `onTouch(MotionEvent event)` 方法中的 `event` 对象中获取的值。
+现在假设在child view上发生一个触摸事件，下面的这些方法将会从child view的 `onTouchEvent(MotionEvent event)` 或者 `onTouchListener` 的 `onTouch(MotionEvent event)` 方法中的 `event` 对象中获取值。
 
 ![](../image/android_view_coordinate_and_scroll/target_view_motion_event.png)
 
@@ -75,7 +75,7 @@
 
 下图是一个view调用 `setTranslation` 的方法使view发生偏移前后的两个view的位置。    ![](../image/android_view_coordinate_and_scroll/target_view_position.png)
 
-下面的方法均是针对child view来说的。
+下以的方法均是针对child view来说的。
 
 - `getLeft` child view左边缘距离parent view左边缘的x轴偏移量，相对于parent view右边时为正数。由图上看出，`getLeft` 的值会受到 parent view的 `padding` 和 child view自身的 `layout_margin`  属性的影响。
 - `getTop` child view上边缘距离parent view上边缘的y轴偏移量，相对于parent view偏下时为正数，`getTop` 的值会受到 parent view的 `padding` 和 child view自身的 `layout_margin`  属性的影响。
@@ -105,7 +105,7 @@
 
 针对以上需求，使用以下5种方法一一实现，其中第4个需求属于弹性滑动也就是平滑滚动，这里先实现上面3种需求。
 
-现在在外部对ImageView设置 `OnTouchListener` 来监听 它的触摸事件，使用两个变量来标记手指按下的坐标，在手指移动时即可计算平移的偏移量，注意 `onTouch` 返回 `true` 消耗事件，这将作为滑动的基础数值，对于每种滑动都会针对这个偏移值进行处理。
+现在在外部对ImageView设置 `OnTouchListener` 来监听它的触摸事件，使用两个变量来标记手指按下的坐标，在手指移动时即可计算平移的偏移量，注意 `onTouch` 返回 `true` 来消耗事件，其中计算的偏移量将作为滑动的基础数值，对于每种滑动都会针对这个偏移值进行处理。
 
 ```java
 private int mLastX;
@@ -143,7 +143,7 @@ private void scrollByOffset(int xOffset, int yOffset) {
 }
 ```
 
-这样view就会跟随手指滑动了，下面将会限制view滑动范围，逻辑就是先计算出 `translation` 在x轴和y轴的滑动上限和下限，再判断新的 `translation` 位置否超出限制，如果超出限制，则限制原始偏移值。
+这样view就会跟随手指滑动了，接下来开始限制view滑动范围，逻辑就是先计算出 `translation` 在x轴和y轴的滑动上限和下限，再判断新的 `translation` 位置否超出限制，如果超出限制，则重新设置原始偏移值在范围内。
 
 这里由于初始位置的 `translationX` 和 `translationY` 都为0，则他们的下限就是0
 
@@ -152,7 +152,7 @@ final int transXLowerLimit = 0;
 final int transYLowerLimit = 0;
 ```
 
-假设view已经通过 `translation` 滑动到右下角边缘，现在可以计算出最大上限了。
+假设view已经通过 `translation` 滑动到右下角边缘，现在可以计算出上限了。
 
 ![](../image/android_view_coordinate_and_scroll/target_view_position.png)
 
@@ -221,9 +221,10 @@ private void startScrollWithTranslation() {
 
 <h3 id="scroll_to">scroll to</h3>
 
-`scrollTo` 和 `scrollBy` 可以对view绘制内容进行滑动，实质上是对canvas 绘制区域的滚动。下面是view 的 `draw(Canvas canvas)` 的部分源码，可以体现 `scrollTo` 方法对绘制的影响。
+`scrollTo` 和 `scrollBy` 可以对view的绘制内容进行滑动，实质上是对canvas 绘制区域的滚动。下面是view 的 `draw(Canvas canvas)` 的部分源码，可以体现 `scrollTo` 方法对绘制的影响。
 
 ```java
+/* mScrollX影响left的取值 */
 int left = mScrollX + paddingLeft;
 int right = left + mRight - mLeft - mPaddingRight - paddingLeft;
 int top = mScrollY + getFadeTop(offsetRequired);
@@ -286,7 +287,7 @@ public void scrollBy(int x, int y) {
 }
 ```
 
-这里需要让ImageView滑动，就是调用 parent view的 `scrollBy` 方法，来进行内容的滑动，但是有一个弊端是，parent view内部的所有子view都会滑动，所以这个方法更适用于对view内容的滑动，并不只限制于ViewGroup，还可以对View进行内容的滑动，比如ImageView中可对绘制的图片进行滑动，如果扩展一下，就可以做出一个图片浏览控件。
+这里需要让ImageView滑动，就是调用 parent view的 `scrollBy` 方法，来进行内容的滑动，但是有一个弊端是，parent view内部的所有子view都会滑动，这里只不过这里只有一个child view，而且 `scrollTo` 并不只限制于ViewGroup，还可以对View进行内容的滑动，比如ImageView中可对内部的图片进行滑动，如果扩展一下，就可以做出一个图片浏览控件。
 
 下面根据之前 `translation` 的套路，还是先实现自由滚动，上代码：
 
@@ -296,9 +297,9 @@ private void scrollByOffset(int xOffset, int yOffset) {
 }
 ```
 
-由于scroll和坐标系方向是相反的，所以这里为负值。接下来计算上下和下限。
+由于scroll和坐标系方向是相反的，所以这里为负值。接下来计算上限和下限。
 
-下限默认是0，上限也和之前 `translation` 的计算是相同的。
+下限默认是0，上限也和之前 `translation` 的计算结果是相同的。
 
 ![](../image/android_view_coordinate_and_scroll/view_scroll_scroll_to.png)
 
@@ -361,7 +362,7 @@ private void startScrollWithScrollTo() {
 
 <h3 id="layout_fun">layout fun</h3>
 
-使用 `layout` 方法对目标view进行重新布局，也可以做到对view的滑动，那么对于针对偏移的滑动就可以这样写。
+使用 `layout` 方法对目标view进行重新布局，也可以做到对view的滑动，那么对于针对偏移的滑动就可以这样写：
 
 ```java
 private void scrollByOffset(int xOffset, int yOffset) {
@@ -370,7 +371,7 @@ private void scrollByOffset(int xOffset, int yOffset) {
 }
 ```
 
-注意这种方法只是在滑动时临时改变view的 `mLeft,mRight,mTop,mBottom` 属性，如果view重新调用 `requesstLayout` 方法请求布局的重绘，view将会重新回到初始位置，可以提前保存view位置并还原。
+注意这种方法只是在滑动时临时改变view的 `mLeft,mRight,mTop,mBottom` 属性，如果view重新调用 `requesstLayout` 方法请求布局的重绘，view将会重新回到初始位置，可以提前保存view的位置。
 
 接下来是计算layout绘制的上下限：
 
@@ -482,7 +483,7 @@ private void dragTo(int left, int top, int dx, int dy) {
 
 <h3 id="layout_params">Layout params</h3>
 
-使用 `LayoutParams` 就有很灵活了，它是作为view的布局参数映射类而存在的，最简单的是动态更改view设置的 `layout_margin` 属性，即可做到view位置的更改，也就能控制view的滑动了，不过必须在支持 `layout_margin` 的父布局中才可以使用，所以相对于父布局来说，只要是支持view位置的属性，都可以拿来用，并不限制于 `layout_margin` 参数。
+使用 `LayoutParams` 就有很灵活了，它是作为view的布局参数映射类而存在的，最先想到的就的是动态更改view设置的 `layout_margin` 属性，即可做到view位置的更改，也就能控制view的滑动了，不过必须在支持 `layout_margin` 的父布局中才可以使用，相对于父布局来说，只要是支持view位置的属性，都可以拿来用，并不限制于 `layout_margin` 参数。
 
 下面，我们在FrameLayout里面进行滑动，那么可以这样来：
 
@@ -698,7 +699,7 @@ public final class T {
 
 <h3 id="animator">Animator</h3>
 
-首先就想到了属性动画，它能使用内部线程自动更新view的属性，再通过view的重绘，使view的形态发生变化，平常都很常用的就是平移、缩放、旋转动画，其中平移动画就是更新的 `translationX` 和 `translationY` 属性，那么很自然的就把滑动方法中的 `translation` 给搞定了，当然还可以使用动画更新自定的属性，好的，现在来着手实现自动吸附吧，首先就想到是在view的触摸事件中的 `ACTION_UP` 事件中判断view的当前位置，看它偏左还是偏右，如果偏左，就让它向左平滑滑向下限位置也就是初始位置，否则向右滑向上限位置，然后在开始具体的不同方法的平滑滚动。下面是使用属性动画的两种解决方案，
+首先就想到了属性动画，它会使用内部线程自动更新view的属性，再通过view的重绘，使view的形态发生变化，平常都很常用的就是平移、缩放、旋转动画，其中平移动画就是更新的 `translationX` 和 `translationY` 两种属性，那么很自然的就把滑动方法中的 `translation` 给搞定了，当然还可以使用动画更新自定的属性，好的，现在来着手实现自动吸附吧，首先就想到是在view的触摸事件中的 `ACTION_UP` 事件中判断view的当前位置，看它偏左还是偏右，如果偏左，就让它向左平滑滑向下限位置也就是初始位置，否则向右滑向上限位置，然后在开始具体的不同方法的平滑滚动。下面是使用属性动画的两种解决方案，
 
 - 使用 `ObjectAnimator` 更新 `translationX` 属性实现平滑滚动。
 
@@ -806,15 +807,15 @@ private void stopAllAnimAndThread() {
 
 <h3 id="scroller">Scroller</h3>
 
-`Scroller` 是android的api提供的一个帮助平滑滚动的工具类，它专为 `scrollTo`方法设计，可以轻易的实现view内容的平滑滚动，首先介绍它的使用方法：
+`Scroller` 是android的api提供的一个帮助平滑滚动的工具类，它专为 `scrollTo`方法设计，使用它可以轻易的实现view内容的平滑滚动，首先介绍它的使用方法：
 
-实例化对象：
+第一步实例化对象：
 
 ```java
 mScroller = new Scroller(mParent.getContext());
 ```
 
-在使用它来平滑滚定之前需要在view的 `void computeScroll()` 方法中实现它滑动所必须的逻辑，因为它本身不具备直接使view滑动的能力，：
+然后在使用它来平滑滚动之前需要在view的 `void computeScroll()` 方法中实现它滑动所必须的逻辑，因为它本身并不具备直接使view滑动的能力，而是在外部模拟滚动发生时的数值变化：
 
 ```java
 @Override
@@ -838,9 +839,9 @@ void startScroll(int startX, int startY, int dx, int dy, int duration);
 void fling(int startX, int startY, int velocityX, int velocityY, int minX, int maxX, int minY, int maxY);
 ```
 
-这里平滑滚动可使用前两个，最后一个可以模拟抛出，可以用这个实现listview的抛出效果。
+这里平滑滚动可使用前两个，最后一个可以模拟抛出，可以用这个实现 `ListView` 的抛出效果。
 
-那么直接可以使用这个来实现了，首先需要重写 `computeScroll()` 方法，但是现在是从外部调用触摸事件的，而且需要对parent view进行滚动的，怎么办，有一个办法就是实现parent view的子类，写一个回调监听就行，这里继承了 FrameLayout 写了一个 `ScrollerLayout`，其中就有 `computeScroll()` 对外部的回调
+那么直接可以使用这个来实现了，首先需要重写 `computeScroll()` 方法，但是现在是从外部调用触摸事件的，而且需要对parent view进行滚动的，怎么办，有一个办法就是实现parent view的子类，写一个回调就行，这里继承了 FrameLayout 写了一个 `ScrollerLayout`，其中就有 `computeScroll()` 对外部的回调
 
 ```java
 public final class ScrollerLayout extends FrameLayout {
@@ -926,6 +927,7 @@ private Handler mLayoutHandler = new Handler(new Handler.Callback() {
 
 ```java
 private void scrollByOffset(int xOffset, int yOffset) {
+  /* 选用一种即可 */
   mTarget.offsetLeftAndRight(xOffset);
   mTarget.offsetTopAndBottom(yOffset);
   //mTarget.layout(mTarget.getLeft() + xOffset, mTarget.getTop() + yOffset,
@@ -937,7 +939,7 @@ private void scrollByOffset(int xOffset, int yOffset) {
 
 ```java
 /**
- * 通过使用 thread 发送至 handler 不断调用 offset 或 scroll to 方法进行平滑
+ * 通过使用 thread 发送消息至 handler 不断调用 offset 或 layout 方法进行平滑
  */
 private void scrollToSideWithLayoutOrOffsetFun() {
 
@@ -1035,15 +1037,15 @@ private void stopAllThread() {
 
 首先总结5中滑动方法：
 
-1. 通过改变 `translation` 的值使view的位置发生平移，但是并未真正改变view的布局位置，可以使用属性动画直接对其进行刚更新，可以很方便的做出各种平移效果。
-2. 通过改变 view`LayoutParams` 的 `margin` 属性使view发生平移，比较灵活，但是受到父view的限制，父view必须支持 `margin` 等一些属性，并且改变 `margin` 值可能会对同一个父view下的其他子view造成影响。
+1. 通过改变 `translation` 的值使view的位置发生平移，但是并未真正改变view的布局位置，可以使用属性动画直接对其进行更新，可以很方便的做出各种平移效果。
+2. 通过改变 view的`LayoutParams` 的 `margin` 属性使view发生平移，比较灵活，但是受到父view的限制，父view必须支持 `margin` 等一些属性，并且改变 `margin` 值可能会对同一个父view下的其他子view造成影响。
 3. 使用 `offsetXXAndXX` 和 `layout` 方法使view平移，这两种方法所造成的影响是一致的，它们是通过直接改变view的位置参数来使view发生平移的，但是要注意调用`requestLayout` 会使view重新布局导致它的 `mLeft,mRight` 等属性重新赋值，view会还原到原位置。
-4. 使用 `scrollTo` 和 `scrollBy` 方法使view的内容发生滚动，这个方法不使用于单个view的平移，更适合做一些内容滑动的控件，类似的有 `ScrollView` 和 `ListView` 这种控件。
+4. 使用 `scrollTo` 和 `scrollBy` 方法使view的内容发生滚动，这个方法不适用于单个view的平移，更适合做一些内容滑动的控件，类似的有 `ScrollView` 和 `ListView` 这种控件。
 
 平滑滚动：
 
-1. `Animators` 使用属性动画，可以直接使用view已经有的属性 `translation` 来进行平滑，还可以自定义动画来更新自定义的属性。它比线程更优秀，同时还能使用丰富的差值器来改变平移时的速率，非常灵活。
-2. 使用 `Scroller` 它只配合于 `scrolleTo` 方法来使view的内容发生平滑滚动，使用方便，还有一个方法可以模拟甩出的动作，可以用它来做一些内部滑动的控件。
+1. `Animator` 使用属性动画，可以直接使用view已经有的属性 `translation` 来进行平滑，还可以自定义动画来更新自定义的属性。在这里它比线程更好用，同时还能使用丰富的差值器来改变平移时的速率，非常方便。
+2. 使用 `Scroller` ，它只配合于 `scrollTo` 方法来使view的内容发生平滑滚动，使用方便，还有一个方法可以模拟甩出的动作，可以用它来做一些内部滑动的控件。
 3. 使用 `Handler` ，`Handler` 能干很多事，它是android中很重要的线程间通讯工具，配合线程可以自由的选择view的平移方式，但是使用起来可能麻烦一些，因为需要自己控制线程，但是自由发挥的空间更大。 
 
 ## 源码
