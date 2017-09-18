@@ -302,3 +302,192 @@ public class UserService extends Service {
 
 ## aidl工具
 
+android中为了方便组件与远程Service通讯提供了aidl工具，可以根据定义的接口直接生成冗杂的binder通讯代码，大大简化了开发，现在来实现上面的 `setUser` 和 `getUser` 功能。
+
+- 首先定义aidl接口，aidl接口默认支持下列类型：
+
+1. java 基本类型 int、long、char、boolean、double、float
+2. String、CharSequence
+3. List 另一端实际接收的具体类始终是 ArrayList
+4. Map 另一端实际接收的具体类始终是 HashMap
+
+如果想在aidl中传递自定义的类型，这里是 `User` 类型，需要首先实现 `Parcelable` 接口，然后为这个类型单独声明一个aidl文件，为了让定义的aidl接口能够正确导入。
+
+需要让aidl文件建立在与 `User` 类相同的包下
+
+```java
+// User.aidl
+package com.runing.testmodule;
+parcelable User;
+```
+
+现在可声明接口，这里声明为 `UserManager`。
+
+```java
+// UserManager.aidl
+package com.runing.testmodule;
+import com.runing.testmodule.User;
+
+interface UserManager {
+
+    void setUser(in User user);
+    User getUser();
+}
+```
+
+- 编译之后，自动生成了如下代码：
+
+```java
+package com.runing.testmodule;
+
+public interface UserManager extends android.os.IInterface {
+  
+  public void setUser(com.runing.testmodule.User user) throws android.os.RemoteException;
+  public com.runing.testmodule.User getUser() throws android.os.RemoteException;
+  
+  public static abstract class Stub extends android.os.Binder implements com.runing.testmodule.UserManager {
+    private static final java.lang.String DESCRIPTOR = "com.runing.testmodule.UserManager";
+
+    public Stub() { this.attachInterface(this, DESCRIPTOR); }
+
+    public static com.runing.testmodule.UserManager asInterface(android.os.IBinder obj) {
+      if ((obj == null)) { return null; }
+      android.os.IInterface iin = obj.queryLocalInterface(DESCRIPTOR);
+      if (((iin != null) && (iin instanceof com.runing.testmodule.UserManager))) {
+        return ((com.runing.testmodule.UserManager) iin);
+      }
+      return new com.runing.testmodule.UserManager.Stub.Proxy(obj);
+    }
+
+    @Override public android.os.IBinder asBinder() {
+      return this;
+    }
+
+    @Override public boolean onTransact(int code, android.os.Parcel data, android.os.Parcel reply, int flags) throws android.os.RemoteException {
+      switch (code) {
+      case INTERFACE_TRANSACTION: {
+        reply.writeString(DESCRIPTOR);
+        return true;
+      }
+      case TRANSACTION_setUser: {
+        data.enforceInterface(DESCRIPTOR);
+        com.runing.testmodule.User _arg0;
+        if ((0 != data.readInt())) {
+          _arg0 = com.runing.testmodule.User.CREATOR.createFromParcel(data);
+        } else {
+          _arg0 = null;
+        }
+        this.setUser(_arg0);
+        reply.writeNoException();
+        return true;
+      }
+      case TRANSACTION_getUser: {
+        data.enforceInterface(DESCRIPTOR);
+        com.runing.testmodule.User _result = this.getUser();
+        reply.writeNoException();
+        if ((_result != null)) {
+          reply.writeInt(1);
+          _result.writeToParcel(reply, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
+        } else {
+          reply.writeInt(0);
+        }
+        return true;
+      }
+      }
+      return super.onTransact(code, data, reply, flags);
+    }
+
+    private static class Proxy implements com.runing.testmodule.UserManager {
+      private android.os.IBinder mRemote;
+
+      Proxy(android.os.IBinder remote) { mRemote = remote; }
+
+      @Override public android.os.IBinder asBinder() { return mRemote; }
+
+      public java.lang.String getInterfaceDescriptor() { return DESCRIPTOR; }
+
+      @Override public void setUser(com.runing.testmodule.User user) throws android.os.RemoteException {
+        android.os.Parcel _data = android.os.Parcel.obtain();
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          if ((user != null)) {
+            _data.writeInt(1);
+            user.writeToParcel(_data, 0);
+          } else {
+            _data.writeInt(0);
+          }
+          mRemote.transact(Stub.TRANSACTION_setUser, _data, _reply, 0);
+          _reply.readException();
+        } finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+      }
+
+      @Override public com.runing.testmodule.User getUser() throws android.os.RemoteException {
+        android.os.Parcel _data = android.os.Parcel.obtain();
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        com.runing.testmodule.User _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          mRemote.transact(Stub.TRANSACTION_getUser, _data, _reply, 0);
+          _reply.readException();
+          if ((0 != _reply.readInt())) {
+            _result = com.runing.testmodule.User.CREATOR.createFromParcel(_reply);
+          } else {
+            _result = null;
+          }
+        } finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
+    }
+
+    static final int TRANSACTION_setUser = (android.os.IBinder.FIRST_CALL_TRANSACTION + 0);
+    static final int TRANSACTION_getUser = (android.os.IBinder.FIRST_CALL_TRANSACTION + 1);
+  }
+}
+```
+
+其中的 `UserManager.Proxy`  即为客户端访问服务端的逻辑，`UserManager.Stub` 类为服务端接受数据的处理逻辑。
+
+使用时，替换之前的实现类即可，Activity中的serviceConnection的回调中。
+
+```java
+// MainActivity.java
+...
+@Override public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
+   UserManager serviceAccessor = UserManager.Stub.asInterface(iBinder);
+   try {
+     serviceAccessor.setUser(new User("runing", "boy", 22));
+   } catch (RemoteException e) {
+     e.printStackTrace();
+   }
+   try {
+     User user = serviceAccessor.getUser();
+     Log.d(TAG, "get user from remote -> \n" + user);
+   } catch (RemoteException e) {
+     e.printStackTrace();
+   }
+}
+```
+
+远程Service中实现 `Stub` 类的子类。
+
+```java
+// UserService.java
+@Override public IBinder onBind(Intent intent) {
+  return new UserManager.Stub() {
+    @Override public void setUser(User user) throws RemoteException {
+	  // do something.
+    }
+
+    @Override public User getUser() throws RemoteException { return new User(); }
+  };
+}
+```
+
+以上就是aidl的用法。
