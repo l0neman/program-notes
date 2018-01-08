@@ -795,7 +795,7 @@ Observable.combineLatest(
     }).subscribeOn(Schedulers.newThread()),
     new BiFunction<Integer, String, String>() {
       @Override public String apply(Integer integer, String s) throws Exception {
-        return integer + s;
+        return integer + s; // 0a 1a 2a 2b 2c
       }
     }
 ```
