@@ -24,16 +24,16 @@
 
 ```groovy
 android {
-	...
-	release {
-		minifyEnabled true
-		proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-	}
-	mytype {
-		initWith debug //复制debug的配置
-		applicationIdSuffix '.mytype'
-		...
-	}
+    ...
+    release {
+      minifyEnabled true
+      proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+    }
+    mytype {
+        initWith debug //复制debug的配置
+        applicationIdSuffix '.mytype'
+        ...
+    }
 }
 ```
 
@@ -43,8 +43,8 @@ android {
 
 ```groovy
 android {
-	...
-	flavorDimensions 'version', 'api'
+    ...
+    flavorDimensions 'version', 'api'
 }
 ```
 
@@ -52,23 +52,23 @@ android {
 
 ```groovy
 android {
-	...
-	bate {
-		dimension 'version'
-		...
-	}
-	full {
-		dimension 'version'
-		...
-	}
-	api21 {
-		minSdkVersion '21'
-		...
-	}
-	api21 {
-		minSdkVersion '24'
-		...
-	}
+    ...
+    bate {
+        dimension 'version'
+        ...
+    }
+    full {
+        dimension 'version'
+        ...
+    }
+    api21 {
+    minSdkVersion '21'
+    ...
+    }
+    api21 {
+        minSdkVersion '24'
+        ...
+    }
 }
 ```
 
@@ -90,8 +90,8 @@ android {
 
 ```groovy
 task myTask(type: Copy) {
-	from 'src/main'
-	into 'src/test'
+    from 'src/main'
+    into 'src/test'
 }
 ```
 
@@ -102,7 +102,7 @@ android Task 执行之前将首先执行自定义的任务。
 
 ```groovy
 task myTask(type: Copy) {
-  ...
+    ...
 }
 
 clean.dependsOn myTask
