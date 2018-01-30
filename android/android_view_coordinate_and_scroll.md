@@ -1,16 +1,16 @@
 # Android 坐标系和view滑动方法
 
-* [android二维坐标系](#android二维坐标系) 
-  * [parent view](#parent_view)
-  * [motion event](#motion_event)
-  * [child view](#child_view)
+* [Android二维坐标系](#android二维坐标系) 
+  * [Parent View](#parent-view)
+  * [Motion Event](#motion-event)
+  * [Child View](#child-view)
 * [view滑动方法](#view滑动方法)
   * [拖拽滑动实例](#拖拽滑动实例)
-  * [translation](#translation)
-  * [scroll to](#scroll_to)
-  * [layout fun](#layout_fun)
+  * [Translation](#translation)
+  * [Scroll To](#scroll-to)
+  * [Layout Fun](#layout-fun)
   * [offsetXXAndXX](#offsetXXAndXX)
-  * [Layout Params](#layout_params)
+  * [Layout Params](#layout-params)
 * [弹性滑动](#弹性滑动)
   * [Animator](#animator)
   * [Scroller](#scroller)
@@ -18,7 +18,7 @@
 * [滑动方法总结](#滑动方法总结)
 * [源码](#源码)
 
-## android二维坐标系
+## Android二维坐标系
 
 和java图形化界面开发类似，android中也有一种坐标系，这里说说二维平面的坐标系，在android中，坐标系起始点以左上角为原点，竖直向下是y轴的方向，横向向右是x轴延伸方向，对于android中的view来说，它本身所具有的一些位置相关的参数会根据这个坐标系来确定数值和正负，掌握这些有助于理解view在布局层次中所处位置的意义。
 
@@ -53,14 +53,14 @@
 ```
 下面分主要从和几个角度分析和child view 相关的坐标参数
 
-<h3 id="parent_view">parent view</h3>
+### Parent View
 
 下面两个方法都是对child view调用的，他们返回的是两个重要位置参数的值，`mScrollX` 和 `mScrollY`
 
 - `getScrollX` 返回相对于view左边缘x轴滑动的偏移量，它会影响view内容的绘制位置，如果向右偏移，返回的都是负值，反之返回正值，下面会细说它的含义。
 - `getScrollY` 返回相对于view上边缘y轴滑动的偏移量，如果向下偏移，返回的都是负值，反之返回正值。
 
-<h3 id="motion_event">motion event</h3>
+### Motion Event
 
 现在假设在child view上发生一个触摸事件，下面的这些方法将会从child view的 `onTouchEvent(MotionEvent event)` 或者 `onTouchListener` 的 `onTouch(MotionEvent event)` 方法中的 `event` 对象中获取值。
 
@@ -71,7 +71,7 @@
 - `getX` child view触摸事件发生点相对自身左边缘的x轴偏移，如果触点在自身左边缘的左边，值会为负。
 - `getY` child view触摸事件发生点相对自身上边缘的y轴偏移，如果触点在自身上边缘的上面，值会为负。
 
-<h3 id="child_view">child view</h3>
+### Child View
 
 下图是一个view调用 `setTranslation` 的方法使view发生偏移前后的两个view的位置。    ![](../image/android_view_coordinate_and_scroll/target_view_position.png)
 
@@ -132,7 +132,7 @@ mTarget.setOnTouchListener(new View.OnTouchListener() {
     });
 ```
 
-### translation
+### Translation
 
 使用view的 `setTranslationX` 和 `setTranslationY` 方法可直接使view发生平移，所以让view根据偏移滑动可以这样写，其中累加 `getTranslation`的结果是为了基于当前位置滑动，而不是从头开始：
 
@@ -219,7 +219,7 @@ private void startScrollWithTranslation() {
 
 这样就完成了第一种方法了。
 
-<h3 id="scroll_to">scroll to</h3>
+### Scroll To
 
 `scrollTo` 和 `scrollBy` 可以对view的绘制内容进行滑动，实质上是对canvas 绘制区域的滚动。下面是view 的 `draw(Canvas canvas)` 的部分源码，可以体现 `scrollTo` 方法对绘制的影响。
 
@@ -360,7 +360,7 @@ private void startScrollWithScrollTo() {
 }
 ```
 
-<h3 id="layout_fun">layout fun</h3>
+### Layout Fun
 
 使用 `layout` 方法对目标view进行重新布局，也可以做到对view的滑动，那么对于针对偏移的滑动就可以这样写：
 
@@ -442,7 +442,7 @@ private void startScrollWithOffsetFun() {
 }
 ```
 
-<h3 id="offsetXXAndXX">offsetXXAndXX</h3>
+### offsetXXAndXX
 
 使用 `offsetLeftAndRight` 和 `offsetTopAndBottom` 两种方法可以直接对view进行滑动，使用这两种方法和layout相同，只不过更方便一些，直接传入偏移值即可使view滑动，经过测试，它和调用 `layout` 方法所照成的影响一致，都会使 `mLeft,mRight,mTop,mBottom` 发生变化，当view调用 `requestLayout` 后，view依然会回到原始位置。
 
@@ -481,7 +481,7 @@ private void dragTo(int left, int top, int dx, int dy) {
 }
 ```
 
-<h3 id="layout_params">Layout params</h3>
+### Layout Params
 
 使用 `LayoutParams` 就有很灵活了，它是作为view的布局参数映射类而存在的，最先想到的就的是动态更改view设置的 `layout_margin` 属性，即可做到view位置的更改，也就能控制view的滑动了，不过必须在支持 `layout_margin` 的父布局中才可以使用，相对于父布局来说，只要是支持view位置的属性，都可以拿来用，并不限制于 `layout_margin` 参数。
 
@@ -697,7 +697,7 @@ public final class T {
 
 上面介绍了view的滑动方法，也实现了实例中的前3个需求，但这些都只是被动的被控制的滑动，那么怎么让它自动滑动呢，就是自动从一个地方平滑到另一个地方,那么针对以上的5中方法，每种都有对应的处理方式，现在就有了以下三个方法，这些方法将被用来实现第4个需求：模拟悬浮窗的横向吸附效果，当松手时，如果ImageView偏左，则ImageView会平滑吸附到ViewGroup的左边缘，反之吸附到右边缘。 
 
-<h3 id="animator">Animator</h3>
+### Animator
 
 首先就想到了属性动画，它会使用内部线程自动更新view的属性，再通过view的重绘，使view的形态发生变化，平常都很常用的就是平移、缩放、旋转动画，其中平移动画就是更新的 `translationX` 和 `translationY` 两种属性，那么很自然的就把滑动方法中的 `translation` 给搞定了，当然还可以使用动画更新自定的属性，好的，现在来着手实现自动吸附吧，首先就想到是在view的触摸事件中的 `ACTION_UP` 事件中判断view的当前位置，看它偏左还是偏右，如果偏左，就让它向左平滑滑向下限位置也就是初始位置，否则向右滑向上限位置，然后在开始具体的不同方法的平滑滚动。下面是使用属性动画的两种解决方案，
 
@@ -805,7 +805,7 @@ private void stopAllAnimAndThread() {
 
 这里已经实现了 `translation` 和 `layout params ` 两种方法的滑动解决方案。
 
-<h3 id="scroller">Scroller</h3>
+### Scroller
 
 `Scroller` 是android的api提供的一个帮助平滑滚动的工具类，它专为 `scrollTo`方法设计，使用它可以轻易的实现view内容的平滑滚动，首先介绍它的使用方法：
 
@@ -906,7 +906,7 @@ private void scrollToSideWithScrollTo() {
 }
 ```
 
-<h3 id="handler">Handler</h3>
+### Handler
 
 使用 `Handler` 进行平滑处理的方法主要是在它的消息处理方法中不断调用view的滑动方法，以此达到view不断滑动的效果，可以使用线程向 `Handler` 不断发送消息，也可以使用 `Handler`的 `post` 方法发送 `Runnable` 任务，在 `Runnable` 中再次发送自身即可，不断更新handler。
 
