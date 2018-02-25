@@ -1,6 +1,6 @@
 # Android Activity 任务栈
 
-_ [activity 配置](#activity-配置)
+- [activity 选项](#activity-选项)
   * [taskAffinity](#taskaffinity)
   * [allowTaskReparenting](#allowtaskreparenting)
   * [excludeFromRecents](#excludefromrecents)
