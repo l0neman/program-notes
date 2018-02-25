@@ -16,6 +16,7 @@
 - [自定义 ViewGroup](#自定义-viewgroup)
   * [BorderLayoutSample 实例](#borderlayoutsample-实例)
 - [常用方法总结](#常用方法总结)
+- [参考](#参考)
 
 ## 概述
 
@@ -993,3 +994,8 @@ void requestLayout();
 void computeScroll();
 ```
 
+## 参考
+
+[https://staticallytyped.wordpress.com/2011/04/16/android-custom-xml-attributes-and-views/](https://staticallytyped.wordpress.com/2011/04/16/android-custom-xml-attributes-and-views/)
+
+[https://developer.android.com/reference/android/view/View.html](https://developer.android.com/reference/android/view/View.html)
