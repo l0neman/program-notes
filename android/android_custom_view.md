@@ -702,7 +702,7 @@ public void addView(View child, int index) {
 
 实机测试
 
-![border_layout_sample](../image/android_custom_view/border_layout_sample.jpg)
+![border_layout_sample](./image/android_custom_view/border_layout_sample.jpg)
 
 下面开始实现 BorderLayoutSample
 

@@ -24,7 +24,7 @@
 
 下面用一个典型例子来说明android中的坐标系：
 
-![](../image/android_view_coordinate_and_scroll/base_view_coordinate.png)
+![](./image/android_view_coordinate_and_scroll/base_view_coordinate.png)
 
 上图中的布局包含两个view，一个是外层的 `parent view` 和内部的一个 `child view`，其中 parent view设置了`padding="16dp"`的属性，child view 设置了 `layout_margin="16dp"`的属性，为了更明显的表现布局的，其中绿色区域表示parent view设置padding后绘制子view的区域，灰色区域表示child view设置margin值后所占的空间。
 
@@ -64,7 +64,7 @@
 
 现在假设在child view上发生一个触摸事件，下面的这些方法将会从child view的 `onTouchEvent(MotionEvent event)` 或者 `onTouchListener` 的 `onTouch(MotionEvent event)` 方法中的 `event` 对象中获取值。
 
-![](../image/android_view_coordinate_and_scroll/target_view_motion_event.png)
+![](./image/android_view_coordinate_and_scroll/target_view_motion_event.png)
 
 - `getRawX` 触摸事件发生点相对屏幕左边缘的x轴偏移，因为触点一定会在屏幕内，所以一直是正值。
 - `getRawY` 触摸事件发生点相对屏幕上边缘的y轴偏移，同上一直会是正值。
@@ -73,7 +73,7 @@
 
 ### Child View
 
-下图是一个view调用 `setTranslation` 的方法使view发生偏移前后的两个view的位置。    ![](../image/android_view_coordinate_and_scroll/target_view_position.png)
+下图是一个view调用 `setTranslation` 的方法使view发生偏移前后的两个view的位置。    ![](./image/android_view_coordinate_and_scroll/target_view_position.png)
 
 下以的方法均是针对child view来说的。
 
@@ -154,7 +154,7 @@ final int transYLowerLimit = 0;
 
 假设view已经通过 `translation` 滑动到右下角边缘，现在可以计算出上限了。
 
-![](../image/android_view_coordinate_and_scroll/target_view_position.png)
+![](./image/android_view_coordinate_and_scroll/target_view_position.png)
 
 从图上简单分析，很容易就能计算了：
 
@@ -301,7 +301,7 @@ private void scrollByOffset(int xOffset, int yOffset) {
 
 下限默认是0，上限也和之前 `translation` 的计算结果是相同的。
 
-![](../image/android_view_coordinate_and_scroll/view_scroll_scroll_to.png)
+![](./image/android_view_coordinate_and_scroll/view_scroll_scroll_to.png)
 
 ```java
 final int scrollXLowerLimit = 0;
@@ -375,7 +375,7 @@ private void scrollByOffset(int xOffset, int yOffset) {
 
 接下来是计算layout绘制的上下限：
 
-![](../image/android_view_coordinate_and_scroll/target_scroll_layout_fun.png)
+![](./image/android_view_coordinate_and_scroll/target_scroll_layout_fun.png)
 
 可以看出，view的 `getLeft` 是有初始值的，同理 `getTop` 也是一样，那么这就是它们的下限。
 
@@ -498,7 +498,7 @@ private void scrollByOffset(int xOffset, int yOffset) {
 
 处理上下限也很好弄了。
 
-![](../image/android_view_coordinate_and_scroll/view_scroll_layout_params.png)
+![](./image/android_view_coordinate_and_scroll/view_scroll_layout_params.png)
 
 下限不用说，就是 `marginLeft` 和 `marginTop` 的初始值：
 
@@ -567,7 +567,7 @@ private void startScrollWithLayoutParams() {
 
 那么最终就可以达到这样的效果：
 
-![](../image/android_view_coordinate_and_scroll/drag.gif)
+![](./image/android_view_coordinate_and_scroll/drag.gif)
 
 其中的信息输出是一个 `Toast` ，可以在 `move` 事件中加入。
 
@@ -1031,7 +1031,7 @@ private void stopAllThread() {
 
 最终效果如下，这里我把这几种方法整合到菜单里了，这和一种方法的效果是一样的：
 
-![](../image/android_view_coordinate_and_scroll/drag_auto_back.gif)
+![](./image/android_view_coordinate_and_scroll/drag_auto_back.gif)
 
 ## 滑动方法总结
 

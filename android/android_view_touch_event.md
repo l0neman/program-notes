@@ -608,11 +608,11 @@ public boolean onTouchEvent(MotionEvent event) {
 
 好，现在上面都是默认情况，TouchParent 和 TouchChild 都默认处理所有事件，开始测试，现在用手指在TouchChild 的绿色区域的位置向TouchParent的白色区域滑动并抬起手指，如下图
 
-![](../image/android_view_touch_event/20170211180255373.jpg)
+![](./image/android_view_touch_event/20170211180255373.jpg)
 
 1. 正常情况，TouchParent不拦截事件，那么TouchChild会处理所有事件，结果如下：
 
-![](../image/android_view_touch_event/20170211180324754.jpg)
+![](./image/android_view_touch_event/20170211180324754.jpg)
 
 2. 现在把TouchParent的 `onIntercepTouchEvent` 方法改一下，让它“只拦截” DOWN 事件，试试
 
@@ -630,7 +630,7 @@ public boolean onTouchEvent(MotionEvent event) {
 
 结果是：
 
-![](../image/android_view_touch_event/20170211180348020.jpg)
+![](./image/android_view_touch_event/20170211180348020.jpg)
 
    所以为什么是引号呢，这就验证了前面的，当 ViewGroup 决定拦截 DOWN 时，那么所有的事件都会交给它来处理，不会是表面上的只拦截DOWN事件，`onInterceptTouchEvent` 也将不会再被调用。
 
@@ -645,7 +645,7 @@ public boolean onTouchEvent(MotionEvent event) {
 }
 ```
 
-![](../image/android_view_touch_event/20170211180405567.jpg)
+![](./image/android_view_touch_event/20170211180405567.jpg)
 
 其中 MOVE 事件由于 TouchParent 没有处理，最终交给了 Activity 处理
 
@@ -669,13 +669,13 @@ public boolean onTouchEvent(MotionEvent event) {
 
    然后把TouchChild里的 `onTouchEvent` 方法，在 DOWN 中调用 `getParent().requestDisallowInterceptTouchEvent(true);` 即，阻止 TouchParent 的事件拦截，测试一下：
 
-![](../image/android_view_touch_event/20170211180420036.jpg)
+![](./image/android_view_touch_event/20170211180420036.jpg)
 
    可以看到，事件完全被TouchChild处理了，因为TouchChild使用 `requestDisallowInterceptTouchEvent` 阻止了TouchParent的拦截，不过如果 TouchParent在down 事件里选择拦截的话，那么 TouchChild 将无法进行拦截，这里要注意的是 `requestDisallowInterceptTouchEvent` 是在 `onTouchEvent` 里调用的，推荐在 `dispatchTouchEvent` 方法里进行过拦截，`dispatchTouchEvent` 是必然会接受到事件的，而 `onTouchEvent` 可能受到 OnTouchListener 的影响而不被调用。
 
 5. 现在再在4的基础上在 TouchChild里面的 `onTouchEvent` 里move事件里调用 `getParent().requestDisallowInterceptTouchEvent(false);` 把事件还给TouchParent会怎样
 
-![](../image/android_view_touch_event/20170211180831881.jpg)
+![](./image/android_view_touch_event/20170211180831881.jpg)
 
    这里多做了一次move事件，为了看的更清楚，当 TouchChild 在 DOWN 事件里阻拦了TouchParent的时候，TouchChild将会处理下一个 MOVE，在这里TouchChild有把事件交还给TouchParent，这时 TouchParent 拦截了MOVE 事件，事件将会交给 TouchParent 来处理，但是很奇怪为什么会下一个 MOVE 会被 Activity 处理呢，然后才是 TouchParent 处理 MOVE，因为从前面的结论可以知道，上次是 TouchChild 处理的事件，这次被拦截的话，此次的事件将会变成一个 CANCEL 事件并分发给子 view，这里 TouchChild 没有处理 CANCEL 事件，所以最终交给了 activity 处理，现在让 TouchChild 处理 CANCEL
 
@@ -691,7 +691,7 @@ public boolean onTouchEvent(MotionEvent event) {
    }
    ```
 
-![](../image/android_view_touch_event/20170211180903319.jpg)
+![](./image/android_view_touch_event/20170211180903319.jpg)
 
    好了，事件确实是cancel事件，这次被TouchChild消耗了，activity就不会处理了
 
@@ -858,7 +858,7 @@ listView.setAdapter(
 
 运行一下
 
-![](../image/android_view_touch_event/20170211181000852.gif)
+![](./image/android_view_touch_event/20170211181000852.gif)
 
 会发现 ListView 根本无法滑动，肯定是 MOVE 事件完全被 ScrollView 拦截了，导致 ListView 接收不到事件，也就无法响应滑动，DOWN事件一般是不会被 ScrollView 拦截的，现在就想办法让ListView滑动，解决它们的冲突
 
@@ -941,6 +941,6 @@ public final class TouchListView extends ListView {
 }
 ```
 
-![](../image/android_view_touch_event/20170211181046103.gif)
+![](./image/android_view_touch_event/20170211181046103.gif)
 
 感觉有点别扭，例如当ListView达到底部的极限时且手指继续向上滑动，释放事件，ScrollView继续滚动，但是要再向下滑动时，手指还在ListView上，按自然滑动的规则 ListView 内容应该向下滚动，但这时事件还是 ScrollView 在处理，所以它会跟着手一起滚动，这里可以用另一种比较麻烦的方法，将事件直接通过 ListView 的对象，调用它的 `onTouchEvent` 传递过去，这个问题先留下来。
