@@ -8,6 +8,10 @@ android 应用开发笔记。
 
 android 逆向工程笔记。
 
+## [android-notes-system](./android-notes-system)
+
+android 系统原理笔记。
+
 ## [other-notes](./other-notes)
 
 其他笔记。
