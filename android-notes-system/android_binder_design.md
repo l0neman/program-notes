@@ -167,7 +167,7 @@ binder_transaction_data 表示收发数据包结构，使用时将它接在 `TRA
 
 下图说明了 BINDER_WRITE_READ 通信的数据包示例：
 
-![binder_write_read](./binder_write_read.png)
+![binder_design_write_read](./image/binder_design_write_read.png)
 
 ## Binder 层次概述
 
