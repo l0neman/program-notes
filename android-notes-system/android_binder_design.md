@@ -26,7 +26,7 @@
 - [Binder 驱动实现](#binder-驱动实现)
   - [Binder 内存映射和接收缓存区实现](#binder-内存映射和接收缓存区实现)
   - [Binder 接收线程实现](#binder-接收线程实现)
-  - [数据包接收队列与（线程）等待队列实现](#数据包接收队列与（线程）等待队列实现)
+  - [数据包接收队列与（线程）等待队列实现](#数据包接收队列与线程等待队列实现)
 - [结语](#结语)
 
 ## 前言
@@ -46,7 +46,7 @@ Linux 的进程间通信方式包括管道、system V IPC、socket、消息队�
 
 1. Socket 是一个通用的进程间通信接口，传输效率低，开销大，主要用在跨网络的进程间通信和本机的进程间通信。
 2. 管道和消息队列采用存储-转发的方式，首先将数据从发送方复制到内核缓冲区，然后再复制到接收方。
-3. 共享内存无需拷贝数据，但是需要复杂的控制，难以使用。
+3. 共享内存无需拷贝数据，但是需要复制的控制，难以使用。
 
 ### IPC 对比
 
@@ -63,7 +63,7 @@ Linux 的进程间通信方式包括管道、system V IPC、socket、消息队�
 相较于以上 Linux 进程间通信方式，针对 Android 设计的 Binder 通信具有如下特点：
 
 1. Binder 采用共享内存的方式，将数据缓存同时映射到接收方和内核空间，发送方只需要拷贝一次数据即可完成通信。
-2. Binder 驱动在转发数据的过程中通过内核向数据中写入进程的 UID 和 PID，使接收端可验证发送端身份，保证通信安全性，而传统的 Linux IPC 方式则无法通过这种方式鉴别发送方身份。
+2. Binder 驱动在转发数据的过程中在通过内核向数据中写入进程的 UID 和 PID，使接收端可验证发送端身份，保证通信安全性，而传统的 Linux IPC 方式则无法通过这种方式鉴别发送方身份。
 3. Binder 使用了面向对象的思想来描述 Server 端的访问接入点和 Client 端的入口，Binder 是一个实体位于 Server 端的对象，它提供了一套访问 Server 端的方法，类似于类的成员方法，Client 端的入口则作为这个 Binder 对象的“句柄”，此时 Client 端访问 Server 端就像调用对象的方法一样容易，同时 Client 端的本地“句柄”对象也可以在进程间相互传递，使各处都可访问同一个 Server，Binder 弱化了进程间通信过程，使整个系统仿佛运行在面向对象的程序中。
 
 ### 总结
@@ -77,7 +77,7 @@ Binder 通信框架定义了 4 个组件角色，Server，Client，ServiceManage
 ### Binder 驱动
 
 1. Binder 驱动是一个运行在内核态的标准设备驱动，但是和硬件没有关系，它的实现遵循标准驱动的实现。
-2. Binder 驱动提供了 open()，mmap()，poll()，ioctl() 等标准文件操作，它以字符驱动设备中的 misc 设备注册在 /dev/ 下，用户通过 `/dev/binder` 访问该它。
+2. Binder 驱动提供了 open()，mmap()，poll()，ioctl() 等标准文件操作，它以字符驱动设备中的 misc 设备注册在 /dev/ 下，用户通过/dev/binder 访问该它。
 3. Binder 驱动负责进程之间 Binder 通信的建立，Binder 在进程间的建立，Binder 在进程间的传递，Binder 引用技术管理，数据包在进程间的传递等底层支持。
 4. Binder 驱动使用 ioctl() 接口实现，它可实现一次调用，读写操作依次同时执行，相较于 read() 和 write() 更加灵活方便。
 
@@ -85,8 +85,8 @@ Binder 通信框架定义了 4 个组件角色，Server，Client，ServiceManage
 
 1. ServiceManager 建立 Binder 名字和 Binder 实体的映射，Client 可通过字符形式的 Binder 名字请求 Binder 的引用。
 2. Server 创建 Binder 实体后，通过驱动将 Binder 名字及实体通过 Binder 驱动发至 ServiceManager 请求注册，驱动在内核中创建对应此 Server 进程中 Binder 实体的对应节点，以及 ServiceManager 中对此 Binder 的引用，然后将 Binder 名字和引用通过数据包传送给 ServiceManager，此时 ServiceManager 将名字和 Binder 引用存入查找表中。
-3. 当 Server 向 ServiceManager 请求注册时，这个过程本身就需要进程间通信，需要获取 ServiceManager 中 Binder 实体的引用，由于 ServiceManager 本身负责管理 Binder 的注册和引用的分配，所以在此之前，ServiceManager 通过向驱动发送 BINDER_SET_CONTEXT_MGR 命令请求注册自身为 ServiceManager，当 Server 需要请求 ServiceManager 的 Binder 引用时，只要向驱动请求 0 号引用即可获得，所有的 Server 都可通过 0 号引用通过驱动向 ServiceManager 发送注册请求。
-4. 对于 ServiceManager 来说，所有的 Server 都是 Client，只不过任务很单一，只是为了注册 Server。
+3. 当 Server 向 ServiceManager 请求注册时，这个过程本身就需要进程间通信，需要获取 ServiceManager 中 Binder 实体的引用，由于 ServiceManager 本身负责管理 Binder 的注册和引用的分配，所以在此之前，ServiceManager 通过向驱动发送 BINDER_SET_CONTEXT_MGR 命令请求注册自身为 ServiceManager，当 Server 需要请求 ServiceManager 的 Binder 引用时，只要向驱动请求 0 号引用即可获得，所有 Server 都可通过 0 号引用通过驱动向 ServiceManager 发送注册请求。
+4. 对于 ServiceManager 来说，所有的 Server 都是 Client，只不过任务很单一，知识为了注册 Server。
 
 ### Client
 
@@ -113,7 +113,7 @@ Binder 协议使用 `ioctl(fd, cmd, arg)` 函数实现，fd 为驱动的文件�
 | cmd                    | 解释                                                         | arg``````````````````````````                                |
 | ---------------------- | :----------------------------------------------------------- | ------------------------------------------------------------ |
 | BINDER_WRITE_READ      | 向 Binder 发送读写命令，参数分为写和读两部分，如果 `write_size` 不为 0 则首先将 `write_buffer` 里的数据写入 Binder，其次 `read_size` 不为 0 再从 Binder 中读取数据存入 `read_buffer` 中，`write_consumed` 和 `read_consumed` 表示操作完成时 Binder 驱动实际发送的 | struct binder_write_read<br />{<br />signed long write_size;<br />signed long write_consumed;<br />unsigned long write_buffer;<br />signed long read_size;<br />signed long read_consumed;<br />unsigned long read_buffer;<br />}; |
-| BINDER_SET_MAX_THREADS | 告知 Binder 驱动接收方（Server 端）线程池的最大线程数，Client 告知 Server 端需要开辟多大的线程池为并发请求提供服务，通知当 Server 端线程达到最大线程数时不再创建新线程。 | int max_threads;                                             |
+| BINDER_SET_MAX_THREADS | 告知 Binder 驱动接收方（Server 端）线程池的最大线程数，Client 告知 Server 端需要开辟多大的线程池为并发请求提供服务，为了让驱动发现线程数达到该值时不要再命令接收端启动新的线程。 | int max_threads;                                             |
 | BINDER_SET_CONTEXT_MGR | 注册当前进程为 ServiceManager，直到当前 ServiceManager 调用 close()，系统中只能存在一个 ServiceManager。 | -                                                            |
 | BINDER_THREAD_EXIT     | 通知 Binder 驱动当前线程退出，驱动会释放为参与 Binder 通信的相应线程建立的结构。 | -                                                            |
 | BINDER_VERSION         | 获取 Binder 驱动的版本号。                                   | -                                                            |
@@ -122,7 +122,7 @@ Binder 协议使用 `ioctl(fd, cmd, arg)` 函数实现，fd 为驱动的文件�
 
 `BINDER_WRITE_READ` 命令的数据写入格式为命令+数据，多条命令可连续存放，对应的命令后面写入对应的数据结构，最后将这段内存的指针赋给 `binder_write_read` 结构体的 `write_buffer`。
 
-| 命令                                                        | 解释                                                         | 数据````````````````                                         |
+| 命令                                                        | 解释                                                         | 数据``````````````                                           |
 | ----------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | BC_TRANSACTION<br />BC_REPLY                                | 1. `BC_TRANSACTION` 用于 Client 端向 Server 端发送请求。<br />2. `BC_REPLY` 用于 Server 端向 Client 回复数据。<br />3. 命令后面接 `binder_transaction_data` 用于存放数据。 | struct binder<br />transaction<br />_data                    |
 | BC_ACQUIRE_RESULT<br />BC_ATTEMPT_ACQUIRE                   | 暂未实现                                                     | -                                                            |
@@ -167,7 +167,7 @@ binder_transaction_data 表示收发数据包结构，使用时将它接在 `TRA
 
 下图说明了 BINDER_WRITE_READ 通信的数据包示例：
 
-![binder_design_write_read](./image/binder_design_write_read.png)
+![binder_write_read](./binder_write_read.png)
 
 ## Binder 层次概述
 
