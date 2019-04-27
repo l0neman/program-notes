@@ -40,15 +40,13 @@ struct ResStringPool_header
  */
 public class ResStringPoolHeader implements Struct {
 
-  public static final int BYTES = ResChunkHeader.BYTES + Integer.BYTES * 5;
-
   public static final int SORTED_FLAG = 1;
   public static final int UTF8_FLAG = 1 << 8;
 
   /**
    * {@link ResChunkHeader#type} = {@link ResourceTypes#RES_STRING_POOL_TYPE}
    * <p>
-   * {@link ResChunkHeader#headerSize} ={@link #BYTES} 表示头部大小。
+   * {@link ResChunkHeader#headerSize} = sizeOf(ResStringPoolHeader.class) 表示头部大小。
    * <p>
    * {@link ResChunkHeader#size} = 整个字符串 Chunk 的大小，包括 headerSize 的大小。
    */

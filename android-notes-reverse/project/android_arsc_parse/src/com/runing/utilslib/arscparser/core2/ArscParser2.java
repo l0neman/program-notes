@@ -3,6 +3,7 @@ package com.runing.utilslib.arscparser.core2;
 import com.runing.utilslib.arscparser.type2.*;
 import com.runing.utilslib.arscparser.util.objectio.StructIO;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
@@ -10,7 +11,7 @@ import java.util.List;
 @SuppressWarnings("ALL")
 public class ArscParser2 {
 
-  private int mIndex;
+  private long mIndex;
 
   private String[] typeStringPool;
 
@@ -20,11 +21,11 @@ public class ArscParser2 {
     System.out.println(tableType);
 
     // 向下移动资源表头部的大小。
-    mIndex += structIO.sizeOf(ResTableHeader.class);
+    mIndex += StructIO.sizeOf(ResTableHeader.class);
   }
 
   private void parseStringPool(StructIO structIO) throws Exception {
-    final int stringPoolIndex = mIndex;
+    final long stringPoolIndex = mIndex;
     ResStringPoolHeader stringPoolHeader = structIO.read(ResStringPoolHeader.class, stringPoolIndex);
     System.out.println("string pool header:");
     System.out.println(stringPoolHeader);
@@ -64,51 +65,46 @@ public class ArscParser2 {
     mIndex += stringPoolHeader.header.size;
   }
 
-  private void parseTablePackageType(byte[] arsc, ResChunkHeader header) {
-    /*
-    final int tablePackageIndex = mIndex;
-    final ResTablePackage tablePackage = ResTablePackage.valueOfBytes(arsc, header, tablePackageIndex);
+  private void parseTablePackageType(StructIO structIO) throws IOException {
+    final long tablePackageIndex = mIndex;
+    final ResTablePackage tablePackage = structIO.read(ResTablePackage.class, tablePackageIndex);
     System.out.println("table package type:");
     System.out.println(tablePackage);
 
     // 向下移动资源表元信息头部的大小。
     mIndex += tablePackage.header.headerSize;
-    // */
   }
 
-  private void parseTableTypeSpecType(byte[] arsc, ResChunkHeader header) {
-    /*
-    final int typeSpecIndex = mIndex;
-    ResTableTypeSpec tableTypeSpec = ResTableTypeSpec.valueOfBytes(arsc, header, typeSpecIndex);
+  private void parseTableTypeSpecType(StructIO structIO) throws IOException {
+    final long typeSpecIndex = mIndex;
+    ResTableTypeSpec tableTypeSpec =  structIO.read(ResTableTypeSpec.class, typeSpecIndex);
     System.out.println("table type spec type:");
     System.out.println(tableTypeSpec);
 
-    int[] entryArray = TableTypeChunkParser.parseSpecEntryArray(arsc, tableTypeSpec, typeSpecIndex);
+    int[] entryArray = TableTypeChunkParser.parseSpecEntryArray(structIO, tableTypeSpec, typeSpecIndex);
     System.out.println();
     System.out.println("table type spec type entry array:");
     System.out.println(Arrays.toString(entryArray));
 
     // 向下移动资源表类型规范内容的大小。
     mIndex += tableTypeSpec.header.size;
-    // */
   }
 
-  private void parseTableTypeType(byte[] arsc, ResChunkHeader header) {
-    /*
-    final int tableTypeIndex = mIndex;
-    final ResTableType tableType = ResTableType.valueOfBytes(arsc, header, tableTypeIndex);
+  private void parseTableTypeType(StructIO structIO) throws IOException {
+    final long tableTypeIndex = mIndex;
+    final ResTableType tableType = structIO.read(ResTableType.class, tableTypeIndex);
     System.out.println("table type type:");
     System.out.println(tableType);
 
-    int[] offsetArray = TableTypeChunkParser.parseTypeOffsetArray(arsc, tableType, tableTypeIndex);
+    int[] offsetArray = TableTypeChunkParser.parseTypeOffsetArray(structIO, tableType, tableTypeIndex);
     System.out.println();
     System.out.println("offset array:");
     System.out.println(Arrays.toString(offsetArray));
 
-    final int tableEntryIndex = tableTypeIndex + tableType.entriesStart;
+    final long tableEntryIndex = tableTypeIndex + tableType.entriesStart;
     for (int i = 0; i < offsetArray.length; i++) {
-      final int entryIndex = offsetArray[i] + tableEntryIndex;
-      final ResTableEntry tableEntry = ResTableEntry.valueOfBytes(arsc, entryIndex);
+      final long entryIndex = offsetArray[i] + tableEntryIndex;
+      final ResTableEntry tableEntry = structIO.read(ResTableEntry.class, entryIndex);
       System.out.println();
       System.out.println("table type type entry " + i + ":");
       System.out.println("header: " + tableEntry);
@@ -116,27 +112,27 @@ public class ArscParser2 {
 
       if (tableEntry.flags == ResTableEntry.FLAG_COMPLEX) {
         // parse ResTable_map
-        final ResTableMapEntry tableMapEntry = ResTableMapEntry.valueOfBytes(arsc, entryIndex);
+        final ResTableMapEntry tableMapEntry = structIO.read(ResTableMapEntry.class, entryIndex);
         System.out.println(tableMapEntry);
 
         int index = 0;
         for (int j = 0; j < tableMapEntry.count; j++) {
-          final int tableMapIndex = index + entryIndex + tableMapEntry.size;
-          ResTableMap tableMap = ResTableMap.valueOfBytes(arsc, tableMapIndex);
+          final long tableMapIndex = index + entryIndex + tableMapEntry.size;
+          ResTableMap tableMap = structIO.read(ResTableMap.class, tableMapIndex);
           System.out.println("table map " + j + ":");
           System.out.println(tableMap);
 
-          index += ResTableMap.BYTES;
+          index += StructIO.sizeOf(ResTableMap.class);
         }
       } else {
         // parse Res_value
-        final ResValue value = ResValue.valueOfBytes(arsc, entryIndex + ResTableEntry.BYTES);
+        final int entrySize = StructIO.sizeOf(ResTableEntry.class);
+        final ResValue value = structIO.read(ResValue.class, entryIndex + entrySize);
         System.out.println(value);
       }
     }
 
-    mIndex += arsc.length;
-    // */
+    mIndex = structIO.size();
   }
 
   /*
@@ -195,22 +191,33 @@ public class ArscParser2 {
       case ResourceTypes.RES_TABLE_PACKAGE_TYPE:
         System.out.println(ResourceTypes.nameOf(header.type));
 
-//        parseTablePackageType(arsc, header);
-//        parse(structIO);
+        parseTablePackageType(structIO);
+        parse(structIO);
         break;
       case ResourceTypes.RES_TABLE_TYPE_SPEC_TYPE:
         System.out.println(ResourceTypes.nameOf(header.type));
 
-//        parseTableTypeSpecType(arsc, header);
-//        parse(structIO);
+        parseTableTypeSpecType(structIO);
+        parse(structIO);
         break;
       case ResourceTypes.RES_TABLE_TYPE_TYPE:
         System.out.println(ResourceTypes.nameOf(header.type));
 
-//        parseTableTypeType(arsc, header);
-//        parse(structIO);
+        parseTableTypeType(structIO);
+        parse(structIO);
         break;
       default:
+    }
+  }
+
+  private static void closeQuietly(Closeable closeable) {
+    if (closeable != null) {
+      try {
+        closeable.close();
+      } catch (IOException ignore) {
+      } catch (RuntimeException e) {
+        e.printStackTrace();
+      }
     }
   }
 
@@ -224,14 +231,7 @@ public class ArscParser2 {
       e.printStackTrace();
 
     } finally {
-      if (structIO != null) {
-        try {
-          structIO.close();
-        } catch (IOException ignore) {
-        } catch (RuntimeException e) {
-          e.printStackTrace();
-        }
-      }
+      closeQuietly(structIO);
     }
   }
 }

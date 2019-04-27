@@ -81,7 +81,7 @@ public class ResTableType {
         arsc[index += Byte.BYTES],
         Bytes.getShort(arsc, index += Byte.BYTES),
         Bytes.getInt(arsc, index += Short.BYTES),
-        Bytes.getInt(arsc, index + Integer.BYTES),
+        Bytes.getInt(arsc, index += Integer.BYTES),
         ResTableConfig.valueOfBytes(arsc, index + Integer.BYTES));
   }
 
@@ -95,7 +95,7 @@ public class ResTableType {
             ", res1=" + res1 +
             ", entryCount=" + entryCount +
             ", entriesStart=" + entriesStart +
-            ", tableConfig=" + tableConfig +
+            ", config=" + tableConfig +
             '}'
         :
         "ResTableType{" +
@@ -105,7 +105,7 @@ public class ResTableType {
             ", res1=" + res1 +
             ", entryCount=" + entryCount +
             ", entriesStart=" + entriesStart +
-            ", tableConfig=" + tableConfig +
+            ", config=" + tableConfig +
             '}';
   }
 }

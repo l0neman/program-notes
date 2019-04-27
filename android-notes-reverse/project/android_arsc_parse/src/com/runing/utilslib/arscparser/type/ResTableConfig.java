@@ -309,7 +309,7 @@ public class ResTableConfig {
               ", imsi=" + imsi +
               '}'
           :
-          "UnionMobile{" +
+          "MobileConfig{" +
               "data=" + data +
               ", imsi=" + imsi +
               '}';
@@ -357,7 +357,7 @@ public class ResTableConfig {
               ", locale=" + locale +
               '}'
           :
-          "UnionLocale{" +
+          "LocaleConfig{" +
               "data=" + data +
               ", locale=" + locale +
               '}';
@@ -430,7 +430,7 @@ public class ResTableConfig {
               ", screenType=" + screenType +
               '}'
           :
-          "UnionScreenType{" +
+          "ScreenTypeConfig{" +
               "data=" + data +
               ", screenType=" + screenType +
               '}';
@@ -509,7 +509,7 @@ public class ResTableConfig {
               ", input=" + input +
               '}'
           :
-          "UnionInput{" +
+          "InputConfig{" +
               "data=" + data +
               ", input=" + input +
               '}';
@@ -561,7 +561,7 @@ public class ResTableConfig {
               ", screenSize=" + screenSize +
               '}'
           :
-          "UnionScreenSize{" +
+          "ScreenSizeConfig{" +
               "data=" + data +
               ", screenSize=" + screenSize +
               '}';
@@ -612,7 +612,7 @@ public class ResTableConfig {
               ", screenSize=" + screenSize +
               '}'
           :
-          "UnionVersion{" +
+          "VersionConfig{" +
               "data=" + data +
               ", screenSize=" + screenSize +
               '}';
@@ -702,7 +702,7 @@ public class ResTableConfig {
               ", screenConfig=" + screenConfig +
               '}'
           :
-          "UnionScreenConfig{" +
+          "ScreenConfig{" +
               "data=" + data +
               ", screenConfig=" + screenConfig +
               '}';
@@ -751,7 +751,7 @@ public class ResTableConfig {
               ", screenSizeDp=" + screenSizeDp +
               '}'
           :
-          "UnionScreenSizeDp{" +
+          "ScreenSizeDpConfig{" +
               "data=" + data +
               ", screenSizeDp=" + screenSizeDp +
               '}';
@@ -817,7 +817,7 @@ public class ResTableConfig {
               ", screenConfig2=" + screenConfig2 +
               '}'
           :
-          "UnionScreenConfig2{" +
+          "ScreenConfig2{" +
               "data=" + data +
               ", screenConfig2=" + screenConfig2 +
               '}';
@@ -845,10 +845,10 @@ public class ResTableConfig {
   public static ResTableConfig valueOfBytes(byte[] b, int tableConfigIndex) {
     int index = tableConfigIndex;
     return new ResTableConfig(
-        Bytes.getInt(b, 0),
+        Bytes.getInt(b, index),
         new UnionMobile(Bytes.copy(b, index += Integer.BYTES, UnionMobile.BYTES)),
         new UnionLocale(Bytes.copy(b, index += UnionMobile.BYTES, UnionLocale.BYTES)),
-        new UnionScreenType(Bytes.copy(b, index += UnionLocale.BYTES, Integer.BYTES)),
+        new UnionScreenType(Bytes.copy(b, index += UnionLocale.BYTES, UnionScreenType.BYTES)),
         new UnionInput(Bytes.copy(b, index += UnionScreenType.BYTES, UnionInput.BYTES)),
         new UnionScreenSize(Bytes.copy(b, index += UnionInput.BYTES, UnionScreenSize.BYTES)),
         new UnionVersion(Bytes.copy(b, index += UnionScreenSize.BYTES, UnionVersion.BYTES)),
@@ -881,14 +881,14 @@ public class ResTableConfig {
             "size=" + size +
             ", localeScript=" + new String(localeScript) +
             ", localeVariant=" + new String(localeVariant) +
-            ", unionMobile=" + unionMobile +
-            ", unionLocale=" + unionLocale +
-            ", unionScreenType=" + unionScreenType +
-            ", unionInput=" + unionInput +
-            ", unionScreenSize=" + unionScreenSize +
-            ", unionVersion=" + unionVersion +
-            ", unionScreenConfig=" + unionScreenConfig +
-            ", unionScreenSizeDp=" + unionScreenSizeDp +
+            ", mobileConfig=" + unionMobile +
+            ", localeConfig=" + unionLocale +
+            ", screenTypeConfig=" + unionScreenType +
+            ", inputConfig=" + unionInput +
+            ", screenSizeConfig=" + unionScreenSize +
+            ", versionConfig=" + unionVersion +
+            ", screenConfig=" + unionScreenConfig +
+            ", screenSizeDpConfig=" + unionScreenSizeDp +
             '}';
   }
 }

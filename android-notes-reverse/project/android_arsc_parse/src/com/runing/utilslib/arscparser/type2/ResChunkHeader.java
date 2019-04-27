@@ -29,8 +29,6 @@ struct ResChunk_header
  */
 public class ResChunkHeader implements Struct {
 
-  public static final int BYTES = Short.BYTES + Short.BYTES + Integer.BYTES;
-
   /** Chunk 类型 */
   public short type;
   /** Chunk 头部大小 */

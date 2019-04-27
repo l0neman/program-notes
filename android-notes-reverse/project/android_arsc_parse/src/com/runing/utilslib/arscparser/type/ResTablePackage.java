@@ -99,7 +99,7 @@ public class ResTablePackage {
         "{" +
             "header=" + header +
             ", id=" + Bytes.toHex(Bytes.fromInt(id)) +
-            ", name=" + new String(name) +
+            ", name=" + new String(name).trim() +
             ", typeStrings=" + typeStrings +
             ", lastPublicType=" + lastPublicType +
             ", keyStrings=" + keyStrings +
@@ -109,7 +109,7 @@ public class ResTablePackage {
         "ResTablePackage{" +
             "header=" + header +
             ", id=" + id +
-            ", name=" + new String(name) +
+            ", name=" + new String(name).trim() +
             ", typeStrings=" + typeStrings +
             ", lastPublicType=" + lastPublicType +
             ", keyStrings=" + keyStrings +

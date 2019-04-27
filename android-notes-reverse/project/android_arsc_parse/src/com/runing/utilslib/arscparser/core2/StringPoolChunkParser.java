@@ -8,7 +8,9 @@ import com.runing.utilslib.arscparser.util.objectio.StructIO;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @SuppressWarnings("ALL") // todo
 public class StringPoolChunkParser {
@@ -17,11 +19,12 @@ public class StringPoolChunkParser {
   private ResStringPoolRef[] styleIndexArray;
   private String[] stringPool;
   private List<ResStringPoolSpan>[] stylePool;
+  private Map<Integer, Integer> positionIndexMap;
 
-  private ResStringPoolRef[] parseStringIndexArray(StructIO structIO, ResStringPoolHeader header, int index)
+  private ResStringPoolRef[] parseStringIndexArray(StructIO structIO, ResStringPoolHeader header, long index)
       throws IOException {
     stringIndexArray = new ResStringPoolRef[header.stringCount];
-    int start = index;
+    long start = index;
     final int resStringPoolRefSize = structIO.sizeOf(ResStringPoolRef.class);
     for (int i = 0; i < header.stringCount; i++) {
       stringIndexArray[i] = structIO.read(ResStringPoolRef.class, start);
@@ -31,10 +34,10 @@ public class StringPoolChunkParser {
     return stringIndexArray;
   }
 
-  private ResStringPoolRef[] parseStyleIndexArray(StructIO structIO, ResStringPoolHeader header, int index)
+  private ResStringPoolRef[] parseStyleIndexArray(StructIO structIO, ResStringPoolHeader header, long index)
       throws IOException {
     styleIndexArray = new ResStringPoolRef[header.styleCount];
-    int start = index;
+    long start = index;
     final int resStringPoolRefSize = structIO.sizeOf(ResStringPoolRef.class);
     for (int i = 0; i < header.styleCount; i++) {
       styleIndexArray[i] = structIO.read(ResStringPoolRef.class, start);
@@ -48,34 +51,34 @@ public class StringPoolChunkParser {
     return b[1] & 0x7F;
   }
 
-  private String[] parseStringPool(StructIO structIO, ResStringPoolHeader header, int stringPoolIndex)
+  private String[] parseStringPool(StructIO structIO, ResStringPoolHeader header, long stringPoolIndex)
       throws IOException {
     String[] stringPool = new String[header.stringCount];
     for (int i = 0; i < header.stringCount; i++) {
-      final int index = stringPoolIndex + stringIndexArray[i].index;
+      final long index = stringPoolIndex + stringIndexArray[i].index;
       final int stringLength = parseStringLength(structIO.readBytes(index, Short.BYTES));
-      stringPool[i] = new String(structIO.readBytes(index + Short.BYTES, stringLength), StandardCharsets.UTF_8);
+      stringPool[i] = new String(structIO.readBytes(index + Short.BYTES, stringLength), 0, stringLength,
+          StandardCharsets.UTF_8);
     }
 
     return stringPool;
   }
 
-  private List<ResStringPoolSpan>[] parseStylePool(StructIO structIO, ResStringPoolHeader header, int stylePoolIndex)
+  private List<ResStringPoolSpan>[] parseStylePool(StructIO structIO, ResStringPoolHeader header, long stylePoolIndex)
       throws IOException {
     List<ResStringPoolSpan>[] stylePool = new List[header.styleCount];
     for (int i = 0; i < header.styleCount; i++) {
-      final int index = stylePoolIndex + styleIndexArray[i].index;
+      final long index = stylePoolIndex + styleIndexArray[i].index;
       int end = 0;
-      int littleIndex = index;
+      long littleIndex = index;
       List<ResStringPoolSpan> stringPoolSpans = new ArrayList<>();
       while (end != ResStringPoolSpan.END) {
         ResStringPoolSpan stringPoolSpan = structIO.read(ResStringPoolSpan.class, littleIndex);
         stringPoolSpans.add(stringPoolSpan);
 
-        littleIndex += structIO.sizeOf(ResStringPoolSpan.class);
+        littleIndex += StructIO.sizeOf(ResStringPoolSpan.class);
 
         end = structIO.readInt(littleIndex);
-        littleIndex += Integer.BYTES;
       }
 
       stylePool[i] = stringPoolSpans;
@@ -83,22 +86,21 @@ public class StringPoolChunkParser {
     return stylePool;
   }
 
-  public void parseStringPoolChunk(StructIO structIO, ResStringPoolHeader header, int stringPoolHeaderIndex)
+  public void parseStringPoolChunk(StructIO structIO, ResStringPoolHeader header, long stringPoolHeaderIndex)
       throws IOException {
     // parse string index array.
-    final int stringIndexArrayIndex = stringPoolHeaderIndex + structIO.sizeOf(ResStringPoolHeader.class);
+    final long stringIndexArrayIndex = stringPoolHeaderIndex + StructIO.sizeOf(ResStringPoolHeader.class);
     stringIndexArray = header.stringCount == 0 ? new ResStringPoolRef[0] :
         parseStringIndexArray(structIO, header, stringIndexArrayIndex);
 
-    final int styleIndexArrayIndex = stringIndexArrayIndex + stringIndexArray.length *
-        structIO.sizeOf(ResStringPoolRef.class);
+    final long styleIndexArrayIndex = stringIndexArrayIndex + header.stringCount *
+        StructIO.sizeOf(ResStringPoolRef.class);
     styleIndexArray = header.styleCount == 0 ? new ResStringPoolRef[0] :
         parseStyleIndexArray(structIO, header, styleIndexArrayIndex);
 
     // parse string pool.
     if (header.stringCount != 0) {
-      final int stringPoolIndex = stringPoolHeaderIndex + header.stringStart;
-      //final int stringPoolLength = header.header.size;
+      final long stringPoolIndex = stringPoolHeaderIndex + header.stringStart;
       stringPool = parseStringPool(structIO, header, stringPoolIndex);
     } else {
       stringPool = new String[0];
@@ -106,7 +108,7 @@ public class StringPoolChunkParser {
 
     // parse style pool.
     if (header.styleCount != 0) {
-      final int stylePoolIndex = stringPoolHeaderIndex + header.styleStart;
+      final long stylePoolIndex = stringPoolHeaderIndex + header.styleStart;
       stylePool = parseStylePool(structIO, header, stylePoolIndex);
     } else {
       //noinspection unchecked
@@ -128,5 +130,10 @@ public class StringPoolChunkParser {
 
   public List<ResStringPoolSpan>[] getStylePool() {
     return stylePool;
+  }
+
+
+  public Map<Integer, Integer> getOffsetIndexMap() {
+    return positionIndexMap;
   }
 }

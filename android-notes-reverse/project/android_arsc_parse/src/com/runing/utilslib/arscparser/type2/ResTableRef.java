@@ -7,18 +7,14 @@ struct ResTable_ref
  */
 
 import com.runing.utilslib.arscparser.util.Bytes;
+import com.runing.utilslib.arscparser.util.objectio.Struct;
 
 /**
  * 资源的引用（ResID）
  */
-public class ResTableRef {
+public class ResTableRef implements Struct {
 
-  public static final int BYTES = Integer.BYTES;
   public int ident;
-
-  public ResTableRef(int ident) {
-    this.ident = ident;
-  }
 
   @Override
   public String toString() {

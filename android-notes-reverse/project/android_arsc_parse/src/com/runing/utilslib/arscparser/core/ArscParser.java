@@ -31,7 +31,7 @@ import java.util.List;
  *
  *   资源类型信息
  *   RES_TABLE_TYPE_TYPE headerSize(2) size(4) id(1) res0(1) res1(2) entryCount(4) entriesStart(4)
- *   tableConfig(48)    - 资源配置信息。
+ *   config(48)    - 资源配置信息。
  *   ResourcesEntryOffsetArray - ResTable_entry 偏移数组。
  *   ResourceEntryArray - 资源实体数组。
  * </code></pre>

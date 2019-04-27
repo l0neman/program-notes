@@ -17,8 +17,6 @@ import com.runing.utilslib.arscparser.util.objectio.Struct;
  */
 public class ResStringPoolRef implements Struct {
 
-  public static final int BYTES = Integer.BYTES;
-
   public int index;
 
   @Override

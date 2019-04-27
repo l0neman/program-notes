@@ -128,7 +128,7 @@ struct Res_value
 };
  */
 public class ResValue {
-  public static final int BYTES = Short.BYTES + Byte.BYTES + Short.BYTES + Integer.BYTES;
+  public static final int BYTES = Short.BYTES + Byte.BYTES + Byte.BYTES + Integer.BYTES;
 
   /** {@link #BYTES} 大小 */
   public short size;
@@ -156,7 +156,7 @@ public class ResValue {
   public static final short TYPE_LAST_INT = 0x1f;
 
   /** 数据类型 */
-  public short dataType;
+  public byte dataType;
 
   public static final int COMPLEX_UNIT_SHIFT = 0;
   public static final int COMPLEX_UNIT_MASK = 0xf;
@@ -183,7 +183,7 @@ public class ResValue {
   /** 数据 */
   public int data;
 
-  public ResValue(short size, byte res0, short dataType, int data) {
+  public ResValue(short size, byte res0, byte dataType, int data) {
     this.size = size;
     this.res0 = res0;
     this.dataType = dataType;

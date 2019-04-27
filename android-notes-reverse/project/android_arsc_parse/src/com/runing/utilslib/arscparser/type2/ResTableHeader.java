@@ -17,12 +17,10 @@ import com.runing.utilslib.arscparser.util.objectio.Struct;
  */
 public class ResTableHeader implements Struct {
 
-  public static final int BYTES = ResChunkHeader.BYTES + Integer.BYTES;
-
   /**
    * {@link ResChunkHeader#type} = {@link ResourceTypes#RES_TABLE_TYPE}
    * <p>
-   * {@link ResChunkHeader#headerSize} = {@link #BYTES} 表示头部大小。
+   * {@link ResChunkHeader#headerSize} = sizeOf(ResTableHeader.class) 表示头部大小。
    * <p>
    * {@link ResChunkHeader#size} = 整个 resources.arsc 文件的大小。
    */

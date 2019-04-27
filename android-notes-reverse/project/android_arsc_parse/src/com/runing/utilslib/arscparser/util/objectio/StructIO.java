@@ -1,12 +1,13 @@
 package com.runing.utilslib.arscparser.util.objectio;
 
+import com.runing.utilslib.arscparser.type2.ResTableMapEntry;
+
 import java.io.Closeable;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.lang.reflect.Type;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
@@ -19,50 +20,42 @@ import java.util.*;
  */
 public class StructIO implements Closeable {
 
-  private String file;
   private ByteOrder byteOrder;
   private final FileChannel inputChannel;
-//  private final FileChannel outputChannel;
+  //  private final FileChannel outputChannel;
+  private final long size;
 
   public StructIO(String file) throws IOException {
-    this.file = file;
     inputChannel = new FileInputStream(file).getChannel();
+    size = inputChannel.size();
   }
 
   public StructIO(String file, boolean bigEndian) throws IOException {
-    this.file = file;
+    this(file);
     this.byteOrder = bigEndian ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN;
-    inputChannel = new FileInputStream(file).getChannel();
   }
 
   private static final class FieldInfo {
     final Field field;
     final boolean isArray;
-    final int arraySize;
+    final int arrayLength;
 
-    public FieldInfo(Field field, boolean isArray, int arraySize) {
+    public FieldInfo(Field field, boolean isArray, int arrayLength) {
       this.field = field;
       this.isArray = isArray;
-      this.arraySize = arraySize;
+      this.arrayLength = arrayLength;
     }
   }
 
   private static final int MAX_CACHE_CLASS = 20;
   /* 平铺 class 成员，优先包展开类成员。 */
-  private Map<Class<?>, List<FieldInfo>> classFlatFieldListMap = new LinkedHashMap<Class<?>, List<FieldInfo>>(
-      (int) (Math.ceil(MAX_CACHE_CLASS / 0.75F)) + 1, 0.75F, true
-  ) {
-    @Override
-    protected boolean removeEldestEntry(Map.Entry<Class<?>, List<FieldInfo>> eldest) {
-      return size() > MAX_CACHE_CLASS;
-    }
-  };
-  private Map<Class<?>, Integer> classSizeCache = new HashMap<>();
+  private static SimpleLru<Class<?>, List<FieldInfo>> sClassFlatFieldListMap = new SimpleLru<>(MAX_CACHE_CLASS);
+  private static SimpleLru<Class<?>, Integer> sClassSizeCache = new SimpleLru<>(20);
 
   /*
     构建类内部成员列表。
    */
-  private List<FieldInfo> buildClassFieldList(Class<?> target) {
+  private static List<FieldInfo> buildClassFieldList(Class<?> target) {
     List<FieldInfo> fieldInfoList = new ArrayList<>();
     try {
       buildClassFieldList(fieldInfoList, target);
@@ -75,14 +68,14 @@ public class StructIO implements Closeable {
   /*
     构建类内部成员列表。（递归函数）
    */
-  private void buildClassFieldList(List<FieldInfo> fieldInfoList, Class<?> target) throws Exception {
+  private static void buildClassFieldList(List<FieldInfo> fieldInfoList, Class<?> target) throws Exception {
     final Field[] fields = target.getDeclaredFields();
     if (fields.length == 0) { return; }
 
     Class<?> parent = target.getSuperclass();
     while (parent != Object.class) {
-      buildClassFieldList(fieldInfoList, target);
-      parent = target.getSuperclass();
+      buildClassFieldList(fieldInfoList, parent);
+      parent = parent.getSuperclass();
     }
 
     for (Field field : fields) {
@@ -115,11 +108,11 @@ public class StructIO implements Closeable {
   /*
     获得类的成员列表，LRU 缓存历史类型成员列表。
    */
-  private List<FieldInfo> getClassFieldList(Class<?> clazz) {
-    final List<FieldInfo> fieldInfos = classFlatFieldListMap.get(clazz);
+  private static List<FieldInfo> getClassFieldList(Class<?> clazz) {
+    final List<FieldInfo> fieldInfos = sClassFlatFieldListMap.get(clazz);
     if (fieldInfos == null) {
       final List<FieldInfo> fieldInfoList = buildClassFieldList(clazz);
-      classFlatFieldListMap.put(clazz, fieldInfoList);
+      sClassFlatFieldListMap.put(clazz, fieldInfoList);
       return fieldInfoList;
     }
 
@@ -127,7 +120,7 @@ public class StructIO implements Closeable {
   }
 
   /**
-   * 计算类型大小。
+   * 计算类型大小，LRU 缓存历史记录。
    * <p>
    * 1. 不支持直接传数组类型，请用计算数组组件类型与长度相乘。
    * <p>
@@ -138,7 +131,13 @@ public class StructIO implements Closeable {
    * @param target 目标类型
    * @return class field total size.
    */
-  public int sizeOf(Class<?> target) {
+  public static int sizeOf(Class<?> target) {
+    if (target.isArray()) {
+      throw new IllegalArgumentException("not support array type: " + target);
+    }
+
+    checkSupportType(target);
+
     if (target == byte.class || target == Byte.class) {
       return Byte.BYTES;
     }
@@ -159,93 +158,138 @@ public class StructIO implements Closeable {
       return Long.BYTES;
     }
 
-    final Integer cacheSize = classSizeCache.get(target);
-    if (cacheSize != null) { return cacheSize; }
+    if (isUnion(target)) {
+      List<FieldInfo> fieldInfoList = getClassFieldList(target);
 
-    List<FieldInfo> fieldInfoList = getClassFieldList(target);
-    int size = 0;
-    for (FieldInfo fieldInfo : fieldInfoList) {
-      final Class<?> fieldType = fieldInfo.field.getType();
-      checkSupportType(fieldType);
+      // 取出 union 类型。
+      int[] typeSize = new int[fieldInfoList.size()];
+      for (int i = 0; i < typeSize.length; i++) {
+        final FieldInfo fieldInfo = fieldInfoList.get(i);
+        final Class<?> fieldType = fieldInfo.field.getType();
 
-      if (fieldInfo.isArray) {
-        final Class<?> componentType = fieldInfo.field.getType().getComponentType();
-        size += sizeOf(componentType) * fieldInfo.arraySize;
-        continue;
+        // 处理数组成员类型。
+        if (fieldInfo.isArray) {
+          typeSize[i] = sizeOf(fieldType.getComponentType()) * fieldInfo.arrayLength;
+          continue;
+        }
+
+        typeSize[i] = sizeOf(fieldType);
       }
 
-      size += sizeOf(fieldType);
+      // 得到字节占用（最大成员的大小）。
+      Arrays.sort(typeSize);
+      return typeSize[typeSize.length - 1];
     }
 
-    classSizeCache.put(target, size);
-    return size;
+    if (isStruct(target)) {
+      final Integer cacheSize = sClassSizeCache.get(target);
+      if (cacheSize != null) { return cacheSize; }
+
+      List<FieldInfo> fieldInfoList = getClassFieldList(target);
+      int size = 0;
+      for (FieldInfo fieldInfo : fieldInfoList) {
+        final Class<?> fieldType = fieldInfo.field.getType();
+
+        // 处理数组成员类型。
+        if (fieldInfo.isArray) {
+          final Class<?> componentType = fieldInfo.field.getType().getComponentType();
+          size += sizeOf(componentType) * fieldInfo.arrayLength;
+          continue;
+        }
+
+        size += sizeOf(fieldType);
+      }
+
+      sClassSizeCache.put(target, size);
+      return size;
+    }
+
+    throw new IllegalArgumentException("Not a struct or union type: " + target);
   }
 
   private <T> void toByteBuffer(T object, ByteBuffer byteBuffer) throws IOException {
 
   }
 
-  private <T> void fromByteBuffer(T object, Class<?> target, ByteBuffer byteBuffer) throws Exception {
-    List<FieldInfo> fieldInfoList = getClassFieldList(target);
-    for (FieldInfo fieldInfo : fieldInfoList) {
-      final Class<?> fieldType = fieldInfo.field.getType();
+  @SuppressWarnings("unchecked")
+  private <T> T fromByteBuffer(Class<T> target, ByteBuffer byteBuffer) throws Exception {
+    // 处理基本类型。
+    if (target == byte.class || target == Byte.class) {
+      return (T) Byte.valueOf(byteBuffer.get());
+    }
 
-      checkSupportType(fieldType);
+    if (target == char.class || target == Character.class) {
+      return (T) Character.valueOf(byteBuffer.getChar());
+    }
 
-      if (fieldType == byte.class || fieldType == Byte.class) {
-        fieldInfo.field.set(object, byteBuffer.get());
-        continue;
+    if (target == short.class || target == Short.class) {
+      return (T) Short.valueOf(byteBuffer.getShort());
+    }
+
+    if (target == int.class || target == Integer.class) {
+      return (T) Integer.valueOf(byteBuffer.getInt());
+    }
+
+    if (target == long.class || target == Long.class) {
+      return (T) Long.valueOf(byteBuffer.getLong());
+    }
+
+    // 处理 Struct 和 Union 类型。
+    final boolean isUnion = isUnion(target);
+    if (isStruct(target) || isUnion) {
+      T object;
+      try {
+        object = target.newInstance();
+      } catch (Exception e) {
+        throw new IllegalArgumentException("Must implement the default constructor.", e);
       }
 
-      if (fieldType == char.class || fieldType == Character.class) {
-        fieldInfo.field.set(object, byteBuffer.getChar());
-        continue;
-      }
+      List<FieldInfo> fieldInfoList = getClassFieldList(target);
+      for (FieldInfo fieldInfo : fieldInfoList) {
+        final Class<?> fieldType = fieldInfo.field.getType();
 
-      if (fieldType == short.class || fieldType == Short.class) {
-        fieldInfo.field.set(object, byteBuffer.getShort());
-        continue;
-      }
-
-      if (fieldType == int.class || fieldType == Integer.class) {
-        fieldInfo.field.set(object, byteBuffer.getInt());
-        continue;
-      }
-
-      if (fieldType == long.class || fieldType == Long.class) {
-        fieldInfo.field.set(object, byteBuffer.getLong());
-        continue;
-      }
-
-      if (fieldInfo.isArray) {
-        final Class<?> componentType = fieldInfo.field.getType().getComponentType();
-
-        Object arrayField = Array.newInstance(componentType, fieldInfo.arraySize);
-        for (int i = 0; i < fieldInfo.arraySize; i++) {
-          final Object item = componentType.newInstance();
-          fromByteBuffer(item, componentType, byteBuffer);
-          Array.set(arrayField, i, item);
+        // 注意，Union 由于成员共用内存，所以需要设置重读。
+        if (isUnion) {
+          byteBuffer.rewind();
         }
 
-        fieldInfo.field.set(object, arrayField);
-        continue;
+        // 处理宿主成员类型。
+        if (fieldInfo.isArray) {
+          final Class<?> componentType = fieldInfo.field.getType().getComponentType();
+
+          Object arrayField = Array.newInstance(componentType, fieldInfo.arrayLength);
+          for (int i = 0; i < fieldInfo.arrayLength; i++) {
+            Object item = fromByteBuffer(componentType, byteBuffer);
+            Array.set(arrayField, i, item);
+          }
+
+          fieldInfo.field.set(object, arrayField);
+          continue;
+        }
+
+        checkSupportType(fieldType);
+        Object field = fromByteBuffer(fieldType, byteBuffer);
+        fieldInfo.field.set(object, field);
       }
-
-      Object field = fieldInfo.field.getType().newInstance();
-      fromByteBuffer(field, fieldType, byteBuffer);
-      fieldInfo.field.set(object, field);
+      return object;
     }
+
+    throw new IllegalArgumentException("Not a struct or union type: " + target);
+
   }
 
-  public <T extends Struct> void write(T target, int offset) throws IOException {
+  // todo write.
+  public <T extends Struct> void write(T target, long offset) throws IOException {
   }
 
-  public <T extends Struct> T read(Class<T> target, int offset) throws IOException {
+  public <T extends Struct> T read(Class<T> target, long offset) throws IOException {
+    checkSupportType(target);
+
     final int size;
     try {
       size = sizeOf(target);
     } catch (Exception e) {
-      throw new IllegalArgumentException("object size is null.");
+      throw new IllegalArgumentException("object size is null.", e);
     }
 
     final ByteBuffer byteBuffer = ByteBuffer.allocate(size);
@@ -253,22 +297,14 @@ public class StructIO implements Closeable {
     inputChannel.read(byteBuffer, offset);
     byteBuffer.flip();
 
-    T result;
     try {
-      result = target.newInstance();
+      return fromByteBuffer(target, byteBuffer);
     } catch (Exception e) {
-      throw new IllegalArgumentException("Must implement the default constructor.", e);
-    }
-
-    try {
-      fromByteBuffer(result, target, byteBuffer);
-      return result;
-    } catch (Exception e) {
-      throw new IllegalArgumentException("All members must implement the default constructor.", e);
+      throw new IOException("read error", e);
     }
   }
 
-  public byte readByte(int offset) throws IOException {
+  public byte readByte(long offset) throws IOException {
     final ByteBuffer byteBuffer = ByteBuffer.allocate(Byte.BYTES);
     byteBuffer.order(byteOrder);
     inputChannel.read(byteBuffer, offset);
@@ -277,7 +313,7 @@ public class StructIO implements Closeable {
     return byteBuffer.get();
   }
 
-  public byte[] readBytes(int offset, int size) throws IOException {
+  public byte[] readBytes(long offset, int size) throws IOException {
     final ByteBuffer byteBuffer = ByteBuffer.allocate(size);
     byteBuffer.order(byteOrder);
     inputChannel.read(byteBuffer, offset);
@@ -288,7 +324,7 @@ public class StructIO implements Closeable {
     return bytes;
   }
 
-  public char readChar(int offset) throws IOException {
+  public char readChar(long offset) throws IOException {
     final ByteBuffer byteBuffer = ByteBuffer.allocate(Character.BYTES);
     byteBuffer.order(byteOrder);
     inputChannel.read(byteBuffer, offset);
@@ -297,7 +333,7 @@ public class StructIO implements Closeable {
     return byteBuffer.getChar();
   }
 
-  public short readShort(int offset) throws IOException {
+  public short readShort(long offset) throws IOException {
     final ByteBuffer byteBuffer = ByteBuffer.allocate(Short.BYTES);
     byteBuffer.order(byteOrder);
     inputChannel.read(byteBuffer, offset);
@@ -306,7 +342,7 @@ public class StructIO implements Closeable {
     return byteBuffer.getShort();
   }
 
-  public int readInt(int offset) throws IOException {
+  public int readInt(long offset) throws IOException {
     final ByteBuffer byteBuffer = ByteBuffer.allocate(Integer.BYTES);
     byteBuffer.order(byteOrder);
     inputChannel.read(byteBuffer, offset);
@@ -315,7 +351,7 @@ public class StructIO implements Closeable {
     return byteBuffer.getInt();
   }
 
-  public long readLong(int offset) throws IOException {
+  public long readLong(long offset) throws IOException {
     final ByteBuffer byteBuffer = ByteBuffer.allocate(Long.BYTES);
     byteBuffer.order(byteOrder);
     inputChannel.read(byteBuffer, offset);
@@ -324,36 +360,65 @@ public class StructIO implements Closeable {
     return byteBuffer.getLong();
   }
 
-
   @Override
   public void close() throws IOException {
-    if (inputChannel != null) {
+    sClassSizeCache.clear();
+    sClassFlatFieldListMap.clear();
+
+    if (inputChannel != null && inputChannel.isOpen()) {
       inputChannel.close();
     }
   }
 
-  public boolean isEof(int offset) {
-    return offset >= file.length();
+  public boolean isEof(long offset) {
+    return offset >= size;
   }
 
-  private static void checkSupportType(Type type) {
-    if (type == String.class || type == float.class || type == double.class ||
-        type == boolean.class || type == Float.class || type == Double.class ||
-        type == Boolean.class) {
-      throw new IllegalArgumentException("not support filed type: " + type + " .");
+  public long size() { return size; }
+
+  private static boolean isStruct(Class<?> type) {
+    return Struct.class.isAssignableFrom(type);
+  }
+
+  private static boolean isUnion(Class<?> type) {
+    return Union.class.isAssignableFrom(type);
+  }
+
+  private static void checkSupportType(Class<?> type) {
+    if (!type.isPrimitive() && !isStruct(type) && !isUnion(type)) {
+      throw new IllegalArgumentException("Not a struct or union type: " + type);
+    }
+
+    if (type == double.class || type == Double.class ||
+        type == float.class || type == Float.class ||
+        type == boolean.class || type == Boolean.class) {
+      throw new IllegalArgumentException("Not a struct or union type: " + type);
     }
   }
 
-  /*
-  private static void closeQuietly(Closeable closeable) {
-    if (closeable != null) {
-      try {
-        closeable.close();
-      } catch (IOException ignore) {
-      } catch (RuntimeException e) {
-        throw new RuntimeException(e);
-      }
+  private static final class SimpleLru<K, V> {
+    private final LinkedHashMap<K, V> lruMap;
+
+    SimpleLru(int max) {
+      this.lruMap = new LinkedHashMap<K, V>(
+          (int) (Math.ceil(max / 0.75F)) + 1, 0.75F, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry eldest) {
+          return size() > max;
+        }
+      };
+    }
+
+    V get(K key) {
+      return lruMap.get(key);
+    }
+
+    void put(K key, V value) {
+      lruMap.put(key, value);
+    }
+
+    void clear() {
+      lruMap.clear();
     }
   }
-  // */
 }

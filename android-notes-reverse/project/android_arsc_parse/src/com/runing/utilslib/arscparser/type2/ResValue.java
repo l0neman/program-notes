@@ -1,6 +1,7 @@
 package com.runing.utilslib.arscparser.type2;
 
 import com.runing.utilslib.arscparser.util.Bytes;
+import com.runing.utilslib.arscparser.util.objectio.Struct;
 
 /*
 struct Res_value
@@ -127,7 +128,7 @@ struct Res_value
     void copyFrom_dtoh(const Res_value& src);
 };
  */
-public class ResValue {
+public class ResValue implements Struct {
   public static final int BYTES = Short.BYTES + Byte.BYTES + Short.BYTES + Integer.BYTES;
 
   /** {@link #BYTES} 大小 */
@@ -156,7 +157,7 @@ public class ResValue {
   public static final short TYPE_LAST_INT = 0x1f;
 
   /** 数据类型 */
-  public short dataType;
+  public byte dataType;
 
   public static final int COMPLEX_UNIT_SHIFT = 0;
   public static final int COMPLEX_UNIT_MASK = 0xf;
@@ -182,22 +183,6 @@ public class ResValue {
 
   /** 数据 */
   public int data;
-
-  public ResValue(short size, byte res0, short dataType, int data) {
-    this.size = size;
-    this.res0 = res0;
-    this.dataType = dataType;
-    this.data = data;
-  }
-
-  public static ResValue valueOfBytes(byte[] arsc, int valueIndex) {
-    return new ResValue(
-        Bytes.getShort(arsc, valueIndex),
-        arsc[valueIndex + Short.BYTES],
-        arsc[valueIndex + Short.BYTES + Byte.BYTES],
-        Bytes.getInt(arsc, valueIndex + Short.BYTES + Byte.BYTES * 2)
-    );
-  }
 
   @Override
   public String toString() {

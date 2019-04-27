@@ -24,8 +24,6 @@ import com.runing.utilslib.arscparser.util.objectio.Struct;
  */
 public class ResStringPoolSpan implements Struct {
 
-  public static final int BYTES = Integer.BYTES * 2;
-
   public static final int END = 0xFFFFFFFF;
 
   /** 本样式在字符串内容块中的字节位置 */
