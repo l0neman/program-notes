@@ -8,18 +8,15 @@ import com.runing.utilslib.arscparser.util.objectio.StructIO;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-@SuppressWarnings("ALL") // todo
 public class StringPoolChunkParser {
 
   private ResStringPoolRef[] stringIndexArray;
   private ResStringPoolRef[] styleIndexArray;
   private String[] stringPool;
   private List<ResStringPoolSpan>[] stylePool;
-  private Map<Integer, Integer> positionIndexMap;
 
   private ResStringPoolRef[] parseStringIndexArray(StructIO structIO, ResStringPoolHeader header, long index)
       throws IOException {
@@ -132,8 +129,4 @@ public class StringPoolChunkParser {
     return stylePool;
   }
 
-
-  public Map<Integer, Integer> getOffsetIndexMap() {
-    return positionIndexMap;
-  }
 }

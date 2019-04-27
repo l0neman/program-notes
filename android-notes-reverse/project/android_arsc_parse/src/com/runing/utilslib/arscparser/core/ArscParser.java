@@ -36,7 +36,6 @@ import java.util.List;
  *   ResourceEntryArray - 资源实体数组。
  * </code></pre>
  */
-// todo 更改解析方式。
 @SuppressWarnings("ALL")
 public class ArscParser {
 
