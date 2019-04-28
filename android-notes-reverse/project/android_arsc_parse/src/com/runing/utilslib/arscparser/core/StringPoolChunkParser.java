@@ -48,7 +48,7 @@ public class StringPoolChunkParser {
   }
 
   private static int parseStringLength(byte[] b) {
-    return b[1] & 0x7F;
+    return b[0] & 0x7F;
   }
 
   private String[] parseStringPool(ObjectIO objectIO, ResStringPoolHeader header, long stringPoolIndex)

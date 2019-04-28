@@ -27,6 +27,24 @@ public class ResourceTypes {
 
   public static String nameOf(int type) {
     switch (type) {
+      case RES_NULL_TYPE:
+        return "RES_NULL_TYPE";
+      case RES_XML_TYPE:
+        return "RES_XML_TYPE";
+      case RES_XML_START_NAMESPACE_TYPE:
+        return "RES_XML_START_NAMESPACE_TYPE";
+      case RES_XML_END_NAMESPACE_TYPE:
+        return "RES_XML_END_NAMESPACE_TYPE";
+      case RES_XML_START_ELEMENT_TYPE:
+        return "RES_XML_START_ELEMENT_TYPE";
+      case RES_XML_END_ELEMENT_TYPE:
+        return "RES_XML_END_ELEMENT_TYPE";
+      case RES_XML_CDATA_TYPE:
+        return "RES_XML_CDATA_TYPE";
+      case RES_XML_LAST_CHUNK_TYPE:
+        return "RES_XML_LAST_CHUNK_TYPE";
+      case RES_XML_RESOURCE_MAP_TYPE:
+        return "RES_XML_RESOURCE_MAP_TYPE";
       case RES_STRING_POOL_TYPE:
         return "RES_STRING_POOL_TYPE";
       case RES_TABLE_TYPE:

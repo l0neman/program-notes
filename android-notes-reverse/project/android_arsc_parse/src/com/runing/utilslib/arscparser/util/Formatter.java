@@ -22,4 +22,20 @@ public class Formatter {
         (byte) ((a >> 24) & 0xFF),
     };
   }
+
+  public static String trim(String str) {
+    final char[] chars = str.toCharArray();
+    int i = 0;
+    int lastChr = 0;
+    for (char chr : chars) {
+      if (chr != 0) {
+        chars[i++] = chr;
+      } else if (lastChr == 0) {
+        i -= 2;
+        break;
+      }
+      lastChr = chr;
+    }
+    return new String(chars, 0, i);
+  }
 }

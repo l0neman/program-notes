@@ -183,20 +183,61 @@ public class ResValue implements Struct {
   /** 数据 */
   public int data;
 
+  private String dataTypeOf(int dataType) {
+    switch (dataType) {
+      case TYPE_NULL:
+        return "TYPE_NULL";
+      case TYPE_REFERENCE:
+        return "TYPE_REFERENCE";
+      case TYPE_ATTRIBUTE:
+        return "TYPE_ATTRIBUTE";
+      case TYPE_STRING:
+        return "TYPE_STRING";
+      case TYPE_FLOAT:
+        return "TYPE_FLOAT";
+      case TYPE_DIMENSION:
+        return "TYPE_DIMENSION";
+      case TYPE_FRACTION:
+        return "TYPE_FRACTION";
+      case TYPE_DYNAMIC_REFERENCE:
+        return "TYPE_DYNAMIC_REFERENCE";
+//      case TYPE_FIRST_INT: return "TYPE_FIRST_INT";
+      case TYPE_INT_DEC:
+        return "TYPE_INT_DEC";
+      case TYPE_INT_HEX:
+        return "TYPE_INT_HEX";
+      case TYPE_INT_BOOLEAN:
+        return "TYPE_INT_BOOLEAN";
+//      case TYPE_FIRST_COLOR_INT: return "TYPE_FIRST_COLOR_INT";
+      case TYPE_INT_COLOR_ARGB8:
+        return "TYPE_INT_COLOR_ARGB8";
+      case TYPE_INT_COLOR_RGB8:
+        return "TYPE_INT_COLOR_RGB8";
+      case TYPE_INT_COLOR_ARGB4:
+        return "TYPE_INT_COLOR_ARGB4";
+      case TYPE_INT_COLOR_RGB4:
+        return "TYPE_INT_COLOR_RGB4";
+//      case TYPE_LAST_COLOR_INT: return "TYPE_LAST_COLOR_INT";
+//      case TYPE_LAST_INT: return "TYPE_LAST_INT";
+      default:
+        return "" + dataType;
+    }
+  }
+
   @Override
   public String toString() {
     return Config.BEAUTIFUL ?
         "{" +
             "size=" + size +
             ", res0=" + res0 +
-            ", dataType=" + dataType +
+            ", dataType=" + dataTypeOf(dataType) +
             ", data=" + data +
             '}'
         :
         "ResValue{" +
             "size=" + size +
             ", res0=" + res0 +
-            ", dataType=" + dataType +
+            ", dataType=" + dataTypeOf(dataType) +
             ", data=" + data +
             '}';
   }

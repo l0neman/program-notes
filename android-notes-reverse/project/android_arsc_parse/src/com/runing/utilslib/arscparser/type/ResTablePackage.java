@@ -74,7 +74,7 @@ public class ResTablePackage implements Struct {
         "{" +
             "header=" + header +
             ", id=" + Formatter.toHex(Formatter.fromInt(id)) +
-            ", name=" + new String(name).trim() +
+            ", name=" + Formatter.trim(new String(name)) +
             ", typeStrings=" + typeStrings +
             ", lastPublicType=" + lastPublicType +
             ", keyStrings=" + keyStrings +
@@ -84,7 +84,7 @@ public class ResTablePackage implements Struct {
         "ResTablePackage{" +
             "header=" + header +
             ", id=" + id +
-            ", name=" + new String(name).trim() +
+            ", name=" + Formatter.trim(new String(name)) +
             ", typeStrings=" + typeStrings +
             ", lastPublicType=" + lastPublicType +
             ", keyStrings=" + keyStrings +

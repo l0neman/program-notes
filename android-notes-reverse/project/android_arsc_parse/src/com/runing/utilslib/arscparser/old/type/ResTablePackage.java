@@ -1,6 +1,7 @@
 package com.runing.utilslib.arscparser.old.type;
 
 import com.runing.utilslib.arscparser.old.util.Bytes;
+import com.runing.utilslib.arscparser.util.Formatter;
 
 /*
 struct ResTable_package
@@ -99,7 +100,7 @@ public class ResTablePackage {
         "{" +
             "header=" + header +
             ", id=" + Bytes.toHex(Bytes.fromInt(id)) +
-            ", name=" + new String(name).trim() +
+            ", name=" + Formatter.trim(new String(name)) +
             ", typeStrings=" + typeStrings +
             ", lastPublicType=" + lastPublicType +
             ", keyStrings=" + keyStrings +
@@ -109,7 +110,7 @@ public class ResTablePackage {
         "ResTablePackage{" +
             "header=" + header +
             ", id=" + id +
-            ", name=" + new String(name).trim() +
+            ", name=" + Formatter.trim(new String(name)) +
             ", typeStrings=" + typeStrings +
             ", lastPublicType=" + lastPublicType +
             ", keyStrings=" + keyStrings +
