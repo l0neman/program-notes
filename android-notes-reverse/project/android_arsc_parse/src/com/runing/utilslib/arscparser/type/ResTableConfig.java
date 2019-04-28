@@ -262,7 +262,7 @@ struct ResTable_config
  */
 public class ResTableConfig {
 
-  public static final int BYTES = UnionMobile.BYTES + UnionLocale.BYTES + UnionScreenType.BYTES + UnionInput.BYTES +
+  public static final int BYTES = Integer.BYTES + UnionMobile.BYTES + UnionLocale.BYTES + UnionScreenType.BYTES + UnionInput.BYTES +
       UnionScreenSize.BYTES + UnionVersion.BYTES + UnionScreenConfig.BYTES + UnionScreenSizeDp.BYTES + 4 + 8 +
       UnionScreenConfig2.BYTES;
 

@@ -21,7 +21,7 @@ public class ArscParser2 {
     System.out.println(tableType);
 
     // 向下移动资源表头部的大小。
-    mIndex += ObjectIO.sizeOf(ResTableHeader.class);
+    mIndex += tableType.header.headerSize;
   }
 
   private void parseStringPool(ObjectIO objectIO) throws Exception {

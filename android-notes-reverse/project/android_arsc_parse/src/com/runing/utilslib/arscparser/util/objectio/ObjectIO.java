@@ -1,7 +1,5 @@
 package com.runing.utilslib.arscparser.util.objectio;
 
-import com.runing.utilslib.arscparser.type2.ResStringPoolHeader;
-
 import java.io.Closeable;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -44,26 +42,26 @@ public class ObjectIO implements Closeable {
   }
 
   @SuppressWarnings("unchecked")
-  private <T> T fromByteBuffer(Class<T> target, ByteBuffer byteBuffer) throws Exception {
+  private <T> T fromByteBuffer(Class<T> target, ByteBuffer byteBuffer, int offset) throws Exception {
     // 处理基本类型。
     if (target == byte.class || target == Byte.class) {
-      return (T) Byte.valueOf(byteBuffer.get());
+      return (T) Byte.valueOf(byteBuffer.get(offset));
     }
 
     if (target == char.class || target == Character.class) {
-      return (T) Character.valueOf(byteBuffer.getChar());
+      return (T) Character.valueOf((char) byteBuffer.get(offset));
     }
 
     if (target == short.class || target == Short.class) {
-      return (T) Short.valueOf(byteBuffer.getShort());
+      return (T) Short.valueOf(byteBuffer.getShort(offset));
     }
 
     if (target == int.class || target == Integer.class) {
-      return (T) Integer.valueOf(byteBuffer.getInt());
+      return (T) Integer.valueOf(byteBuffer.getInt(offset));
     }
 
     if (target == long.class || target == Long.class) {
-      return (T) Long.valueOf(byteBuffer.getLong());
+      return (T) Long.valueOf(byteBuffer.getLong(offset));
     }
 
     // 处理 Struct 和 Union 类型。
@@ -71,25 +69,17 @@ public class ObjectIO implements Closeable {
     if (ClassUtils.isStruct(target) || isUnion) {
       T object = ClassUtils.newObject(target);
 
+      int index = offset;
       Field[] fieldInfoList = ClassUtils.fullDeclaredFields(target);
       for (Field field : fieldInfoList) {
         final Class<?> fieldType = field.getType();
-
-        if(ResStringPoolHeader.class == target) {
-          System.out.println();
-        }
 
         if (Modifier.isStatic(field.getModifiers())) {
           continue;
         }
 
-        if(!field.isAccessible()) {
+        if (!field.isAccessible()) {
           field.setAccessible(true);
-        }
-
-        // Union 由于成员共用内存，所以需要设置重读。
-        if (isUnion) {
-          byteBuffer.rewind();
         }
 
         // 处理数组成员类型。
@@ -98,9 +88,12 @@ public class ObjectIO implements Closeable {
 
           final int length = ClassUtils.getArrayFieldLength(field, target);
           Object arrayField = Array.newInstance(componentType, length);
+          final int componentTypeSize = ClassUtils.sizeOf(componentType);
+
           for (int i = 0; i < length; i++) {
-            Object item = fromByteBuffer(componentType, byteBuffer);
+            Object item = fromByteBuffer(componentType, byteBuffer, index);
             Array.set(arrayField, i, item);
+            index += componentTypeSize;
           }
 
           field.set(object, arrayField);
@@ -110,8 +103,15 @@ public class ObjectIO implements Closeable {
         ClassUtils.checkSupportType(fieldType);
 
         // 非数组递归解析。
-        Object fieldObj = fromByteBuffer(fieldType, byteBuffer);
+        final int fieldTypeSize = ClassUtils.sizeOf(fieldType);
+
+        Object fieldObj = fromByteBuffer(fieldType, byteBuffer, index);
         field.set(object, fieldObj);
+
+        // Union 由于成员共用内存，所以需要从头读取。
+        if (!isUnion) {
+          index += fieldTypeSize;
+        }
       }
       return object;
     }
@@ -140,7 +140,7 @@ public class ObjectIO implements Closeable {
     byteBuffer.flip();
 
     try {
-      return fromByteBuffer(target, byteBuffer);
+      return fromByteBuffer(target, byteBuffer, 0);
     } catch (Exception e) {
       throw new IOException("read error", e);
     }
@@ -299,7 +299,7 @@ public class ObjectIO implements Closeable {
       }
 
       if (clazz == char.class || clazz == Character.class) {
-        return Character.BYTES;
+        return Byte.BYTES;
       }
 
       if (clazz == short.class || clazz == Short.class) {
