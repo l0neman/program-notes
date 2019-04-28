@@ -60,7 +60,7 @@ AndroidManifest.xml - 二进制的清单文件
 2. 次字节为 Type ID，代表资源类型，即 animator、anim、color、drawable、layout、menu、raw、string 和 xml 等类型，每种类型对应一个 id。
 3. 末两个字节为 Entry ID，代表资源在其类型中的次序。
 
-aapt 工具编译资源的过程是比较复杂的，其中的步骤非常细致，在它编译时会将资源逐步保存至一个 ResourceTable 类中，它的源码路径是 `frameworks\base\tools\aapt\ResourceTable`，下面简述资源编译过程。
+aapt 工具编译资源的过程是比较复杂的，其中的步骤非常细致，在它编译时会将资源逐步保存至一个 ResourceTable 类中，它的源码路径是 `frameworks\base\tools\aapt\ResourceTable`，下面简述资源编译过程（完全参考了老罗博客）。
 
 ### 1. Parse AndroidManifst.xml
 
@@ -251,7 +251,7 @@ arsc 文件作为资源信息的存储结构，其结构将会遵循上述编译
 
 ![arsc_struct](./image/android_arsc_parse/arsc_struct.png)
 
-​							（图片来自互联网）
+（图片来自互联网）
 
 arsc 文件的由若干 chunk 结构组成，所有 chunk 在 android 源码中的 `ResourceTypes.h` 头文件中均有定义，路径为 `frameworks\base\include\utils\ResourceTypes.h`。
 
@@ -1257,4 +1257,4 @@ table map 0:
 
 - [Android应用程序资源的编译和打包过程分析](https://blog.csdn.net/luoshengyang/article/details/8744683)
 
-- [https://github.com/fourbrother/parse_androidarsc](https://github.com/fourbrother/parse_androidarsc)
+- [https://github.com/fourbrother/parse_androidarsc](https://github.com/fourbrother/parse_androidarsc) 

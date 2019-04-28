@@ -155,7 +155,7 @@ public class ClassUtils {
   private static final class SimpleLru<K, V> {
     private final LinkedHashMap<K, V> lruMap;
 
-    SimpleLru(int max) {
+    SimpleLru(final int max) {
       this.lruMap = new LinkedHashMap<K, V>(
           (int) (Math.ceil(max / 0.75F)) + 1, 0.75F, true) {
         @Override

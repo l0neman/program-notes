@@ -26,15 +26,12 @@ public class Formatter {
   public static String trim(String str) {
     final char[] chars = str.toCharArray();
     int i = 0;
-    int lastChr = 0;
-    for (char chr : chars) {
-      if (chr != 0) {
-        chars[i++] = chr;
-      } else if (lastChr == 0) {
-        i -= 2;
-        break;
+    int j = 0;
+    while (j < chars.length) {
+      if (chars[j] != 0) {
+        chars[i++] = chars[j];
       }
-      lastChr = chr;
+      j++;
     }
     return new String(chars, 0, i);
   }

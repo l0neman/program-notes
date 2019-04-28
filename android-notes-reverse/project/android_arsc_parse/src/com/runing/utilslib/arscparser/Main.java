@@ -1,5 +1,6 @@
 package com.runing.utilslib.arscparser;
 
+import com.runing.utilslib.arscparser.core.ArscParser;
 import com.runing.utilslib.arscparser.xml.XmlParser;
 
 public class Main {
@@ -11,7 +12,7 @@ public class Main {
     System.out.println("===================== NEW =====================");
     System.out.println();
 
-//    new ArscParser().parse("./file/resources_cm.arsc");
+//    new ArscParser().parse("./file/resources_gdt.arsc");
     test();
   }
 

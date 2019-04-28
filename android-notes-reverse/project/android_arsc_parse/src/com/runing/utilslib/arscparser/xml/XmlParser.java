@@ -46,12 +46,13 @@ public class XmlParser {
 
     System.out.println();
     System.out.println("string pool:");
-//    System.out.println(Arrays.toString(stringPool));
+    /*
     System.out.print('[');
     for (String str : stringPool) {
       System.out.print(Formatter.trim(str) + ", ");
     }
     System.out.print(']');
+    // */
 
     System.out.println();
     System.out.println("style pool:");
@@ -138,35 +139,74 @@ public class XmlParser {
         parse(objectIO);
         break;
 
-      case ResourceTypes.RES_XML_START_NAMESPACE_TYPE:
-
-        parse(objectIO);
-        break;
+//      case ResourceTypes.RES_XML_START_NAMESPACE_TYPE:
+//
+//        parseStartNamespace(objectIO);
+//        parse(objectIO);
+//        break;
 
       case ResourceTypes.RES_XML_START_ELEMENT_TYPE:
-        ResXMLTreeNode xmlTreeNode = objectIO.read(ResXMLTreeNode.class, mIndex);
-        for (;xmlTreeNode.header.type != ResourceTypes.RES_XML_END_NAMESPACE_TYPE;) {
-          mIndex += header.size;
+        String[] stringPool = stringPoolChunkParser.getStringPool();
+        ResXMLTreeNode xmlTreeNode = null;
+
+        do {
           xmlTreeNode = objectIO.read(ResXMLTreeNode.class, mIndex);
-        }
+          System.out.println(xmlTreeNode);
+
+          switch (xmlTreeNode.header.type) {
+            case ResourceTypes.RES_XML_START_ELEMENT_TYPE:
+
+              int index = mIndex + xmlTreeNode.header.headerSize;
+
+              ResXMLTreeAttrExt xmlTreeAttrExt = objectIO.read(ResXMLTreeAttrExt.class, index);
+//              System.out.println("ResXMLTreeAttrExt:");
+//              System.out.println(xmlTreeAttrExt);
+              if(xmlTreeAttrExt.ns.index != -1) {
+                System.out.println("attr ns: " + stringPool[xmlTreeAttrExt.ns.index]);
+              }
+              System.out.println("attr name: " + stringPool[xmlTreeAttrExt.name.index]);
+
+              index += ObjectIO.sizeOf(ResXMLTreeAttrExt.class);
+
+              for(int i = 0; i < xmlTreeAttrExt.attributeCount; i++) {
+                ResXMLTreeAttribute attribute = objectIO.read(ResXMLTreeAttribute.class, index);
+                System.out.println("attribute:");
+                System.out.println(attribute);
+              }
+              System.out.println();
+              break;
+
+            case ResourceTypes.RES_XML_CDATA_TYPE:
+              break;
+
+            case ResourceTypes.RES_XML_END_ELEMENT_TYPE:
+              break;
+
+            default:
+              break;
+          }
+
+          mIndex += xmlTreeNode.header.size;
+        } while (!objectIO.isEof(mIndex));
+
         break;
 
-      case ResourceTypes.RES_XML_CDATA_TYPE:
-
-        mIndex += header.size;
-        parse(objectIO);
-        break;
-
-      case ResourceTypes.RES_XML_END_ELEMENT_TYPE:
-
-        mIndex += header.size;
-        parse(objectIO);
-        break;
+//      case ResourceTypes.RES_XML_CDATA_TYPE:
+//
+//        mIndex += header.size;
+//        parse(objectIO);
+//        break;
+//
+//      case ResourceTypes.RES_XML_END_ELEMENT_TYPE:
+//
+//        mIndex += header.size;
+//        parse(objectIO);
+//        break;
 
       case ResourceTypes.RES_XML_END_NAMESPACE_TYPE:
 
         mIndex += header.size;
-        parse(objectIO);
+//        parse(objectIO);
         break;
 
       default:
