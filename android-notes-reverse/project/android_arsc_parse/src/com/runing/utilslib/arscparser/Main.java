@@ -1,6 +1,6 @@
 package com.runing.utilslib.arscparser;
 
-import com.runing.utilslib.arscparser.core.ArscParser2;
+import com.runing.utilslib.arscparser.core.ArscParser;
 
 public class Main {
 
@@ -11,6 +11,6 @@ public class Main {
     System.out.println("===================== NEW =====================");
     System.out.println();
 
-    new ArscParser2().parse("./file/resources_gdt.arsc");
+    new ArscParser().parse("./file/resources_gdt.arsc");
   }
 }

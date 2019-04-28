@@ -12,7 +12,7 @@ import java.nio.channels.FileChannel;
 import java.util.*;
 
 /**
- * 对象输入输出，便于从文件解析各种文件格式，或将数据格式写入文件。
+ * 对象输入输出，提供了一种从文件中解析各种文件格式的通用方法，或将某种数据格式写入文件。
  * <p>
  * 接口借鉴 C 语言中的 read/write 函数用法。
  */
@@ -124,6 +124,15 @@ public class ObjectIO implements Closeable {
   public <T extends Struct> void write(T target, long offset) throws IOException {
   }
 
+  /**
+   * 从文件中解析目标类型。
+   *
+   * @param target 解析目标类型。
+   * @param offset 文件偏移量。
+   * @param <T>    目标类型的泛型。
+   * @return 目标类型解析结果对象。
+   * @throws IOException 可能出现的 io 异常。
+   */
   public <T extends Struct> T read(Class<T> target, long offset) throws IOException {
     ClassUtils.checkSupportType(target);
 

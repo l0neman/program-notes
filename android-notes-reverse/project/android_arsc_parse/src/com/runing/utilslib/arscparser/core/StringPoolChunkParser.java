@@ -138,5 +138,4 @@ public class StringPoolChunkParser {
   public List<ResStringPoolSpan>[] getStylePool() {
     return stylePool;
   }
-
 }

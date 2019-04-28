@@ -251,9 +251,9 @@ arsc 文件作为资源信息的存储结构，其结构将会遵循上述编译
 
 ​							（图片来自互联网）
 
-arsc 文件的由若干 chunk 结构组成，所有 chunk 在 android 源码中的 ResourceTypes.h 头文件中均有定义，路径为 `frameworks\base\include\utils\ResourceTypes.h`。
+arsc 文件的由若干 chunk 结构组成，所有 chunk 在 android 源码中的 `ResourceTypes.h` 头文件中均有定义，路径为 `frameworks\base\include\utils\ResourceTypes.h`。
 
-对于不同 android 版本的 ResourceTypes.h 头文件，为了保证低版本兼容性，所以其定义的 chunk 结构相同，不过高版本相对于低版本可能增加了一些配置的常量，比如适配高分辨率设备的 xxhdpi，xxxhdpi 维度选项。
+对于不同 android 版本的 `ResourceTypes.h` 头文件，为了保证低版本兼容性，所以其定义的 chunk 结构相同，不过高版本相对于低版本可能增加了一些配置的常量，比如适配高分辨率设备的 xxhdpi，xxxhdpi 维度选项。
 
 每个 chunk 都会包含一个基本描述类型的对象，它的原始定义如下：
 
@@ -297,9 +297,9 @@ enum {
 };
 ```
 
-它表示每种 chunk 的类型，类似于标识文件类型的魔数，而 chunk 大小 size 则表示此 chunk 的容量。
+它表示每种 chunk 的类型，类似于标识文件类型的魔数，而 chunk 大小 `size` 则表示此 chunk 的容量。
 
-下面开始对 arsc 文件的结构进行解析，这里使用 java 语言进行解析，为了方便，对于 ResourceTypes.h 中的类型，在 java 中都应该定义对应的类，例如基础描述结构体 ResChunk_header 使用 java 定义如下：
+下面开始对 arsc 文件的结构进行解析，这里使用 java 语言进行解析，为了方便，对于 `ResourceTypes.h` 中的类型，在 java 中都应该定义对应的类，例如基础描述结构体 `ResChunk_header` 使用 java 定义如下：
 
 ```java
 /**
@@ -317,22 +317,67 @@ public class ResChunkHeader {
 
 ## arsc 文件解析
 
+### 工具
+
+工欲善其事，必先利其器。对于解析任何一种数据格式来说，它的内部必然会包含各种子数据结构，如果对于每种子类型都逐个字节解析，不仅麻烦而且没有任何复用性，所以需要一种通用的工具，参考 C 语言中的 `read` 函数，如果将结构体指针传入，则系统会自动将对应字节字节映射到结构体的成员中，既方便又通用，所以这里我在 java 中模仿它写了一个工具 `ObjectIO`。
+
+首先抽象了两个接口，`Struct` 和 `Union`，它们都是标记型接口，为了符合解析规范，实现 `Struct` 接口的类型可被解析，实现 `Union` 接口的类型成员将使用共用字节的解析方式。
+
+然后定义了工具类：`ObjectIO`，源码 [ObjectIO.java](./project/android_arsc_parse\src\com\runing\utilslib\arscparser\util\objectio\ObjectIO.java)
+
+使用方法为：
+
+```java
+...
+private static void closeQuietly(Closeable closeable) {
+  if (closeable != null) {
+    try {
+      closeable.close();
+    } catch (IOException ignore) {
+    } catch (RuntimeException e) {
+      e.printStackTrace();
+    }
+  }
+}
+
+public void parse(String file) {
+  ObjectIO objectIO = null;
+  try {
+    // 指定文件格式大小端。
+    boolean bigEndian = false;
+    objectIO = new ObjectIO(file, bigEndian);
+    // 内部会通过反射将字节映射到 ResChunkHeader 对象中。
+    ResChunkHeader cheunkHeader = objectIO.read(ResChunkHeader.class, 0);
+    ...
+  } catch (Exception e) {
+    e.printStackTrace();
+
+  } finally {
+    closeQuietly(objectIO);
+  }
+}
+```
+
+### 解析方法
+
 针对上述 arsc 文件结构，采用如下方式进行解析：
 
 1. 定义指针变量标识当前解析的字节位置，每解析完一个 chunk 则移动指针变量。
-2. 采用递归调用解析方法的方式，通过 chunk 的 type 判断将要解析哪种 chunk，解析对应的结构。 
+2. 采用递归调用解析方法的方式，通过 chunk 的 `type` 判断将要解析哪种 chunk，解析对应的结构。 
 
-这里定义了 ArscParser 解析器，mIndex 为指针变量，`parse(byte[])` 为递归的解析方法。
+这里定义了 ArscParser 解析器，`mIndex` 为指针变量，`parse(ObjectIO objectIO)` 为递归的解析方法。
 
 ```java
 public class ArscParser {
   private int mIndex;
   ...
       
-  private void parse(byte[] arsc) {
-    if (mIndex >= arsc.length - 1) { return; }
+  private void parse(ObjectIO objectIO) {
+    if (objectIO.isEof(mIndex)) { return; }
+    
     // 通过解析 resChunkHeader 得到当前需要解析的类型。
-    ResChunkHeader header = ResChunkHeader.valueOfBytes(arsc, mIndex);
+    ResChunkHeader header = objectIO.read(ResChunkHeader.class, mIndex);
+      
     // 根据类型解析对应的数据结构。
     switch (header.type) {
       case ResourceTypes.RES_TABLE_TYPE: ...
@@ -351,49 +396,6 @@ public class ArscParser {
 }
 ```
 
-其中的 `ResChunkHeader.valueOfBytes` 方法为按字节顺序依次解析出对象的值。
-
-```java
-// ResChunkHeader.java
-
-public static ResChunkHeader valueOfBytes(byte[] arsc, int chunkIndex) {
-  int index = chunkIndex;
-  return new ResChunkHeader(
-      Bytes.getShort(arsc, index),
-      Bytes.getShort(arsc, index += Short.BYTES),
-      Bytes.getInt(arsc, index + Short.BYTES)
-  );
-}
-```
-
-其中有两个基础方法，从字节数组中获取 int 和 short 类型值，下面的解析都会用到。
-
-```java
-// Bytes.java
-
-/**
- * 从 start 位置后 4 个字节读取 int 值。
- *
- * @param b     字节数组
- * @param start 起始位置
- * @return int value
- */
-public static int getInt(byte[] b, int start) {
-  return ((b[start + 3] & 0xFF) << 24) | ((b[start + 2] & 0xFF) << 16) | ((b[start + 1] & 0xFF) << 8) | (b[start] & 0xFF);
-}
-
-/**
- * 从 start 位置后 2 个字节读取 short 值。
- *
- * @param b     字节数组
- * @param start 起始位置
- * @return short value
- */
-public static short getShort(byte[] b, int start) {
-  return (short) (((b[start + 1] & 0xFF) << 8) | (b[start] & 0xFF));
-}
-```
-
 ### parse RES_TABLE_TYPE
 
 参考上面的 arsc 结构所示，首先解析的是资源表头部，它描述了整个 arsc 文件的大小，以及包含的包数量。
@@ -404,14 +406,11 @@ public static short getShort(byte[] b, int start) {
 /**
  * 资源表头结构，对应 ResourceTypes.h 中定义的 ResTable_header。
  */
-public class ResTableHeader {
-  // 此处为数据大小，java 没有 c 中的 sizeof 方法，所以使用常量的方式定义。
-  public static final int BYTES = ResChunkHeader.BYTES + Integer.BYTES;
-
+public class ResTableHeader implements Struct {
   /**
    * {@link ResChunkHeader#type} = {@link ResourceTypes#RES_TABLE_TYPE}
    * <p>
-   * {@link ResChunkHeader#headerSize} = {@link #BYTES} 表示头部大小。
+   * {@link ResChunkHeader#headerSize} = sizeOf(ResTableHeader.class) 表示头部大小。
    * <p>
    * {@link ResChunkHeader#size} = 整个 resources.arsc 文件的大小。
    */
@@ -420,18 +419,6 @@ public class ResTableHeader {
    * 被编译的资源包数量
    */
   public int packageCount;
-
-  public ResTableHeader(ResChunkHeader header, int packageCount) {
-    this.header = header;
-    this.packageCount = packageCount;
-  }
-
-  public static ResTableHeader valueOfBytes(byte[] arsc, ResChunkHeader header) {
-    return new ResTableHeader(
-        header,
-        Bytes.getInt(arsc, ResChunkHeader.BYTES)
-    );
-  }
 }
 ```
 
@@ -440,13 +427,13 @@ public class ResTableHeader {
 ```java
 // ArscParser.java
 
-private void parse(byte[] arsc) {
+private void parse(ObjectIO objectIO) {
   ...
-  ResChunkHeader header = ResChunkHeader.valueOfBytes(arsc, mIndex);
+  ResChunkHeader header = objectIO.read(ResChunkHeader.class, mIndex);
   switch (header.type) {
     case ResourceTypes.RES_TABLE_TYPE:
-      parseResTableType(arsc, header);
-      parse(arsc);
+      parseResTableType(objectIO);
+      parse(objectIO);
       break;
       ...
   }
@@ -457,8 +444,8 @@ private void parse(byte[] arsc) {
 ```java
 // ArscParser.java
 
-private void parseResTableType(byte[] arsc, ResChunkHeader header) {
-  final ResTableHeader tableType = ResTableHeader.valueOfBytes(arsc, header);
+private void parseResTableType(ObjectIO objectIO) {
+  final ResTableHeader tableType = objectIO.read(ResTableHeader.class, mIndex);
   System.out.println("resource table header:");
   System.out.println(tableType);
 
@@ -484,22 +471,20 @@ resource table header:
 4. String Content 字符串内容块。
 5. Style Content 字符串样式块。
 
-字符串池的头部使用 ResStringPool_header 数据结构描述，java 表示为：
+字符串池的头部使用 `ResStringPool_header` 数据结构描述，java 表示为：
 
 ```java
 /**
  * 字符串池头部。
  */
-public class ResStringPoolHeader {
-  public static final int BYTES = ResChunkHeader.BYTES + Integer.BYTES * 5;
-  
+public class ResStringPoolHeader implements Struct {
   public static final int SORTED_FLAG = 1;
   public static final int UTF8_FLAG = 1 << 8;
 
   /**
    * {@link ResChunkHeader#type} = {@link ResourceTypes#RES_STRING_POOL_TYPE}
    * <p>
-   * {@link ResChunkHeader#headerSize} ={@link #BYTES} 表示头部大小。
+   * {@link ResChunkHeader#headerSize} = sizeOf(ResStringPoolHeader.class) 表示头部大小。
    * <p>
    * {@link ResChunkHeader#size} = 整个字符串 Chunk 的大小，包括 headerSize 的大小。
    */
@@ -517,27 +502,25 @@ public class ResStringPoolHeader {
 }
 ```
 
-字符串的偏移数组使用 ResStringPool_ref 数据结构描述，java 表示为：
+字符串的偏移数组使用 `ResStringPool_ref` 数据结构描述，java 表示为：
 
 ```java
 /**
  * 字符串在字符串内容块中的字节偏移。
  */
-public class ResStringPoolRef {
-  public static final int BYTES = Integer.BYTES;
+public class ResStringPoolRef implements Struct{
   /** 字符串索引 */
   public int index;
 }
 ```
 
-字符串样式则使用 ResStringPool_span 数据结构描述，java 表示为：
+字符串样式则使用 `ResStringPool_span` 数据结构描述，java 表示为：
 
 ```java
 /**
  * 字符串样式块中的字符串样式信息。
  */
-public class ResStringPoolSpan {
-  public static final int BYTES = Integer.BYTES * 2;
+public class ResStringPoolSpan implements Struct{
   public static final int END = 0xFFFFFFFF;
 
   /** 本样式在字符串内容块中的字节位置 */
@@ -551,16 +534,16 @@ public class ResStringPoolSpan {
 
 其中 name 表示字符串样式本身字符串的索引，比如 `<b>` 样式本身的字符串为 b，即为 b 在字符串池中的索引。 
 
-firstChar 和 lastChar 则为具有样式的字符串的中字符串首位的索引，例如 `he<b>ll</b>o`，则为 2 和 3。
+`firstChar` 和 `lastChar` 则为具有样式的字符串的中字符串首位的索引，例如 `he<b>ll</b>o`，则为 2 和 3。
 
-字符串样式块和字符串内容块是一一对应的，就是说第一个字符串的样式对应第一个字符串样式块中的样式，如果对应的字符串中有不具有样式的字符串，则对应的 ResStringPool_span 的 name 为 `0xFFFFFFFF`，起占位的作用。
+字符串样式块和字符串内容块是一一对应的，就是说第一个字符串的样式对应第一个字符串样式块中的样式，如果对应的字符串中有不具有样式的字符串，则对应的 `ResStringPool_span` 的 `name` 为 `0xFFFFFFFF`，起占位的作用。
 
 解析过程如下：
 
-1. 首先解析 ResStringPool_header，其中包含字符串和样式池的信息。
-2. 通过 header 中 stringCount（字符串数量） 和 styleContent（样式数量）解析出字符串和样式偏移数组。
-3. 通过 header 中的 stringStart 找到字符串块的起始字节位置，结合字符串偏移数组解析字符串内容。
-4. 通过 header 中的 styleStart 找到样式块的起始字节位置，结合样式偏移数组解析样式内容。
+1. 首先解析 `ResStringPool_header`，其中包含字符串和样式池的信息。
+2. 通过 `header` 中 `stringCount`（字符串数量） 和 `styleContent`（样式数量）解析出字符串和样式偏移数组。
+3. 通过 `header` 中的 `stringStart` 找到字符串块的起始字节位置，结合字符串偏移数组解析字符串内容。
+4. 通过 `header` 中的 `styleStart` 找到样式块的起始字节位置，结合样式偏移数组解析样式内容。
 
 需要注意的是每个字符串的前两个字节表示这个字符串的长度，末尾则为结束符 0。
 
@@ -569,13 +552,13 @@ firstChar 和 lastChar 则为具有样式的字符串的中字符串首位的索
 ```java
 // ArscParser.java
 
-private void parse(byte[] arsc) {
+private void parse(ObjectIO objectIO) {
   ...
-  ResChunkHeader header = ResChunkHeader.valueOfBytes(arsc, mIndex);
+  ResChunkHeader header = objectIO.read(ResChunkHeader.class, mIndex);
   switch (header.type) {
     case ResourceTypes.RES_STRING_POOL_TYPE:
-      parseStringPool(arsc, header);
-      parse(arsc);
+      parseStringPool(objectIO);
+      parse(objectIO);
       break;
       ...
   }
@@ -586,14 +569,14 @@ private void parse(byte[] arsc) {
 ```java
 // ArscParser.java
 
-private void parseStringPool(byte[] arsc, ResChunkHeader header) {
-  final int stringPoolIndex = mIndex;
-  ResStringPoolHeader stringPoolHeader = ResStringPoolHeader.valueOfBytes(arsc, header, stringPoolIndex);
+private void parseStringPool(ObjectIO objectIO) throws Exception {
+  final long stringPoolIndex = mIndex;
+  ResStringPoolHeader stringPoolHeader = objectIO.read(ResStringPoolHeader.class, stringPoolIndex);
   System.out.println("string pool header:");
   System.out.println(stringPoolHeader);
 
   StringPoolChunkParser stringPoolChunkParser = new StringPoolChunkParser();
-  stringPoolChunkParser.parseStringPoolChunk(arsc, stringPoolHeader, stringPoolIndex);
+  stringPoolChunkParser.parseStringPoolChunk(objectIO, stringPoolHeader, stringPoolIndex);
 
   System.out.println();
   System.out.println("string index array:");
@@ -606,11 +589,14 @@ private void parseStringPool(byte[] arsc, ResChunkHeader header) {
   System.out.println();
   System.out.println("string pool:");
   final String[] stringPool = stringPoolChunkParser.getStringPool();
-//    System.out.println(Arrays.toString(stringPool));
+
+  System.out.println(Arrays.toString(stringPool));
+  typeStringPool = stringPool;
 
   System.out.println();
   System.out.println("style pool:");
   final List<ResStringPoolSpan>[] stylePool = stringPoolChunkParser.getStylePool();
+
   System.out.println(Arrays.toString(stylePool));
 
   System.out.println();
@@ -628,132 +614,136 @@ private void parseStringPool(byte[] arsc, ResChunkHeader header) {
 ```
 
 ```java
-// ResStringPoolHeader.java
-
-public static ResStringPoolHeader valueOfBytes(byte[] arsc, ResChunkHeader header, int stringPoolIndex) {
-    int index = stringPoolIndex;
-    return new ResStringPoolHeader(
-        header,
-        Bytes.getInt(arsc, index += ResChunkHeader.BYTES),
-        Bytes.getInt(arsc, index += Integer.BYTES),
-        Bytes.getInt(arsc, index += Integer.BYTES),
-        Bytes.getInt(arsc, index += Integer.BYTES),
-        Bytes.getInt(arsc, index + Integer.BYTES)
-    );
-  }
-```
-
-```java
 // StringPoolChunkParser.java
 
-class StringPoolChunkParser {
+public class StringPoolChunkParser {
 
   private ResStringPoolRef[] stringIndexArray;
   private ResStringPoolRef[] styleIndexArray;
   private String[] stringPool;
   private List<ResStringPoolSpan>[] stylePool;
 
-  private ResStringPoolRef[] parseStringIndexArray(byte[] b, ResStringPoolHeader header) {
+  private ResStringPoolRef[] parseStringIndexArray(ObjectIO objectIO, ResStringPoolHeader header, long index)
+      throws IOException {
     stringIndexArray = new ResStringPoolRef[header.stringCount];
-    return getInts(b, header.stringCount, stringIndexArray);
-  }
 
-  private ResStringPoolRef[] parseStyleIndexArray(byte[] b, ResStringPoolHeader header) {
-    styleIndexArray = new ResStringPoolRef[header.styleCount];
-    return getInts(b, header.styleCount, styleIndexArray);
-  }
+    long start = index;
+    final int resStringPoolRefSize = ObjectIO.sizeOf(ResStringPoolRef.class);
 
-  private ResStringPoolRef[] getInts(byte[] b, int styleCount, ResStringPoolRef[] indexArray) {
-    int start = 0;
-    for (int i = 0; i < styleCount; i++) {
-      indexArray[i] = new ResStringPoolRef(
-          Bytes.getInt(b, start)
-      );
-      start += Integer.BYTES;
+    for (int i = 0; i < header.stringCount; i++) {
+      stringIndexArray[i] = objectIO.read(ResStringPoolRef.class, start);
+      start += resStringPoolRefSize;
     }
-    return indexArray;
+
+    return stringIndexArray;
+  }
+
+  private ResStringPoolRef[] parseStyleIndexArray(ObjectIO objectIO, ResStringPoolHeader header, long index)
+      throws IOException {
+    styleIndexArray = new ResStringPoolRef[header.styleCount];
+
+    long start = index;
+    final int resStringPoolRefSize = ObjectIO.sizeOf(ResStringPoolRef.class);
+
+    for (int i = 0; i < header.styleCount; i++) {
+      styleIndexArray[i] = objectIO.read(ResStringPoolRef.class, start);
+      start += resStringPoolRefSize;
+    }
+
+    return styleIndexArray;
   }
 
   private static int parseStringLength(byte[] b) {
     return b[1] & 0x7F;
   }
 
-  private String[] parseStringPool(byte[] b, ResStringPoolHeader header) {
+  private String[] parseStringPool(ObjectIO objectIO, ResStringPoolHeader header, long stringPoolIndex)
+      throws IOException {
     String[] stringPool = new String[header.stringCount];
+
     for (int i = 0; i < header.stringCount; i++) {
-      final int index = stringIndexArray[i].index;
-      final int stringLength = parseStringLength(Bytes.copy(b, index, Short.BYTES));
-      stringPool[i] = new String(
-          Bytes.copy(b, index + Short.BYTES, stringLength), StandardCharsets.UTF_8
-      );
+      final long index = stringPoolIndex + stringIndexArray[i].index;
+      final int stringLength = parseStringLength(objectIO.readBytes(index, Short.BYTES));
+
+      stringPool[i] = new String(objectIO.readBytes(index + Short.BYTES, stringLength), 0, stringLength,
+          StandardCharsets.UTF_8);
     }
+
     return stringPool;
   }
 
-  private List<ResStringPoolSpan>[] parseStylePool(byte[] b, ResStringPoolHeader header) {
-    //noinspection unchecked
+  private List<ResStringPoolSpan>[] parseStylePool(ObjectIO objectIO, ResStringPoolHeader header, long stylePoolIndex)
+      throws IOException {
+    @SuppressWarnings("unchecked")
     List<ResStringPoolSpan>[] stylePool = new List[header.styleCount];
+
     for (int i = 0; i < header.styleCount; i++) {
-      final int index = styleIndexArray[i].index;
+      final long index = stylePoolIndex + styleIndexArray[i].index;
       int end = 0;
-      int littleIndex = index;
+      long littleIndex = index;
+
       List<ResStringPoolSpan> stringPoolSpans = new ArrayList<>();
       while (end != ResStringPoolSpan.END) {
-        ResStringPoolSpan stringPoolSpan = new ResStringPoolSpan(
-            new ResStringPoolRef(Bytes.getInt(b, littleIndex)),
-            Bytes.getInt(b, littleIndex += Integer.BYTES),
-            Bytes.getInt(b, littleIndex += Integer.BYTES)
-        );
-
+        ResStringPoolSpan stringPoolSpan = objectIO.read(ResStringPoolSpan.class, littleIndex);
         stringPoolSpans.add(stringPoolSpan);
-        end = Bytes.getInt(b, littleIndex += Integer.BYTES);
+
+        littleIndex += ObjectIO.sizeOf(ResStringPoolSpan.class);
+
+        end = objectIO.readInt(littleIndex);
       }
+
       stylePool[i] = stringPoolSpans;
     }
     return stylePool;
   }
 
-  void parseStringPoolChunk(byte[] arsc, ResStringPoolHeader header, int stringPoolHeaderIndex) {
+  public void parseStringPoolChunk(ObjectIO objectIO, ResStringPoolHeader header, long stringPoolHeaderIndex)
+      throws IOException {
     // parse string index array.
-    final int stringIndexArrayIndex = stringPoolHeaderIndex + ResStringPoolHeader.BYTES;
-    stringIndexArray = parseStringIndexArray(
-        Bytes.copy(arsc, stringIndexArrayIndex, header.stringCount * Integer.BYTES), header);
+    final long stringIndexArrayIndex = stringPoolHeaderIndex + ObjectIO.sizeOf(ResStringPoolHeader.class);
 
-    // parse style index array.
-    final int styleIndexArrayIndex = stringIndexArrayIndex + header.stringCount * Integer.BYTES;
-    styleIndexArray = parseStyleIndexArray(
-        Bytes.copy(arsc, styleIndexArrayIndex, header.styleCount * Integer.BYTES), header);
+    stringIndexArray = header.stringCount == 0 ? new ResStringPoolRef[0] :
+        parseStringIndexArray(objectIO, header, stringIndexArrayIndex);
+
+    final long styleIndexArrayIndex = stringIndexArrayIndex + header.stringCount *
+        ObjectIO.sizeOf(ResStringPoolRef.class);
+
+    styleIndexArray = header.styleCount == 0 ? new ResStringPoolRef[0] :
+        parseStyleIndexArray(objectIO, header, styleIndexArrayIndex);
 
     // parse string pool.
-    if (header.stringStart != 0) {
-      final int stringPoolIndex = stringPoolHeaderIndex + header.stringStart;
-      final int stringPoolLength = header.header.size;
-      stringPool = parseStringPool(Bytes.copy(arsc, stringPoolIndex, stringPoolLength), header);
-    }
-    else {
+    if (header.stringCount != 0) {
+      final long stringPoolIndex = stringPoolHeaderIndex + header.stringStart;
+      stringPool = parseStringPool(objectIO, header, stringPoolIndex);
+    } else {
       stringPool = new String[0];
     }
 
     // parse style pool.
-    if (header.styleStart != 0) {
-      final int stylePoolIndex = stringPoolHeaderIndex + header.styleStart;
-
-      stylePool = parseStylePool(
-          Bytes.copy(arsc, stylePoolIndex, header.header.size - header.styleStart - 8), header);
-    }
-    else {
+    if (header.styleCount != 0) {
+      final long stylePoolIndex = stringPoolHeaderIndex + header.styleStart;
+      stylePool = parseStylePool(objectIO, header, stylePoolIndex);
+    } else {
       //noinspection unchecked
       stylePool = new List[0];
     }
   }
 
-  ResStringPoolRef[] getStringIndexArray() { return stringIndexArray; }
+  public ResStringPoolRef[] getStringIndexArray() {
+    return stringIndexArray;
+  }
 
-  ResStringPoolRef[] getStyleIndexArray() { return styleIndexArray; }
+  public ResStringPoolRef[] getStyleIndexArray() {
+    return styleIndexArray;
+  }
 
-  String[] getStringPool() { return stringPool; }
+  public String[] getStringPool() {
+    return stringPool;
+  }
 
-  List<ResStringPoolSpan>[] getStylePool() { return stylePool; }
+  public List<ResStringPoolSpan>[] getStylePool() {
+    return stylePool;
+  }
 }
 ```
 
@@ -776,7 +766,7 @@ style pool:[]
 style detail:
 ```
 
-这个文件没有样式，那么换一个示例文件 resources_cm.arsc 文件的 style 内容示例如下：
+这个文件没有样式，换一个示例文件 resources_cm.arsc 文件的 style 内容示例如下：
 
 ```
 style pool:
@@ -810,21 +800,19 @@ a;href=http://www.cmcm.com/protocol/cmbackup/privacy.html
 4. Type Specification Trunk 类型规范数据块，描述资源的配置信息。
 5. Type Info Trunk 类型资源项数据块。
 
-资源项元信息头部使用 ResTable_package 数据结构描述，使用 java 表示为：
+资源项元信息头部使用 `ResTable_package` 数据结构描述，使用 java 表示为：
 
 ```java
 /**
  * Package 资源项元信息头部。
  */
-public class ResTablePackage {
-  public static final int BYTES = ResChunkHeader.BYTES + Integer.BYTES * 5 + 128 * Character.BYTES;
-
+public class ResTablePackage implements Struct {
   /**
    * {@link ResChunkHeader#type} = {@link ResourceTypes#RES_TABLE_PACKAGE_TYPE}
    * <p>
-   * {@link ResChunkHeader#headerSize} = {@link #BYTES} 表示头部大小。
+   * {@link ResChunkHeader#headerSize} = sizeOf(ResTablePackage.class) 表示头部大小。
    * <p>
-   * {@link ResChunkHeader#size} = {@link #BYTES} + 类型字符串资源池大小 + 类型规范名称字符串池大小 +
+   * {@link ResChunkHeader#size} = head.headerSize + 类型字符串资源池大小 + 类型规范名称字符串池大小 +
    * 类型规范数据块大小 + 数据项信息数据块大小。
    */
   public ResChunkHeader header;
@@ -860,17 +848,17 @@ Type Specification Trunk 和 Type Info Trunk 的 `chunk type` 分别为 `RES_TAB
 ```java
 // ArscParser.java
 
-private void parse(byte[] arsc) {
+private void parse(ObjectIO objectIO) {
   ...
-  ResChunkHeader header = ResChunkHeader.valueOfBytes(arsc, mIndex);
+  ResChunkHeader header = objectIO.read(ResChunkHeader.class, mIndex);
   switch (header.type) {
     case ResourceTypes.RES_STRING_POOL_TYPE:
-      parseStringPool(arsc, header);
-      parse(arsc);
+      parseStringPool(objectIO);
+      parse(objectIO);
       break;
     case ResourceTypes.RES_TABLE_PACKAGE_TYPE:
-      parseTablePackageType(arsc, header);
-      parse(arsc);
+      parseTablePackageType(objectIO);
+      parse(objectIO);
       break;
       ...
   }
@@ -881,31 +869,15 @@ private void parse(byte[] arsc) {
 ```java
 // ArscParser.java
 
-private void parseTablePackageType(byte[] arsc, ResChunkHeader header) {
-  final int tablePackageIndex = mIndex;
-  final ResTablePackage tablePackage = ResTablePackage.valueOfBytes(arsc, header, tablePackageIndex);
+private void parseTablePackageType(ObjectIO objectIO) throws IOException {
+  final long tablePackageIndex = mIndex;
+  final ResTablePackage tablePackage = objectIO.read(ResTablePackage.class, tablePackageIndex);
+
   System.out.println("table package type:");
   System.out.println(tablePackage);
 
   // 向下移动资源表元信息头部的大小。
   mIndex += tablePackage.header.headerSize;
-}
-```
-
-```java
-// ResTablePackage.java
-
-public static ResTablePackage valueOfBytes(byte[] arsc, ResChunkHeader header, int tablePackageIndex) {
-  int index = tablePackageIndex;
-  return new ResTablePackage(
-      header,
-      Bytes.getInt(arsc, index += ResChunkHeader.BYTES),
-      Bytes.toChars(Bytes.copy(arsc, index += Integer.BYTES, 128 * Character.BYTES)),
-      Bytes.getInt(arsc, index += 128 * Character.BYTES),
-      Bytes.getInt(arsc, index += Integer.BYTES),
-      Bytes.getInt(arsc, index += Integer.BYTES),
-      Bytes.getInt(arsc, index + Integer.BYTES)
-  );
 }
 ```
 
@@ -951,22 +923,20 @@ style detail:
 
 类型规范数据块为了描述资源项的配置差异性，通过它可以了解到每类资源的配置情况。
 
-类型规范数据块由 ResTable_typeSpec 数据结构描述，java 表示为：
+类型规范数据块由 `ResTable_typeSpec` 数据结构描述，java 表示为：
 
 ```java
 /**
  * 类型规范数据块。
  */
-public class ResTableTypeSpec {
-  public static final int BYTES = ResChunkHeader.BYTES + Byte.BYTES * 2 + Short.BYTES + Integer.BYTES;
-
+public class ResTableTypeSpec implements Struct {
   private static final int SPEC_PUBLIC = 0x40000000;
   /**
    * {@link ResChunkHeader#type} = {@link ResourceTypes#RES_TABLE_TYPE_SPEC_TYPE}
    * <p>
-   * {@link ResChunkHeader#headerSize} = {@link #BYTES} 表示头部大小。
+   * {@link ResChunkHeader#headerSize} = sizeOf(ResTableTypeSpec.class) 表示头部大小。
    * <p>
-   * {@link ResChunkHeader#size} = {@link #BYTES} + {@link Integer#BYTES} * {@link #entryCount}
+   * {@link ResChunkHeader#size} = header.headerSize + {@link Integer#BYTES} * {@link #entryCount}
    */
   public ResChunkHeader header;
   /** 资源 Type ID */
@@ -1010,13 +980,13 @@ enum {
 ```java
 // ArscParser.java
 
-private void parse(byte[] arsc) {
+private void parse(ObjectIO objectIO) {
   ...
-  ResChunkHeader header = ResChunkHeader.valueOfBytes(arsc, mIndex);
+  ResChunkHeader header = objectIO.read(ResChunkHeader.class, mIndex);
   switch (header.type) {
     case ResourceTypes.RES_TABLE_TYPE_SPEC_TYPE:
-      parseTableTypeSpecType(arsc, header);
-      parse(arsc);
+      parseTableTypeSpecType(objectIO);
+      parse(objectIO);
       break;
       ...
   }
@@ -1027,13 +997,15 @@ private void parse(byte[] arsc) {
 ```java
 // ArscParser.java
 
-private void parseTableTypeSpecType(byte[] arsc, ResChunkHeader header) {
-  final int typeSpecIndex = mIndex;
-  ResTableTypeSpec tableTypeSpec = ResTableTypeSpec.valueOfBytes(arsc, header, typeSpecIndex);
+private void parseTableTypeSpecType(ObjectIO objectIO) throws IOException {
+  final long typeSpecIndex = mIndex;
+  ResTableTypeSpec tableTypeSpec = objectIO.read(ResTableTypeSpec.class, typeSpecIndex);
+
   System.out.println("table type spec type:");
   System.out.println(tableTypeSpec);
 
-  int[] entryArray = TableTypeChunkParser.parseSpecEntryArray(arsc, tableTypeSpec, typeSpecIndex);
+  int[] entryArray = TableTypeChunkParser.parseSpecEntryArray(objectIO, tableTypeSpec, typeSpecIndex);
+
   System.out.println();
   System.out.println("table type spec type entry array:");
   System.out.println(Arrays.toString(entryArray));
@@ -1044,29 +1016,15 @@ private void parseTableTypeSpecType(byte[] arsc, ResChunkHeader header) {
 ```
 
 ```java
-// ResTableTypeSpec.java
-
-ppublic static ResTableTypeSpec valueOfBytes(byte[] arsc, ResChunkHeader header, int tableTypeSpecIndex) {
-  int index = tableTypeSpecIndex;
-  return new ResTableTypeSpec(
-      header,
-      arsc[index += ResChunkHeader.BYTES],
-      arsc[index += Byte.BYTES],
-      Bytes.getShort(arsc, index += Byte.BYTES),
-      Bytes.getInt(arsc, index + Short.BYTES)
-  );
-}
-```
-
-```java
 // TableTypeChunkParser.java
 
-@SuppressWarnings("Duplicates")
-public static int[] parseSpecEntryArray(byte[] arsc, ResTableTypeSpec tableTypeSpec, int typeSpecIndex) {
+public static int[] parseSpecEntryArray(ObjectIO objectIO, ResTableTypeSpec tableTypeSpec, long typeSpecIndex)
+    throws IOException {
   int[] entryArray = new int[tableTypeSpec.entryCount];
-  int index = typeSpecIndex + tableTypeSpec.header.headerSize;
+  long index = typeSpecIndex + tableTypeSpec.header.headerSize;
+
   for (int i = 0; i < entryArray.length; i++) {
-    entryArray[i] = Bytes.getInt(arsc, index);
+    entryArray[i] = objectIO.readInt(index);
     index += Integer.BYTES;
   }
   return entryArray;
@@ -1087,24 +1045,21 @@ table type spec type entry array:
 
 最后是类型资源项数据块，它用来描述资源项的具体信息，通过它可以了解每一个资源项名称、值和配置等信息。类型资源项数据是按照类型和配置来组织的，也就是说，一个具有 N 个配置的类型一共对应有 N 个类型资源项数据块。
 
-类型资源项数据块使用 ResTable_type 数据结构描述，java 表示为：
+类型资源项数据块使用 `ResTable_type` 数据结构描述，java 表示为：
 
 ```java
 /**
  * 类型资源项数据块。
  */
-public class ResTableType {
-  public static final int BYTES = ResChunkHeader.BYTES + Byte.BYTES * 2 + Short.BYTES + Integer.BYTES * 2 +
-      ResTableConfig.BYTES;
-
+public class ResTableType implements Struct {
   public static final int NO_ENTRY = 0xFFFFFFFF;
 
   /**
    * {@link ResChunkHeader#type} = {@link ResourceTypes#RES_TABLE_TYPE_TYPE}
    * <p>
-   * {@link ResChunkHeader#headerSize} = {@link #BYTES} 表示头部大小。
+   * {@link ResChunkHeader#headerSize} = sizeOf(ResTableType.class) 表示头部大小。
    * <p>
-   * {@link ResChunkHeader#size} = {@link #BYTES} + {@link Integer#BYTES} * {@link #entryCount}
+   * {@link ResChunkHeader#size} = header.headerSize + {@link Integer#BYTES} * {@link #entryCount}
    */
   public ResChunkHeader header;
   /** 资源 Type ID */
@@ -1122,17 +1077,17 @@ public class ResTableType {
 }
 ```
 
-其中 entryCount 表示资源项的数量，entriesStart 表示数据块的其实位置字节偏移。
+其中 `entryCount` 表示资源项的数量，`entriesStart` 表示数据块的其实位置字节偏移。
 
-每个资源项通过 ResTable_entry 数据结构描述，java 表示为：
+`ResTableConfig` 描述了资源的配置信息，内部由多个 Union 联合体构成，具体可参考解析源码。
+
+每个资源项通过 `ResTable_entry` 数据结构描述，java 表示为：
 
 ```java
 /**
  * 资源项。
  */
-public class ResTableEntry {
-  public static final int BYTES = Short.BYTES * 2 + ResStringPoolRef.BYTES;
-
+public class ResTableEntry implements Struct {
   public static final int FLAG_COMPLEX = 0x0001;
   public static final int FLAG_PUBLIC = 0x0002;
 
@@ -1150,9 +1105,9 @@ public class ResTableEntry {
 }
 ```
 
-如果其中的 flags 的 FLAG_COMPLEX 位位 1，那么这个 ResTable_entry 则是一个 ResTable_map_entry 类型，然后下面就会跟一个 ResTable_map 的数组。
+如果其中的 `flags` 的 `FLAG_COMPLEX` 位为 1，那么这个 `ResTable_entry` 则是一个 `ResTable_map_entry` 类型，然后下面就会跟一个 `ResTable_map` 的数组。
 
-ResTable_map_entry  是 ResTable_entry  的子结构类型，java 表示为：
+`ResTable_map_entry`  是 `ResTable_entry`  的子结构类型，java 表示为：
 
 ```java
 public class ResTableMapEntry extends ResTableEntry {
@@ -1168,9 +1123,7 @@ public class ResTableMapEntry extends ResTableEntry {
 ResTable_map 的 java 表示为：
 
 ```java
-public class ResTableMap {
-  public static final int BYTES = ResTableRef.BYTES + ResValue.BYTES;
-
+public class ResTableMap implements Struct {
   /** 引用资源地址 */
   public ResTableRef name;
   /** 资源值 */
@@ -1183,9 +1136,9 @@ public class ResTableMap {
 ```java
 // ArscParser.java
 
-private void parse(byte[] arsc) {
+private void parse(ObjectIO objectIO) {
   ...
-  ResChunkHeader header = ResChunkHeader.valueOfBytes(arsc, mIndex);
+  ResChunkHeader header = objectIO.read(ResChunkHeader.class, mIndex);
   switch (header.type) {
     case ResourceTypes.RES_TABLE_TYPE_TYPE:
       parseTableTypeType(arsc, header);
@@ -1200,21 +1153,25 @@ private void parse(byte[] arsc) {
 ```java
 // ArscParser.java
 
-private void parseTableTypeType(byte[] arsc, ResChunkHeader header) {
-  final int tableTypeIndex = mIndex;
-  final ResTableType tableType = ResTableType.valueOfBytes(arsc, header, tableTypeIndex);
+private void parseTableTypeType(ObjectIO objectIO) throws IOException {
+  final long tableTypeIndex = mIndex;
+  final ResTableType tableType = objectIO.read(ResTableType.class, tableTypeIndex);
+
   System.out.println("table type type:");
   System.out.println(tableType);
 
-  int[] offsetArray = TableTypeChunkParser.parseTypeOffsetArray(arsc, tableType, tableTypeIndex);
+  int[] offsetArray = TableTypeChunkParser.parseTypeOffsetArray(objectIO, tableType, tableTypeIndex);
+
   System.out.println();
   System.out.println("offset array:");
   System.out.println(Arrays.toString(offsetArray));
 
-  final int tableEntryIndex = tableTypeIndex + tableType.entriesStart;
+  final long tableEntryIndex = tableTypeIndex + tableType.entriesStart;
+
   for (int i = 0; i < offsetArray.length; i++) {
-    final int entryIndex = offsetArray[i] + tableEntryIndex;
-    final ResTableEntry tableEntry = ResTableEntry.valueOfBytes(arsc, entryIndex);
+    final long entryIndex = offsetArray[i] + tableEntryIndex;
+    final ResTableEntry tableEntry = objectIO.read(ResTableEntry.class, entryIndex);
+
     System.out.println();
     System.out.println("table type type entry " + i + ":");
     System.out.println("header: " + tableEntry);
@@ -1222,86 +1179,47 @@ private void parseTableTypeType(byte[] arsc, ResChunkHeader header) {
 
     if (tableEntry.flags == ResTableEntry.FLAG_COMPLEX) {
       // parse ResTable_map
-      final ResTableMapEntry tableMapEntry = ResTableMapEntry.valueOfBytes(arsc, entryIndex);
+      final ResTableMapEntry tableMapEntry = objectIO.read(ResTableMapEntry.class, entryIndex);
+
       System.out.println(tableMapEntry);
 
       int index = 0;
+
       for (int j = 0; j < tableMapEntry.count; j++) {
-        final int tableMapIndex = index + entryIndex + tableMapEntry.size;
-        ResTableMap tableMap = ResTableMap.valueOfBytes(arsc, tableMapIndex);
+        final long tableMapIndex = index + entryIndex + tableMapEntry.size;
+
+        ResTableMap tableMap = objectIO.read(ResTableMap.class, tableMapIndex);
         System.out.println("table map " + j + ":");
         System.out.println(tableMap);
 
-        index += ResTableMap.BYTES;
+        index += ObjectIO.sizeOf(ResTableMap.class);
       }
-    }
-    else {
+    } else {
       // parse Res_value
-      final ResValue value = ResValue.valueOfBytes(arsc, entryIndex + ResTableEntry.BYTES);
+      final int entrySize = ObjectIO.sizeOf(ResTableEntry.class);
+      final ResValue value = objectIO.read(ResValue.class, entryIndex + entrySize);
+
       System.out.println(value);
     }
   }
 
-  mIndex += arsc.length;
-}
-```
-
-```java
-// ResTableType.java
-
-public static ResTableType valueOfBytes(byte[] arsc, ResChunkHeader header, int tableTypeIndex) {
-  int index = tableTypeIndex;
-  return new ResTableType(
-      header,
-      arsc[index += ResChunkHeader.BYTES],
-      arsc[index += Byte.BYTES],
-      Bytes.getShort(arsc, index += Byte.BYTES),
-      Bytes.getInt(arsc, index += Short.BYTES),
-      Bytes.getInt(arsc, index + Integer.BYTES),
-      ResTableConfig.valueOfBytes(arsc, index + Integer.BYTES));
+  mIndex = objectIO.size();
 }
 ```
 
 ```java
 // TableTypeChunkParser.java
 
-@SuppressWarnings("Duplicates")
-public static int[] parseTypeOffsetArray(byte[] arsc, ResTableType tableType, int typeIndex) {
+public static int[] parseTypeOffsetArray(ObjectIO objectIO, ResTableType tableType, long typeIndex)
+    throws IOException {
   int[] entryArray = new int[tableType.entryCount];
-  int index = typeIndex + tableType.header.headerSize;
+  long index = typeIndex + tableType.header.headerSize;
+
   for (int i = 0; i < entryArray.length; i++) {
-    entryArray[i] = Bytes.getInt(arsc, index);
+    entryArray[i] = objectIO.readInt(index);
     index += Integer.BYTES;
   }
   return entryArray;
-}
-```
-
-```java
-// ResTableEntry.java
-
-public static ResTableEntry valueOfBytes(byte[] arsc, int tableEntryIndex) {
-  int index = tableEntryIndex;
-  return new ResTableEntry(
-      Bytes.getShort(arsc, index),
-      Bytes.getShort(arsc, index += Short.BYTES),
-      new ResStringPoolRef(Bytes.getInt(arsc, index + Short.BYTES))
-  );
-}
-```
-
-```java
-// ResTableMapEntry.java
-
-public static ResTableMapEntry valueOfBytes(byte[] arsc, int tableMapEntryIndex) {
-  final ResTableEntry tableEntry = ResTableEntry.valueOfBytes(arsc, tableMapEntryIndex);
-  return new ResTableMapEntry(
-      tableEntry.size,
-      tableEntry.flags,
-      tableEntry.key,
-      new ResTableRef(Bytes.getInt(arsc, tableMapEntryIndex + ResTableEntry.BYTES)),
-      Bytes.getInt(arsc, tableMapEntryIndex + ResTableEntry.BYTES + Integer.BYTES)
-  );
 }
 ```
 

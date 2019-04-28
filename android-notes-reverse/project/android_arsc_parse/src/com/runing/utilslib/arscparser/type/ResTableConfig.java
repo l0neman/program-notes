@@ -266,7 +266,6 @@ public class ResTableConfig implements Struct {
   public int size;
 
   public static class MobileConfig implements Union {
-
     public static class Type implements Struct {
       public short mcc;
       public short mnc;
@@ -324,7 +323,6 @@ public class ResTableConfig implements Struct {
                 '}';
       }
     }
-
     public Type data;
     public int locale;
 
@@ -365,7 +363,6 @@ public class ResTableConfig implements Struct {
   public static final int DENSITY_NONE = 0xfff;
 
   public static class ScreenTypeConfig implements Union {
-    public static final int BYTES = Integer.BYTES;
 
     public static class Type implements Struct {
       public byte orientation;
@@ -388,7 +385,6 @@ public class ResTableConfig implements Struct {
                 '}';
       }
     }
-
     public Type data;
     public int screenType;
 
