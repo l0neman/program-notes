@@ -1,4 +1,4 @@
-package com.runing.utilslib.arscparser.type2;
+package com.runing.utilslib.arscparser.old.type;
 
 /**
  * 资源表类型

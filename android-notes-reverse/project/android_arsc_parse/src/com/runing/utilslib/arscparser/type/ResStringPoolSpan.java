@@ -17,12 +17,12 @@ struct ResStringPool_span
 };
  */
 
+import com.runing.utilslib.arscparser.util.objectio.Struct;
+
 /**
  * 字符串样式块中的字符串样式信息。
  */
-public class ResStringPoolSpan {
-
-  public static final int BYTES = Integer.BYTES * 2;
+public class ResStringPoolSpan implements Struct {
 
   public static final int END = 0xFFFFFFFF;
 
@@ -32,12 +32,6 @@ public class ResStringPoolSpan {
   public int firstChar;
   /** 包含样式的字符串的最后一个字符索引 */
   public int lastChar;
-
-  public ResStringPoolSpan(ResStringPoolRef name, int firstChar, int lastChar) {
-    this.name = name;
-    this.firstChar = firstChar;
-    this.lastChar = lastChar;
-  }
 
   @Override
   public String toString() {

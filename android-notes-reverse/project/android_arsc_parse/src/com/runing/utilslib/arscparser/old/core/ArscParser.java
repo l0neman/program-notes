@@ -1,7 +1,7 @@
-package com.runing.utilslib.arscparser.core;
+package com.runing.utilslib.arscparser.old.core;
 
-import com.runing.utilslib.arscparser.type.*;
-import com.runing.utilslib.arscparser.util.IOUtils;
+import com.runing.utilslib.arscparser.old.type.*;
+import com.runing.utilslib.arscparser.old.util.IOUtils;
 
 import java.io.IOException;
 import java.util.Arrays;

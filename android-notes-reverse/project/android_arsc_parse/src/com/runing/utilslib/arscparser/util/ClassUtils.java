@@ -49,7 +49,7 @@ public class ClassUtils {
     }
 
     if (clazz == char.class || clazz == Character.class) {
-      return Character.BYTES;
+      return Byte.BYTES;
     }
 
     if (clazz == short.class || clazz == Short.class) {

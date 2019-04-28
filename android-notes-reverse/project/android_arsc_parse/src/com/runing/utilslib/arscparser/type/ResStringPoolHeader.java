@@ -1,6 +1,6 @@
 package com.runing.utilslib.arscparser.type;
 
-import com.runing.utilslib.arscparser.util.Bytes;
+import com.runing.utilslib.arscparser.util.objectio.Struct;
 
 /*
 struct ResStringPool_header
@@ -37,9 +37,7 @@ struct ResStringPool_header
 /**
  * 字符串池头部。
  */
-public class ResStringPoolHeader {
-
-  public static final int BYTES = ResChunkHeader.BYTES + Integer.BYTES * 5;
+public class ResStringPoolHeader implements Struct {
 
   public static final int SORTED_FLAG = 1;
   public static final int UTF8_FLAG = 1 << 8;
@@ -47,7 +45,7 @@ public class ResStringPoolHeader {
   /**
    * {@link ResChunkHeader#type} = {@link ResourceTypes#RES_STRING_POOL_TYPE}
    * <p>
-   * {@link ResChunkHeader#headerSize} ={@link #BYTES} 表示头部大小。
+   * {@link ResChunkHeader#headerSize} = sizeOf(ResStringPoolHeader.class) 表示头部大小。
    * <p>
    * {@link ResChunkHeader#size} = 整个字符串 Chunk 的大小，包括 headerSize 的大小。
    */
@@ -62,28 +60,6 @@ public class ResStringPoolHeader {
   public int stringStart;
   /** 字符串样式块相对于其头部的距离 */
   public int styleStart;
-
-
-  public ResStringPoolHeader(ResChunkHeader header, int stringCount, int styleCount, int flags, int stringStart, int styleStart) {
-    this.header = header;
-    this.stringCount = stringCount;
-    this.styleCount = styleCount;
-    this.flags = flags;
-    this.stringStart = stringStart;
-    this.styleStart = styleStart;
-  }
-
-  public static ResStringPoolHeader valueOfBytes(byte[] arsc, ResChunkHeader header, int stringPoolIndex) {
-    int index = stringPoolIndex;
-    return new ResStringPoolHeader(
-        header,
-        Bytes.getInt(arsc, index += ResChunkHeader.BYTES),
-        Bytes.getInt(arsc, index += Integer.BYTES),
-        Bytes.getInt(arsc, index += Integer.BYTES),
-        Bytes.getInt(arsc, index += Integer.BYTES),
-        Bytes.getInt(arsc, index + Integer.BYTES)
-    );
-  }
 
   @Override
   public String toString() {

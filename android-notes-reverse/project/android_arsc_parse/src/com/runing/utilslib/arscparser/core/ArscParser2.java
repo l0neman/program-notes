@@ -1,6 +1,6 @@
-package com.runing.utilslib.arscparser.core2;
+package com.runing.utilslib.arscparser.core;
 
-import com.runing.utilslib.arscparser.type2.*;
+import com.runing.utilslib.arscparser.type.*;
 import com.runing.utilslib.arscparser.util.objectio.ObjectIO;
 
 import java.io.Closeable;

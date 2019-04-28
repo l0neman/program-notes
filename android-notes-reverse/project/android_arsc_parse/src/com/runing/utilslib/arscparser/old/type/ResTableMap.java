@@ -1,7 +1,6 @@
-package com.runing.utilslib.arscparser.type2;
+package com.runing.utilslib.arscparser.old.type;
 
-import com.runing.utilslib.arscparser.util.Bytes;
-import com.runing.utilslib.arscparser.util.objectio.Struct;
+import com.runing.utilslib.arscparser.old.util.Bytes;
 
 /*
 struct ResTable_map
@@ -89,11 +88,25 @@ enum {
     Res_value value;
     };
  */
-public class ResTableMap implements Struct {
+public class ResTableMap {
+  public static final int BYTES = ResTableRef.BYTES + ResValue.BYTES;
+
   /** 引用资源地址 */
   public ResTableRef name;
   /** 资源值 */
   public ResValue value;
+
+  public ResTableMap(ResTableRef name, ResValue value) {
+    this.name = name;
+    this.value = value;
+  }
+
+  public static ResTableMap valueOfBytes(byte[] arsc, int tableMapIndex) {
+    return new ResTableMap(
+        new ResTableRef(Bytes.getInt(arsc, tableMapIndex)),
+        ResValue.valueOfBytes(arsc, tableMapIndex + Integer.BYTES)
+    );
+  }
 
   @Override
   public String toString() {

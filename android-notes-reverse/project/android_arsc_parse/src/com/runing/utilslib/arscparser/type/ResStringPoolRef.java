@@ -10,18 +10,14 @@ struct ResStringPool_ref
 };
  */
 
+import com.runing.utilslib.arscparser.util.objectio.Struct;
+
 /**
  * 字符串在字符串内容块中的字节偏移。
  */
-public class ResStringPoolRef {
-
-  public static final int BYTES = Integer.BYTES;
+public class ResStringPoolRef implements Struct {
 
   public int index;
-
-  public ResStringPoolRef(int index) {
-    this.index = index;
-  }
 
   @Override
   public String toString() {

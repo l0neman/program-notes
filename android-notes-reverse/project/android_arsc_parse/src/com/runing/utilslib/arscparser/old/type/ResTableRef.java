@@ -1,4 +1,4 @@
-package com.runing.utilslib.arscparser.type2;
+package com.runing.utilslib.arscparser.old.type;
 /*
 struct ResTable_ref
 {
@@ -6,15 +6,19 @@ struct ResTable_ref
 };
  */
 
-import com.runing.utilslib.arscparser.util.Bytes;
-import com.runing.utilslib.arscparser.util.objectio.Struct;
+import com.runing.utilslib.arscparser.old.util.Bytes;
 
 /**
  * 资源的引用（ResID）
  */
-public class ResTableRef implements Struct {
+public class ResTableRef {
 
+  public static final int BYTES = Integer.BYTES;
   public int ident;
+
+  public ResTableRef(int ident) {
+    this.ident = ident;
+  }
 
   @Override
   public String toString() {

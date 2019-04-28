@@ -1,4 +1,4 @@
-package com.runing.utilslib.arscparser.type2;
+package com.runing.utilslib.arscparser.old.type;
 
 /*
 struct ResTable_typeSpec
@@ -25,20 +25,21 @@ struct ResTable_typeSpec
 };
  */
 
-import com.runing.utilslib.arscparser.util.Bytes;
-import com.runing.utilslib.arscparser.util.objectio.Struct;
+import com.runing.utilslib.arscparser.old.util.Bytes;
 
 /**
  * 类型规范数据块。
  */
-public class ResTableTypeSpec implements Struct {
+public class ResTableTypeSpec {
+  public static final int BYTES = ResChunkHeader.BYTES + Byte.BYTES * 2 + Short.BYTES + Integer.BYTES;
+
   private static final int SPEC_PUBLIC = 0x40000000;
   /**
    * {@link ResChunkHeader#type} = {@link ResourceTypes#RES_TABLE_TYPE_SPEC_TYPE}
    * <p>
-   * {@link ResChunkHeader#headerSize} = sizeOf(ResTableTypeSpec.class) 表示头部大小。
+   * {@link ResChunkHeader#headerSize} = {@link #BYTES} 表示头部大小。
    * <p>
-   * {@link ResChunkHeader#size} = header.headerSize + {@link Integer#BYTES} * {@link #entryCount}
+   * {@link ResChunkHeader#size} = {@link #BYTES} + {@link Integer#BYTES} * {@link #entryCount}
    */
   public ResChunkHeader header;
   /** 资源 Type ID */
@@ -49,6 +50,25 @@ public class ResTableTypeSpec implements Struct {
   public short res1;
   /** 本类型的资源项个数，即名称相同的资源项的个数 */
   public int entryCount;
+
+  public ResTableTypeSpec(ResChunkHeader header, byte id, byte res0, short res1, int entryCount) {
+    this.header = header;
+    this.id = id;
+    this.res0 = res0;
+    this.res1 = res1;
+    this.entryCount = entryCount;
+  }
+
+  public static ResTableTypeSpec valueOfBytes(byte[] arsc, ResChunkHeader header, int tableTypeSpecIndex) {
+    int index = tableTypeSpecIndex;
+    return new ResTableTypeSpec(
+        header,
+        arsc[index += ResChunkHeader.BYTES],
+        arsc[index += Byte.BYTES],
+        Bytes.getShort(arsc, index += Byte.BYTES),
+        Bytes.getInt(arsc, index + Short.BYTES)
+    );
+  }
 
   @Override
   public String toString() {

@@ -1,4 +1,4 @@
-package com.runing.utilslib.arscparser.type2;
+package com.runing.utilslib.arscparser.old.type;
 
 /*
 struct ResTable_entry
@@ -25,16 +25,18 @@ struct ResTable_entry
 };
  */
 
-import com.runing.utilslib.arscparser.util.objectio.Struct;
+import com.runing.utilslib.arscparser.old.util.Bytes;
 
 /**
  * 资源项。
  */
-public class ResTableEntry implements Struct {
+public class ResTableEntry {
+  public static final int BYTES = Short.BYTES * 2 + ResStringPoolRef.BYTES;
+
   public static final int FLAG_COMPLEX = 0x0001;
   public static final int FLAG_PUBLIC = 0x0002;
 
-  /** sizeOf(ResTableEntry.class) 资源项头部大小 */
+  /** {@link #BYTES} 资源项头部大小 */
   public short size;
   /**
    * 资源项标志位。如果是一个 Bag 资源项，那么 FLAG_COMPLEX 位就等于 1，并且在 ResTable_entry 后面跟有一个 ResTable_map 数组，
@@ -45,6 +47,21 @@ public class ResTableEntry implements Struct {
    * 资源项名称在资源项名称字符串资源池的索引。
    */
   public ResStringPoolRef key;
+
+  public ResTableEntry(short size, short flags, ResStringPoolRef key) {
+    this.size = size;
+    this.flags = flags;
+    this.key = key;
+  }
+
+  public static ResTableEntry valueOfBytes(byte[] arsc, int tableEntryIndex) {
+    int index = tableEntryIndex;
+    return new ResTableEntry(
+        Bytes.getShort(arsc, index),
+        Bytes.getShort(arsc, index += Short.BYTES),
+        new ResStringPoolRef(Bytes.getInt(arsc, index + Short.BYTES))
+    );
+  }
 
   @Override
   public String toString() {

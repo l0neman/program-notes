@@ -1,9 +1,6 @@
 package com.runing.utilslib.arscparser;
 
-import com.runing.utilslib.arscparser.core.ArscParser;
-import com.runing.utilslib.arscparser.core2.ArscParser2;
-import com.runing.utilslib.arscparser.type2.ResTableConfig;
-import com.runing.utilslib.arscparser.util.objectio.ObjectIO;
+import com.runing.utilslib.arscparser.core.ArscParser2;
 
 public class Main {
 
@@ -15,7 +12,5 @@ public class Main {
     System.out.println();
 
     new ArscParser2().parse("./file/resources_gdt.arsc");
-
-//    System.out.println(ObjectIO.sizeOf(ResTableConfig.class));
   }
 }

@@ -1,6 +1,6 @@
 package com.runing.utilslib.arscparser.type;
 
-import com.runing.utilslib.arscparser.util.Bytes;
+import com.runing.utilslib.arscparser.util.objectio.Struct;
 
 /*
 struct ResChunk_header
@@ -26,9 +26,7 @@ struct ResChunk_header
 /**
  * 资源表 Chunk 基础结构。
  */
-public class ResChunkHeader {
-
-  public static final int BYTES = Short.BYTES + Short.BYTES + Integer.BYTES;
+public class ResChunkHeader implements Struct {
 
   /** Chunk 类型 */
   public short type;
@@ -36,21 +34,6 @@ public class ResChunkHeader {
   public short headerSize;
   /** Chunk 大小 */
   public int size;
-
-  public ResChunkHeader(short type, short headerSize, int size) {
-    this.type = type;
-    this.headerSize = headerSize;
-    this.size = size;
-  }
-
-  public static ResChunkHeader valueOfBytes(byte[] arsc, int chunkIndex) {
-    int index = chunkIndex;
-    return new ResChunkHeader(
-        Bytes.getShort(arsc, index),
-        Bytes.getShort(arsc, index += Short.BYTES),
-        Bytes.getInt(arsc, index + Short.BYTES)
-    );
-  }
 
   @Override
   public String toString() {

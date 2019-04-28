@@ -1,7 +1,6 @@
-package com.runing.utilslib.arscparser.type2;
+package com.runing.utilslib.arscparser.old.type;
 
-import com.runing.utilslib.arscparser.util.Bytes;
-import com.runing.utilslib.arscparser.util.objectio.Struct;
+import com.runing.utilslib.arscparser.old.util.Bytes;
 
 /*
 struct ResTable_package
@@ -37,20 +36,22 @@ struct ResTable_package
 /**
  * Package 资源项元信息头部。
  */
-public class ResTablePackage implements Struct {
+public class ResTablePackage {
+  public static final int BYTES = ResChunkHeader.BYTES + Integer.BYTES * 5 + 128 * Character.BYTES;
+
   /**
    * {@link ResChunkHeader#type} = {@link ResourceTypes#RES_TABLE_PACKAGE_TYPE}
    * <p>
-   * {@link ResChunkHeader#headerSize} = sizeOf(ResTablePackage.class) 表示头部大小。
+   * {@link ResChunkHeader#headerSize} = {@link #BYTES} 表示头部大小。
    * <p>
-   * {@link ResChunkHeader#size} = head.headerSize + 类型字符串资源池大小 + 类型规范名称字符串池大小 +
+   * {@link ResChunkHeader#size} = {@link #BYTES} + 类型字符串资源池大小 + 类型规范名称字符串池大小 +
    * 类型规范数据块大小 + 数据项信息数据块大小。
    */
   public ResChunkHeader header;
   /** Package ID */
   public int id;
   /** Package Name */
-  public char[] name = new char[128];
+  public char[] name;
   /**
    * 类型字符串资源池相对头部的偏移位置。
    */
@@ -67,6 +68,30 @@ public class ResTablePackage implements Struct {
    * 最后一个导出的 public 资源项名称字符串在资源项名称字符串资源池中的索引，目前这个值设置为资源项名称字符串资源池的大小。
    */
   public int lastPublicKey;
+
+  public ResTablePackage(ResChunkHeader header, int id, char[] name, int typeStrings, int lastPublicType,
+                         int keyStrings, int lastPublicKey) {
+    this.header = header;
+    this.id = id;
+    this.name = name;
+    this.typeStrings = typeStrings;
+    this.lastPublicType = lastPublicType;
+    this.keyStrings = keyStrings;
+    this.lastPublicKey = lastPublicKey;
+  }
+
+  public static ResTablePackage valueOfBytes(byte[] arsc, ResChunkHeader header, int tablePackageIndex) {
+    int index = tablePackageIndex;
+    return new ResTablePackage(
+        header,
+        Bytes.getInt(arsc, index += ResChunkHeader.BYTES),
+        Bytes.toChars(Bytes.copy(arsc, index += Integer.BYTES, 128 * Character.BYTES)),
+        Bytes.getInt(arsc, index += 128 * Character.BYTES),
+        Bytes.getInt(arsc, index += Integer.BYTES),
+        Bytes.getInt(arsc, index += Integer.BYTES),
+        Bytes.getInt(arsc, index + Integer.BYTES)
+    );
+  }
 
   @Override
   public String toString() {

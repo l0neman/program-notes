@@ -1,7 +1,6 @@
-package com.runing.utilslib.arscparser.type2;
+package com.runing.utilslib.arscparser.old.type;
 
-import com.runing.utilslib.arscparser.util.objectio.Struct;
-import com.runing.utilslib.arscparser.util.objectio.Union;
+import com.runing.utilslib.arscparser.old.util.Bytes;
 
 /*
 struct ResTable_config
@@ -261,13 +260,18 @@ struct ResTable_config
     };
 }
  */
-public class ResTableConfig implements Struct {
+public class ResTableConfig {
+
+  public static final int BYTES = Integer.BYTES + UnionMobile.BYTES + UnionLocale.BYTES + UnionScreenType.BYTES + UnionInput.BYTES +
+      UnionScreenSize.BYTES + UnionVersion.BYTES + UnionScreenConfig.BYTES + UnionScreenSizeDp.BYTES + 4 + 8 +
+      UnionScreenConfig2.BYTES;
 
   public int size;
 
-  public static class MobileConfig implements Union {
+  public static class UnionMobile {
+    public static final int BYTES = Integer.BYTES;
 
-    public static class Type implements Struct {
+    public static class Struct {
       public short mcc;
       public short mnc;
 
@@ -286,8 +290,16 @@ public class ResTableConfig implements Struct {
       }
     }
 
-    public Type data;
+    public Struct data;
     public int imsi;
+
+    public UnionMobile(byte[] b) {
+      data = new Struct();
+      data.mcc = Bytes.getShort(b, 0);
+      data.mnc = Bytes.getShort(b, Short.BYTES);
+
+      imsi = Bytes.getInt(b, 0);
+    }
 
     @Override
     public String toString() {
@@ -304,9 +316,10 @@ public class ResTableConfig implements Struct {
     }
   }
 
-  public static class LocaleConfig implements Union {
+  public static class UnionLocale {
+    public static final int BYTES = Integer.BYTES;
 
-    public static class Type implements Struct {
+    public static class Struct {
       public char[] language = new char[2];
       public char[] country = new char[2];
 
@@ -325,8 +338,16 @@ public class ResTableConfig implements Struct {
       }
     }
 
-    public Type data;
+    public Struct data;
     public int locale;
+
+    public UnionLocale(byte[] b) {
+      data = new Struct();
+      data.language = Bytes.toChars(Bytes.copy(b, 0, 2));
+      data.country = Bytes.toChars(Bytes.copy(b, 2, 2));
+
+      locale = Bytes.getInt(b, 0);
+    }
 
     @Override
     public String toString() {
@@ -364,10 +385,10 @@ public class ResTableConfig implements Struct {
   public static final int DENSITY_ANY = 0xfffe;
   public static final int DENSITY_NONE = 0xfff;
 
-  public static class ScreenTypeConfig implements Union {
+  public static class UnionScreenType {
     public static final int BYTES = Integer.BYTES;
 
-    public static class Type implements Struct {
+    public static class Struct {
       public byte orientation;
       public byte touchscreen;
       public short density;
@@ -389,8 +410,17 @@ public class ResTableConfig implements Struct {
       }
     }
 
-    public Type data;
+    public Struct data;
     public int screenType;
+
+    public UnionScreenType(byte[] b) {
+      data = new Struct();
+      data.orientation = b[0];
+      data.touchscreen = b[1];
+      data.density = Bytes.getShort(b, 2);
+
+      screenType = Bytes.getInt(b, 0);
+    }
 
     @Override
     public String toString() {
@@ -430,8 +460,10 @@ public class ResTableConfig implements Struct {
   public static final int NAVHIDDEN_NO = 0x0001 << SHIFT_NAVHIDDEN;
   public static final int NAVHIDDEN_YES = 0x0002 << SHIFT_NAVHIDDEN;
 
-  public static class InputConfig implements Union {
-    public static class Type implements Struct {
+  public static class UnionInput {
+    public static final int BYTES = Integer.BYTES;
+
+    public static class Struct {
       public byte keyboard;
       public byte navigation;
       public byte inputFlags;
@@ -456,8 +488,18 @@ public class ResTableConfig implements Struct {
       }
     }
 
-    public Type data;
+    public Struct data;
     public int input;
+
+    public UnionInput(byte[] b) {
+      data = new Struct();
+      data.keyboard = b[0];
+      data.navigation = b[1];
+      data.inputFlags = b[2];
+      data.inputPad0 = b[3];
+
+      input = Bytes.getInt(b, 0);
+    }
 
     @Override
     public String toString() {
@@ -477,8 +519,10 @@ public class ResTableConfig implements Struct {
   public static final int SCREENWIDTH_ANY = 0;
   public static final int SCREENHEIGHT_ANY = 0;
 
-  public static class ScreenSizeConfig implements Union {
-    public static class Type implements Struct {
+  public static class UnionScreenSize {
+    public static final int BYTES = Integer.BYTES;
+
+    public static class Struct {
       public short screenWidth;
       public short screenHeight;
 
@@ -497,8 +541,17 @@ public class ResTableConfig implements Struct {
       }
     }
 
-    public Type data;
+    public Struct data;
     public int screenSize;
+
+    @SuppressWarnings("Duplicates")
+    public UnionScreenSize(byte[] b) {
+      data = new Struct();
+      data.screenWidth = Bytes.getShort(b, 0);
+      data.screenHeight = Bytes.getShort(b, Short.BYTES);
+
+      screenSize = Bytes.getInt(b, 0);
+    }
 
     @Override
     public String toString() {
@@ -518,8 +571,10 @@ public class ResTableConfig implements Struct {
   public static final int SDKVERSION_ANY = 0;
   public static final int MINORVERSION_ANY = 0;
 
-  public static class VersionConfig implements Union {
-    public static class Type implements Struct {
+  public static class UnionVersion {
+    public static final int BYTES = Integer.BYTES;
+
+    public static class Struct {
       public short sdkVersion;
       public short minorVersion;
 
@@ -538,8 +593,16 @@ public class ResTableConfig implements Struct {
       }
     }
 
-    public Type data;
+    public Struct data;
     public int screenSize;
+
+    public UnionVersion(byte[] b) {
+      data = new Struct();
+      data.sdkVersion = Bytes.getShort(b, 0);
+      data.minorVersion = Bytes.getShort(b, Short.BYTES);
+
+      screenSize = Bytes.getInt(b, 0);
+    }
 
     @Override
     public String toString() {
@@ -590,9 +653,10 @@ public class ResTableConfig implements Struct {
   public static final int UI_MODE_NIGHT_NO = 0x1;
   public static final int UI_MODE_NIGHT_YES = 0x2;
 
-  public static class ScreenConfig implements Union {
+  public static class UnionScreenConfig {
+    public static final int BYTES = Integer.BYTES;
 
-    public static class Type implements Struct {
+    public static class Struct {
       public byte screenLayout;
       public byte uiMode;
       public byte screenConfigPad1;
@@ -617,8 +681,18 @@ public class ResTableConfig implements Struct {
       }
     }
 
-    public Type data;
+    public Struct data;
     public int screenConfig;
+
+    public UnionScreenConfig(byte[] b) {
+      data = new Struct();
+      data.screenLayout = b[0];
+      data.uiMode = b[1];
+      data.screenConfigPad1 = b[2];
+      data.screenConfigPad2 = b[3];
+
+      screenConfig = Bytes.getInt(b, 0);
+    }
 
     @Override
     public String toString() {
@@ -635,9 +709,10 @@ public class ResTableConfig implements Struct {
     }
   }
 
-  public static class ScreenSizeDpConfig implements Union {
+  public static class UnionScreenSizeDp {
+    public static final int BYTES = Integer.BYTES;
 
-    public static class Type implements Struct {
+    public static class Struct {
       public short screenWidth;
       public short screenHeight;
 
@@ -656,8 +731,17 @@ public class ResTableConfig implements Struct {
       }
     }
 
-    public Type data;
+    public Struct data;
     public int screenSizeDp;
+
+    @SuppressWarnings("Duplicates")
+    public UnionScreenSizeDp(byte[] b) {
+      data = new Struct();
+      data.screenWidth = Bytes.getShort(b, 0);
+      data.screenHeight = Bytes.getShort(b, Short.BYTES);
+
+      screenSizeDp = Bytes.getInt(b, 0);
+    }
 
     @Override
     public String toString() {
@@ -674,23 +758,24 @@ public class ResTableConfig implements Struct {
     }
   }
 
-  public MobileConfig mobileConfig;
-  public LocaleConfig localeConfig;
-  public ScreenTypeConfig screenTypeConfig;
-  public InputConfig inputConfig;
-  public ScreenSizeConfig screenSizeConfig;
-  public VersionConfig versionConfig;
-  public ScreenConfig screenConfig;
-  public ScreenSizeDpConfig screenSizeDpConfig;
+  public UnionMobile unionMobile;
+  public UnionLocale unionLocale;
+  public UnionScreenType unionScreenType;
+  public UnionInput unionInput;
+  public UnionScreenSize unionScreenSize;
+  public UnionVersion unionVersion;
+  public UnionScreenConfig unionScreenConfig;
+  public UnionScreenSizeDp unionScreenSizeDp;
 
   public char[] localeScript = new char[4];
   public char[] localeVariant = new char[8];
 
-  public ScreenConfig2 screenConfig2;
+  public UnionScreenConfig2 unionScreenConfig2;
 
-  public static class ScreenConfig2 implements Union {
+  public static class UnionScreenConfig2 {
+    public static final int BYTES = Integer.BYTES;
 
-    public static class Type implements Struct {
+    public static class Struct {
       public byte screenLayout2;
       public byte screenConfigPad1;
       public short screenConfigPad2;
@@ -712,8 +797,17 @@ public class ResTableConfig implements Struct {
       }
     }
 
-    public Type data;
+    public Struct data;
     public int screenConfig2;
+
+    public UnionScreenConfig2(byte[] b) {
+      data = new Struct();
+      data.screenLayout2 = b[0];
+      data.screenConfigPad1 = b[2];
+      data.screenConfigPad2 = Bytes.getShort(b, 2);
+
+      screenConfig2 = Bytes.getInt(b, 0);
+    }
 
     @Override
     public String toString() {
@@ -730,6 +824,42 @@ public class ResTableConfig implements Struct {
     }
   }
 
+  public ResTableConfig(int size, UnionMobile unionMobile, UnionLocale unionLocale, UnionScreenType unionScreenType,
+                        UnionInput unionInput, UnionScreenSize unionScreenSize, UnionVersion unionVersion,
+                        UnionScreenConfig unionScreenConfig, UnionScreenSizeDp unionScreenSizeDp,
+                        char[] localeScript, char[] localeVariant, UnionScreenConfig2 unionScreenConfig2) {
+    this.size = size;
+    this.unionMobile = unionMobile;
+    this.unionLocale = unionLocale;
+    this.unionScreenType = unionScreenType;
+    this.unionInput = unionInput;
+    this.unionScreenSize = unionScreenSize;
+    this.unionVersion = unionVersion;
+    this.unionScreenConfig = unionScreenConfig;
+    this.unionScreenSizeDp = unionScreenSizeDp;
+    this.localeScript = localeScript;
+    this.localeVariant = localeVariant;
+    this.unionScreenConfig2 = unionScreenConfig2;
+  }
+
+  public static ResTableConfig valueOfBytes(byte[] b, int tableConfigIndex) {
+    int index = tableConfigIndex;
+    return new ResTableConfig(
+        Bytes.getInt(b, index),
+        new UnionMobile(Bytes.copy(b, index += Integer.BYTES, UnionMobile.BYTES)),
+        new UnionLocale(Bytes.copy(b, index += UnionMobile.BYTES, UnionLocale.BYTES)),
+        new UnionScreenType(Bytes.copy(b, index += UnionLocale.BYTES, UnionScreenType.BYTES)),
+        new UnionInput(Bytes.copy(b, index += UnionScreenType.BYTES, UnionInput.BYTES)),
+        new UnionScreenSize(Bytes.copy(b, index += UnionInput.BYTES, UnionScreenSize.BYTES)),
+        new UnionVersion(Bytes.copy(b, index += UnionScreenSize.BYTES, UnionVersion.BYTES)),
+        new UnionScreenConfig(Bytes.copy(b, index += UnionVersion.BYTES, UnionScreenConfig.BYTES)),
+        new UnionScreenSizeDp(Bytes.copy(b, index += UnionScreenConfig.BYTES, UnionScreenSizeDp.BYTES)),
+        Bytes.toChars(Bytes.copy(b, index += UnionScreenSizeDp.BYTES, 4)),
+        Bytes.toChars(Bytes.copy(b, index += 4, 8)),
+        new UnionScreenConfig2(Bytes.copy(b, index + 8, UnionScreenConfig2.BYTES))
+    );
+  }
+
   @Override
   public String toString() {
     return Config.BEAUTIFUL ?
@@ -737,30 +867,28 @@ public class ResTableConfig implements Struct {
             "size=" + size +
             ", localeScript=" + new String(localeScript) +
             ", localeVariant=" + new String(localeVariant) +
-            ", mobile=" + mobileConfig +
-            ", locale=" + localeConfig +
-            ", screenType=" + screenTypeConfig +
-            ", input=" + inputConfig +
-            ", screenSize=" + screenSizeConfig +
-            ", version=" + versionConfig +
-            ", screenConfig=" + screenConfig +
-            ", screenSizeDp=" + screenSizeDpConfig +
-            ", screenConfig2=" + screenConfig2 +
+            ", mobile=" + unionMobile +
+            ", locale=" + unionLocale +
+            ", screenType=" + unionScreenType +
+            ", input=" + unionInput +
+            ", screenSize=" + unionScreenSize +
+            ", version=" + unionVersion +
+            ", screenConfig=" + unionScreenConfig +
+            ", screenSizeDp=" + unionScreenSizeDp +
             '}'
         :
         "ResTableConfig{" +
             "size=" + size +
             ", localeScript=" + new String(localeScript) +
             ", localeVariant=" + new String(localeVariant) +
-            ", mobileConfig=" + mobileConfig +
-            ", localeConfig=" + localeConfig +
-            ", screenTypeConfig=" + screenTypeConfig +
-            ", inputConfig=" + inputConfig +
-            ", screenSizeConfig=" + screenSizeConfig +
-            ", versionConfig=" + versionConfig +
-            ", screenConfig=" + screenConfig +
-            ", screenSizeDpConfig=" + screenSizeDpConfig +
-            ", screenConfig2=" + screenConfig2 +
+            ", mobileConfig=" + unionMobile +
+            ", localeConfig=" + unionLocale +
+            ", screenTypeConfig=" + unionScreenType +
+            ", inputConfig=" + unionInput +
+            ", screenSizeConfig=" + unionScreenSize +
+            ", versionConfig=" + unionVersion +
+            ", screenConfig=" + unionScreenConfig +
+            ", screenSizeDpConfig=" + unionScreenSizeDp +
             '}';
   }
 }
