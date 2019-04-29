@@ -20,7 +20,7 @@ public class ResTableRef implements Struct {
   public String toString() {
     return Config.BEAUTIFUL ?
         "{" +
-            "ident=" + Formatter.toHex(Formatter.fromInt(ident)) +
+            "ident=" + Formatter.toHex(Formatter.fromInt(ident, true)) +
             '}'
         :
         "ResTableRef{" +

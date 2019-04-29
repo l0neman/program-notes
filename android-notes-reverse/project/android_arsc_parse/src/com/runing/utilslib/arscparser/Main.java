@@ -6,17 +6,17 @@ import com.runing.utilslib.arscparser.xml.XmlParser;
 public class Main {
 
   public static void main(String[] args) {
-//    new ArscParser().parse("./file/resources_gdt.arsc");
 
-    System.out.println();
-    System.out.println("===================== NEW =====================");
-    System.out.println();
-
-//    new ArscParser().parse("./file/resources_gdt.arsc");
-    test();
+//     parseArscFile();
+    parseBinaryXmlFile();
   }
 
-  private static void test() {
-    new XmlParser().parse("./file/drawable.xml");
+  private static void parseArscFile() {
+    new ArscParser().parse("./file/resources.arsc");
   }
+
+  private static void parseBinaryXmlFile() {
+    new XmlParser().parse("./file/AM.xml");
+  }
+
 }

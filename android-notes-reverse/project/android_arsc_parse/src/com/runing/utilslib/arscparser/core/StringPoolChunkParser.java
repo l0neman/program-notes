@@ -3,6 +3,7 @@ package com.runing.utilslib.arscparser.core;
 import com.runing.utilslib.arscparser.type.ResStringPoolHeader;
 import com.runing.utilslib.arscparser.type.ResStringPoolRef;
 import com.runing.utilslib.arscparser.type.ResStringPoolSpan;
+import com.runing.utilslib.arscparser.util.Formatter;
 import com.runing.utilslib.arscparser.util.objectio.ObjectIO;
 
 import java.io.IOException;
@@ -58,10 +59,11 @@ public class StringPoolChunkParser {
 
     for (int i = 0; i < header.stringCount; i++) {
       final long index = stringPoolIndex + stringIndexArray[i].index;
-      final int stringLength = parseStringLength(objectIO.readBytes(index, Short.BYTES));
+      final int parseStringLength = parseStringLength(objectIO.readBytes(index, Short.BYTES));
+      final int stringLength = header.flags == 0 ? parseStringLength * 2 : parseStringLength;
 
-      stringPool[i] = new String(objectIO.readBytes(index + Short.BYTES, stringLength), 0, stringLength,
-          StandardCharsets.UTF_8);
+      stringPool[i] = Formatter.trim(new String(objectIO.readBytes(index + Short.BYTES, stringLength), 0,
+          stringLength, StandardCharsets.UTF_8));
     }
 
     return stringPool;

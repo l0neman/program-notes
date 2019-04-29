@@ -12,8 +12,7 @@ import java.util.List;
 public class ArscParser {
 
   private long mIndex;
-
-  private String[] typeStringPool;
+  private String[] stringPool;
 
   private void parseResTableType(ObjectIO objectIO) throws Exception {
     final ResTableHeader tableType = objectIO.read(ResTableHeader.class, mIndex);
@@ -41,12 +40,11 @@ public class ArscParser {
     System.out.println("style index array:");
     System.out.println(Arrays.toString(stringPoolChunkParser.getStyleIndexArray()));
 
-    final String[] stringPool = stringPoolChunkParser.getStringPool();
+    stringPool = stringPoolChunkParser.getStringPool();
 
-    System.out.println(Arrays.toString(stringPool));
-    typeStringPool = stringPool;
     System.out.println();
     System.out.println("string pool:");
+    System.out.println(Arrays.toString(stringPool));
 
     System.out.println();
     System.out.println("style pool:");
@@ -117,7 +115,7 @@ public class ArscParser {
       System.out.println();
       System.out.println("table type type entry " + i + ":");
       System.out.println("header: " + tableEntry);
-      System.out.println("entry name: " + typeStringPool[tableEntry.key.index]);
+      System.out.println("entry name: " + stringPool[tableEntry.key.index]);
 
       if (tableEntry.flags == ResTableEntry.FLAG_COMPLEX) {
         // parse ResTable_map
@@ -149,40 +147,35 @@ public class ArscParser {
   }
 
   private void parse(ObjectIO objectIO) throws Exception {
-    if (objectIO.isEof(mIndex)) { return; }
+    while (!objectIO.isEof(mIndex)) {
+      ResChunkHeader header = objectIO.read(ResChunkHeader.class, mIndex);
 
-    ResChunkHeader header = objectIO.read(ResChunkHeader.class, mIndex);
+      System.out.println();
+      System.out.println("================================ " + ResourceTypes.nameOf(header.type) +
+          " ================================");
+      switch (header.type) {
+        case ResourceTypes.RES_TABLE_TYPE:
+          parseResTableType(objectIO);
+          break;
 
-    System.out.println();
-    System.out.println("================================ " + ResourceTypes.nameOf(header.type) +
-        " ================================");
-    switch (header.type) {
-      case ResourceTypes.RES_TABLE_TYPE:
-        parseResTableType(objectIO);
-        parse(objectIO);
-        break;
+        case ResourceTypes.RES_STRING_POOL_TYPE:
+          parseStringPool(objectIO);
+          break;
 
-      case ResourceTypes.RES_STRING_POOL_TYPE:
-        parseStringPool(objectIO);
-        parse(objectIO);
-        break;
+        case ResourceTypes.RES_TABLE_PACKAGE_TYPE:
+          parseTablePackageType(objectIO);
+          break;
 
-      case ResourceTypes.RES_TABLE_PACKAGE_TYPE:
-        parseTablePackageType(objectIO);
-        parse(objectIO);
-        break;
+        case ResourceTypes.RES_TABLE_TYPE_SPEC_TYPE:
+          parseTableTypeSpecType(objectIO);
+          break;
 
-      case ResourceTypes.RES_TABLE_TYPE_SPEC_TYPE:
-        parseTableTypeSpecType(objectIO);
-        parse(objectIO);
-        break;
+        case ResourceTypes.RES_TABLE_TYPE_TYPE:
+          parseTableTypeType(objectIO);
+          break;
 
-      case ResourceTypes.RES_TABLE_TYPE_TYPE:
-        parseTableTypeType(objectIO);
-        parse(objectIO);
-        break;
-
-      default:
+        default:
+      }
     }
   }
 

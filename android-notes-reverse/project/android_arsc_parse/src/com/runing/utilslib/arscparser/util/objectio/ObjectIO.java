@@ -171,7 +171,7 @@ public class ObjectIO implements Closeable {
     byteBuffer.flip();
 
     byte[] bytes = new byte[size];
-    byteBuffer.get(bytes);
+    byteBuffer.get(bytes, 0, size);
     return bytes;
   }
 

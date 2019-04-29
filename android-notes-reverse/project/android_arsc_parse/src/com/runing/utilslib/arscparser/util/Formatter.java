@@ -14,13 +14,20 @@ public class Formatter {
     return stringBuilder.toString();
   }
 
-  public static byte[] fromInt(int a) {
-    return new byte[]{
-        (byte) ((a) & 0xFF),
-        (byte) ((a >> 8) & 0xFF),
-        (byte) ((a >> 16) & 0xFF),
-        (byte) ((a >> 24) & 0xFF),
-    };
+  public static byte[] fromInt(int a, boolean bigEndian) {
+    return bigEndian ?
+        new byte[]{
+            (byte) ((a >> 24) & 0xFF),
+            (byte) ((a >> 16) & 0xFF),
+            (byte) ((a >> 8) & 0xFF),
+            (byte) ((a) & 0xFF)
+        } :
+        new byte[]{
+            (byte) ((a) & 0xFF),
+            (byte) ((a >> 8) & 0xFF),
+            (byte) ((a >> 16) & 0xFF),
+            (byte) ((a >> 24) & 0xFF)
+        };
   }
 
   public static String trim(String str) {

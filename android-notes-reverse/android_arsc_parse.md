@@ -365,9 +365,9 @@ public void parse(String file) {
 针对上述 arsc 文件结构，采用如下方式进行解析：
 
 1. 定义指针变量标识当前解析的字节位置，每解析完一个 chunk 则移动指针变量。
-2. 采用递归调用解析方法的方式，通过 chunk 的 `type` 判断将要解析哪种 chunk，解析对应的结构。 
+2. 采用循环解析的方式，通过 chunk 的 `type` 判断将要解析哪种 chunk，解析对应的结构。 
 
-这里定义了 ArscParser 解析器，`mIndex` 为指针变量，`parse(ObjectIO objectIO)` 为递归的解析方法。
+这里定义了 ArscParser 解析器，`mIndex` 为指针变量，`parse(ObjectIO objectIO)` 为解析子方法。
 
 ```java
 public class ArscParser {
@@ -375,26 +375,26 @@ public class ArscParser {
   ...
       
   private void parse(ObjectIO objectIO) {
-    if (objectIO.isEof(mIndex)) { return; }
-    
-    // 通过解析 resChunkHeader 得到当前需要解析的类型。
-    ResChunkHeader header = objectIO.read(ResChunkHeader.class, mIndex);
-      
-    // 根据类型解析对应的数据结构。
-    switch (header.type) {
-      case ResourceTypes.RES_TABLE_TYPE: ...
-        break;
-      case ResourceTypes.RES_STRING_POOL_TYPE: ...
-        break;
-      case ResourceTypes.RES_TABLE_PACKAGE_TYPE: ...
-        break;
-      case ResourceTypes.RES_TABLE_TYPE_SPEC_TYPE: ...
-        break;
-      case ResourceTypes.RES_TABLE_TYPE_TYPE: ...
-        break;
-      default:
+    // 是否到达文件底部。
+    while (!objectIO.isEof(mIndex)) {
+      // 获取将要解析的 chunk 头部信息。 
+      ResChunkHeader header = objectIO.read(ResChunkHeader.class, mIndex);
+
+      // 根据类型解析对应格式。
+      switch (header.type) {
+        case ResourceTypes.RES_TABLE_TYPE: ...
+          break;
+        case ResourceTypes.RES_STRING_POOL_TYPE: ...
+          break;
+        case ResourceTypes.RES_TABLE_PACKAGE_TYPE: ...
+          break;
+        case ResourceTypes.RES_TABLE_TYPE_SPEC_TYPE: ...
+          break;
+        case ResourceTypes.RES_TABLE_TYPE_TYPE: ...
+          break;
+        default:
+      }
     }
-  }
 }
 ```
 
@@ -435,7 +435,6 @@ private void parse(ObjectIO objectIO) {
   switch (header.type) {
     case ResourceTypes.RES_TABLE_TYPE:
       parseResTableType(objectIO);
-      parse(objectIO);
       break;
       ...
   }
@@ -560,7 +559,6 @@ private void parse(ObjectIO objectIO) {
   switch (header.type) {
     case ResourceTypes.RES_STRING_POOL_TYPE:
       parseStringPool(objectIO);
-      parse(objectIO);
       break;
       ...
   }
@@ -856,11 +854,9 @@ private void parse(ObjectIO objectIO) {
   switch (header.type) {
     case ResourceTypes.RES_STRING_POOL_TYPE:
       parseStringPool(objectIO);
-      parse(objectIO);
       break;
     case ResourceTypes.RES_TABLE_PACKAGE_TYPE:
       parseTablePackageType(objectIO);
-      parse(objectIO);
       break;
       ...
   }
@@ -988,7 +984,6 @@ private void parse(ObjectIO objectIO) {
   switch (header.type) {
     case ResourceTypes.RES_TABLE_TYPE_SPEC_TYPE:
       parseTableTypeSpecType(objectIO);
-      parse(objectIO);
       break;
       ...
   }
@@ -1144,7 +1139,6 @@ private void parse(ObjectIO objectIO) {
   switch (header.type) {
     case ResourceTypes.RES_TABLE_TYPE_TYPE:
       parseTableTypeType(arsc, header);
-      parse(arsc);
       break;
       ...
   }

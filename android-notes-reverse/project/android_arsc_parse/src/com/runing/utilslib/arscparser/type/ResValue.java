@@ -1,5 +1,6 @@
 package com.runing.utilslib.arscparser.type;
 
+import com.runing.utilslib.arscparser.util.Formatter;
 import com.runing.utilslib.arscparser.util.objectio.Struct;
 
 /*
@@ -183,7 +184,7 @@ public class ResValue implements Struct {
   /** 数据 */
   public int data;
 
-  private String dataTypeOf(int dataType) {
+  private String dataTypeStr() {
     switch (dataType) {
       case TYPE_NULL:
         return "TYPE_NULL";
@@ -201,14 +202,14 @@ public class ResValue implements Struct {
         return "TYPE_FRACTION";
       case TYPE_DYNAMIC_REFERENCE:
         return "TYPE_DYNAMIC_REFERENCE";
-//      case TYPE_FIRST_INT: return "TYPE_FIRST_INT";
+      // case TYPE_FIRST_INT: return "TYPE_FIRST_INT";
       case TYPE_INT_DEC:
         return "TYPE_INT_DEC";
       case TYPE_INT_HEX:
         return "TYPE_INT_HEX";
       case TYPE_INT_BOOLEAN:
         return "TYPE_INT_BOOLEAN";
-//      case TYPE_FIRST_COLOR_INT: return "TYPE_FIRST_COLOR_INT";
+      // case TYPE_FIRST_COLOR_INT: return "TYPE_FIRST_COLOR_INT";
       case TYPE_INT_COLOR_ARGB8:
         return "TYPE_INT_COLOR_ARGB8";
       case TYPE_INT_COLOR_RGB8:
@@ -217,10 +218,68 @@ public class ResValue implements Struct {
         return "TYPE_INT_COLOR_ARGB4";
       case TYPE_INT_COLOR_RGB4:
         return "TYPE_INT_COLOR_RGB4";
-//      case TYPE_LAST_COLOR_INT: return "TYPE_LAST_COLOR_INT";
-//      case TYPE_LAST_INT: return "TYPE_LAST_INT";
+      // case TYPE_LAST_COLOR_INT: return "TYPE_LAST_COLOR_INT";
+      // case TYPE_LAST_INT: return "TYPE_LAST_INT";
       default:
         return "" + dataType;
+    }
+  }
+
+  @SuppressWarnings("DuplicateBranchesInSwitch")
+  public String dataStr() {
+    switch (dataType) {
+      case TYPE_NULL:
+        return "null";
+      case TYPE_REFERENCE:
+        return "@" + Formatter.toHex(Formatter.fromInt(data, true));
+      case TYPE_ATTRIBUTE:
+        return "@:id/" + Formatter.toHex(Formatter.fromInt(data, true));
+      case TYPE_STRING:
+        return "stringPool[" + data + ']';
+      case TYPE_FLOAT:
+        return String.valueOf(data);
+      case TYPE_DIMENSION:
+        int complex = data & (COMPLEX_UNIT_MASK << COMPLEX_UNIT_SHIFT);
+        switch (complex) {
+          case COMPLEX_UNIT_PX:
+            return data + "px";
+          case COMPLEX_UNIT_DIP:
+            return data + "dip";
+          case COMPLEX_UNIT_SP:
+            return data + "sp";
+          case COMPLEX_UNIT_PT:
+            return data + "pt";
+          case COMPLEX_UNIT_IN:
+            return data + "in";
+          case COMPLEX_UNIT_MM:
+            return data + "mm";
+          default:
+            return data + "(dimension)";
+        }
+      case TYPE_FRACTION:
+        return data + "(fraction)";
+      case TYPE_DYNAMIC_REFERENCE:
+        return data + "(dynamic_reference)";
+      // case TYPE_FIRST_INT: return "TYPE_FIRST_INT";
+      case TYPE_INT_DEC:
+        return String.valueOf(data);
+      case TYPE_INT_HEX:
+        return Formatter.toHex(Formatter.fromInt(data, true));
+      case TYPE_INT_BOOLEAN:
+        return data == 0 ? "false" : "true";
+      // case TYPE_FIRST_COLOR_INT: return "TYPE_FIRST_COLOR_INT";
+      case TYPE_INT_COLOR_ARGB8:
+        return data + "(argb8)";
+      case TYPE_INT_COLOR_RGB8:
+        return data + "(rgb8)";
+      case TYPE_INT_COLOR_ARGB4:
+        return data + "(argb4)";
+      case TYPE_INT_COLOR_RGB4:
+        return data + "(rgb4)";
+      // case TYPE_LAST_COLOR_INT: return "TYPE_LAST_COLOR_INT";
+      // case TYPE_LAST_INT: return "TYPE_LAST_INT";
+      default:
+        return Formatter.toHex(Formatter.fromInt(data, true));
     }
   }
 
@@ -230,15 +289,15 @@ public class ResValue implements Struct {
         "{" +
             "size=" + size +
             ", res0=" + res0 +
-            ", dataType=" + dataTypeOf(dataType) +
-            ", data=" + data +
+            ", dataType=" + dataTypeStr() +
+            ", data=" + dataStr() +
             '}'
         :
         "ResValue{" +
             "size=" + size +
             ", res0=" + res0 +
-            ", dataType=" + dataTypeOf(dataType) +
-            ", data=" + data +
+            ", dataType=" + dataTypeStr() +
+            ", data=" + dataStr() +
             '}';
   }
 }
