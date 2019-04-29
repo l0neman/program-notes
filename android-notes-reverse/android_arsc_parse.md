@@ -255,9 +255,9 @@ arsc 文件作为资源信息的存储结构，其结构将会遵循上述编译
 
 arsc 文件的由若干 chunk 结构组成，所有 chunk 在 android 源码中的 `ResourceTypes.h` 头文件中均有定义，路径为 `frameworks\base\include\utils\ResourceTypes.h`。
 
-对于不同 android 版本的 `ResourceTypes.h` 头文件，为了保证低版本兼容性，所以其定义的 chunk 结构相同，不过高版本相对于低版本可能增加了一些配置的常量，比如适配高分辨率设备的 xxhdpi，xxxhdpi 维度选项。
+对于不同 android 版本的 `ResourceTypes.h` 头文件，为了保证向下兼容性，所以其定义的 chunk 结构相同，不过高版本相对于低版本可能增加了一些配置的常量，例如适配高分辨率设备的 xxhdpi，xxxhdpi 维度选项。
 
-每个 chunk 都会包含一个基本描述类型的对象，它的原始定义如下：
+每个 chunk 都会包含一个基础描述类型的对象，它的原始定义如下：
 
 ```c++
 struct ResChunk_header
@@ -347,8 +347,9 @@ public void parse(String file) {
   try {
     // 指定文件格式大小端。
     boolean bigEndian = false;
+
     objectIO = new ObjectIO(file, bigEndian);
-    // 内部会通过反射将字节映射到 ResChunkHeader 对象中。
+    // 内部会通过反射将字节映射到 ResChunkHeader 对象对应成员中。
     ResChunkHeader cheunkHeader = objectIO.read(ResChunkHeader.class, 0);
     ...
   } catch (Exception e) {
@@ -364,7 +365,7 @@ public void parse(String file) {
 
 针对上述 arsc 文件结构，采用如下方式进行解析：
 
-1. 定义指针变量标识当前解析的字节位置，每解析完一个 chunk 则移动指针变量。
+1. 定义指针变量标识当前解析的字节位置，每解析完一个 chunk 则向下移动指针 chunk 的大小。
 2. 采用循环解析的方式，通过 chunk 的 `type` 判断将要解析哪种 chunk，解析对应的结构。 
 
 这里定义了 ArscParser 解析器，`mIndex` 为指针变量，`parse(ObjectIO objectIO)` 为解析子方法。
@@ -400,9 +401,9 @@ public class ArscParser {
 
 ### parse RES_TABLE_TYPE
 
-参考上面的 arsc 结构所示，首先解析的是资源表头部，它描述了整个 arsc 文件的大小，以及包含的包数量。
+参考上面的 arsc 结构所示，首先解析的是资源表头部，它描述了整个 arsc 文件的大小，以及包含的资源包数量。
 
-它的类型值为 `RES_TABLE_TYPE`，对应的数据结构为  `ResTable_header`，java 对应的表示为：
+它的 `type` 值为 `RES_TABLE_TYPE`，对应的数据结构为 `struct ResTable_header`，java 对应的表示为：
 
 ```java
 /**
@@ -418,7 +419,7 @@ public class ResTableHeader implements Struct {
    */
   public ResChunkHeader header;
   /**
-   * 被编译的资源包数量
+   * 被编译的资源包数量。
    */
   public int packageCount;
 }
@@ -472,7 +473,7 @@ resource table header:
 4. String Content 字符串内容块。
 5. Style Content 字符串样式块。
 
-字符串池的头部使用 `ResStringPool_header` 数据结构描述，java 表示为：
+字符串池的头部使用 `struct ResStringPool_header` 数据结构描述，java 表示为：
 
 ```java
 /**
@@ -494,7 +495,7 @@ public class ResStringPoolHeader implements Struct {
   public int stringCount;
   /** 字符串样式的数量 */
   public int styleCount;
-  /** 0, SORTED_FLAG, UTF8_FLAG or bitwise or value */
+  /** 0, SORTED_FLAG, UTF8_FLAG 它们的组合值 */
   public int flags;
   /** 字符串内容块相对于其头部的距离 */
   public int stringStart;
@@ -503,19 +504,21 @@ public class ResStringPoolHeader implements Struct {
 }
 ```
 
-字符串的偏移数组使用 `ResStringPool_ref` 数据结构描述，java 表示为：
+其中 `flags` 包含 `UTF8_FLAG` 表示字符串格式为 utf8， `SORTED_FLAG` 表示已排序。
+
+字符串的偏移数组使用 `struct ResStringPool_ref` 数据结构描述，java 表示为：
 
 ```java
 /**
  * 字符串在字符串内容块中的字节偏移。
  */
 public class ResStringPoolRef implements Struct{
-  /** 字符串索引 */
+  /** 字符串在字符串池中的索引 */
   public int index;
 }
 ```
 
-字符串样式则使用 `ResStringPool_span` 数据结构描述，java 表示为：
+字符串样式则使用 `struct ResStringPool_span` 数据结构描述，java 表示为：
 
 ```java
 /**
@@ -533,7 +536,7 @@ public class ResStringPoolSpan implements Struct{
 }
 ```
 
-其中 name 表示字符串样式本身字符串的索引，比如 `<b>` 样式本身的字符串为 b，即为 b 在字符串池中的索引。 
+其中 `name` 表示字符串样式本身字符串的索引，比如 `<b>` 样式本身的字符串为 b，即为 b 在字符串池中的索引。 
 
 `firstChar` 和 `lastChar` 则为具有样式的字符串的中字符串首位的索引，例如 `he<b>ll</b>o`，则为 2 和 3。
 
@@ -569,6 +572,7 @@ private void parse(ObjectIO objectIO) {
 ```java
 // ArscParser.java
 
+...
 private void parseStringPool(ObjectIO objectIO) throws Exception {
   final long stringPoolIndex = mIndex;
   ResStringPoolHeader stringPoolHeader = objectIO.read(ResStringPoolHeader.class, stringPoolIndex);
@@ -586,12 +590,11 @@ private void parseStringPool(ObjectIO objectIO) throws Exception {
   System.out.println("style index array:");
   System.out.println(Arrays.toString(stringPoolChunkParser.getStyleIndexArray()));
 
+  stringPool = stringPoolChunkParser.getStringPool();
+
   System.out.println();
   System.out.println("string pool:");
-  final String[] stringPool = stringPoolChunkParser.getStringPool();
-
   System.out.println(Arrays.toString(stringPool));
-  typeStringPool = stringPool;
 
   System.out.println();
   System.out.println("style pool:");
@@ -663,10 +666,13 @@ public class StringPoolChunkParser {
 
     for (int i = 0; i < header.stringCount; i++) {
       final long index = stringPoolIndex + stringIndexArray[i].index;
-      final int stringLength = parseStringLength(objectIO.readBytes(index, Short.BYTES));
+      final int parseStringLength = parseStringLength(objectIO.readBytes(index, Short.BYTES));
+      // 经过测试，发现 flags 为0 时，字符串每个字符间会间隔一个空白符，长度变为 2 倍。
+      final int stringLength = header.flags == 0 ? parseStringLength * 2 : parseStringLength;
 
-      stringPool[i] = new String(objectIO.readBytes(index + Short.BYTES, stringLength), 0, stringLength,
-          StandardCharsets.UTF_8);
+      // trim 去除多余空白符。
+      stringPool[i] = Formatter.trim(new String(objectIO.readBytes(index + Short.BYTES, stringLength), 0,
+          stringLength, StandardCharsets.UTF_8));
     }
 
     return stringPool;
@@ -800,7 +806,7 @@ a;href=http://www.cmcm.com/protocol/cmbackup/privacy.html
 4. Type Specification Trunk 类型规范数据块，描述资源的配置信息。
 5. Type Info Trunk 类型资源项数据块。
 
-资源项元信息头部使用 `ResTable_package` 数据结构描述，使用 java 表示为：
+资源项元信息头部使用 `struct ResTable_package` 数据结构描述，使用 java 表示为：
 
 ```java
 /**
@@ -819,7 +825,7 @@ public class ResTablePackage implements Struct {
   /** Package ID */
   public int id;
   /** Package Name */
-  public char[] name;
+  public char[] name = new char[128];
   /**
    * 类型字符串资源池相对头部的偏移位置。
    */
@@ -879,12 +885,12 @@ private void parseTablePackageType(ObjectIO objectIO) throws IOException {
 }
 ```
 
-解析示例文件 resource_gdt1.arsc 的结果为：
+解析示例文件 resources_gdt1.arsc 的结果为：
 
 ```j
 === RES_TABLE_PACKAGE_TYPE ===:
 table package type:
-{header={type=512(RES_TABLE_PACKAGE_TYPE), headerSize=288, size=5152}, id=0x7f000000, name=com.qq.e.demo, typeStrings=288, lastPublicType=9, keyStrings=424, lastPublicKey=76}
+{header={type=512(RES_TABLE_PACKAGE_TYPE), headerSize=288, size=5152}, id=0x7f000000, name=com.qq.e.demo, typeStrings=0, lastPublicType=0, keyStrings=0, lastPublicKey=0}
 
 === RES_STRING_POOL_TYPE (Type String Pool) ===:
 string pool header:
@@ -1076,7 +1082,7 @@ public class ResTableType implements Struct {
 
 其中 `entryCount` 表示资源项的数量，`entriesStart` 表示数据块的其实位置字节偏移。
 
-`ResTableConfig` 描述了资源的配置信息，内部由多个 Union 联合体构成，具体可参考解析源码。
+`ResTableConfig` 描述了资源的配置信息，内部由多个 Union 联合体构成，由于代码过长，所以具体结构可参考项目源码。
 
 每个资源项通过 `ResTable_entry` 数据结构描述，java 表示为：
 
@@ -1102,9 +1108,9 @@ public class ResTableEntry implements Struct {
 }
 ```
 
-如果其中的 `flags` 的 `FLAG_COMPLEX` 位为 1，那么这个 `ResTable_entry` 则是一个 `ResTable_map_entry` 类型，然后下面就会跟一个 `ResTable_map` 的数组。
+如果其中的 `flags` 的 `FLAG_COMPLEX` 位为 1，那么这个 `struct ResTable_entry` 则是一个 `struct ResTable_map_entry` 类型，然后下面就会跟一个 `struct ResTable_map` 的数组。
 
-`ResTable_map_entry`  是 `ResTable_entry`  的子结构类型，java 表示为：
+`struct ResTable_map_entry`  是 `struct ResTable_entry`  的子结构类型，java 表示为：
 
 ```java
 public class ResTableMapEntry extends ResTableEntry {
@@ -1125,6 +1131,168 @@ public class ResTableMap implements Struct {
   public ResTableRef name;
   /** 资源值 */
   public ResValue value;
+}
+```
+
+`ResValue` 对应数据结构 `struct Res_value`，它表示资源的具体数值。
+
+```java
+public class ResValue implements Struct {
+  /** ResValue 值大小 */
+  public short size;
+  /** 0, 保留 */
+  public byte res0;
+
+  // 数据类型取值。
+  public static final short TYPE_NULL = 0x00;
+  public static final short TYPE_REFERENCE = 0x01;
+  public static final short TYPE_ATTRIBUTE = 0x02;
+  public static final short TYPE_STRING = 0x03;
+  public static final short TYPE_FLOAT = 0x04;
+  public static final short TYPE_DIMENSION = 0x05;
+  public static final short TYPE_FRACTION = 0x06;
+  public static final short TYPE_DYNAMIC_REFERENCE = 0x07;
+  public static final short TYPE_FIRST_INT = 0x10;
+  public static final short TYPE_INT_DEC = 0x10;
+  public static final short TYPE_INT_HEX = 0x11;
+  public static final short TYPE_INT_BOOLEAN = 0x12;
+  public static final short TYPE_FIRST_COLOR_INT = 0x1c;
+  public static final short TYPE_INT_COLOR_ARGB8 = 0x1c;
+  public static final short TYPE_INT_COLOR_RGB8 = 0x1d;
+  public static final short TYPE_INT_COLOR_ARGB4 = 0x1e;
+  public static final short TYPE_INT_COLOR_RGB4 = 0x1f;
+  public static final short TYPE_LAST_COLOR_INT = 0x1f;
+  public static final short TYPE_LAST_INT = 0x1f;
+
+  /** 数据类型 */
+  public byte dataType;
+
+  public static final int COMPLEX_UNIT_SHIFT = 0;
+  public static final int COMPLEX_UNIT_MASK = 0xf;
+  
+  // 数据类型描述。
+  public static final int COMPLEX_UNIT_PX = 0;
+  public static final int COMPLEX_UNIT_DIP = 1;
+  public static final int COMPLEX_UNIT_SP = 2;
+  public static final int COMPLEX_UNIT_PT = 3;
+  public static final int COMPLEX_UNIT_IN = 4;
+  public static final int COMPLEX_UNIT_MM = 5;
+  public static final int COMPLEX_UNIT_FRACTION = 0;
+  public static final int COMPLEX_UNIT_FRACTION_PARENT = 1;
+  public static final int COMPLEX_RADIX_SHIFT = 4;
+  public static final int COMPLEX_RADIX_MASK = 0x3;
+  public static final int COMPLEX_RADIX_23p0 = 0;
+  public static final int COMPLEX_RADIX_16p7 = 1;
+  public static final int COMPLEX_RADIX_8p15 = 2;
+  public static final int COMPLEX_RADIX_0p23 = 3;
+  public static final int COMPLEX_MANTISSA_SHIFT = 8;
+  public static final int COMPLEX_MANTISSA_MASK = 0xffffff;
+
+  public static final int DATA_NULL_UNDEFINED = 0;
+  public static final int DATA_NULL_EMPTY = 1;
+
+  /** 数据 */
+  public int data;
+
+  // 将 dataType 翻译为字符串。
+  private String dataTypeStr() {
+    switch (dataType) {
+      case TYPE_NULL:
+        return "TYPE_NULL";
+      case TYPE_REFERENCE:
+        return "TYPE_REFERENCE";
+      case TYPE_ATTRIBUTE:
+        return "TYPE_ATTRIBUTE";
+      case TYPE_STRING:
+        return "TYPE_STRING";
+      case TYPE_FLOAT:
+        return "TYPE_FLOAT";
+      case TYPE_DIMENSION:
+        return "TYPE_DIMENSION";
+      case TYPE_FRACTION:
+        return "TYPE_FRACTION";
+      case TYPE_DYNAMIC_REFERENCE:
+        return "TYPE_DYNAMIC_REFERENCE";
+      // case TYPE_FIRST_INT: return "TYPE_FIRST_INT";
+      case TYPE_INT_DEC:
+        return "TYPE_INT_DEC";
+      case TYPE_INT_HEX:
+        return "TYPE_INT_HEX";
+      case TYPE_INT_BOOLEAN:
+        return "TYPE_INT_BOOLEAN";
+      // case TYPE_FIRST_COLOR_INT: return "TYPE_FIRST_COLOR_INT";
+      case TYPE_INT_COLOR_ARGB8:
+        return "TYPE_INT_COLOR_ARGB8";
+      case TYPE_INT_COLOR_RGB8:
+        return "TYPE_INT_COLOR_RGB8";
+      case TYPE_INT_COLOR_ARGB4:
+        return "TYPE_INT_COLOR_ARGB4";
+      case TYPE_INT_COLOR_RGB4:
+        return "TYPE_INT_COLOR_RGB4";
+      // case TYPE_LAST_COLOR_INT: return "TYPE_LAST_COLOR_INT";
+      // case TYPE_LAST_INT: return "TYPE_LAST_INT";
+      default:
+        return "" + dataType;
+    }
+  }
+
+  // 将值翻译为对应类型的
+  public String dataStr() {
+    switch (dataType) {
+      case TYPE_NULL:
+        return "null";
+      case TYPE_REFERENCE:
+        return "@" + Formatter.toHex(Formatter.fromInt(data, true));
+      case TYPE_ATTRIBUTE:
+        return "@:id/" + Formatter.toHex(Formatter.fromInt(data, true));
+      case TYPE_STRING:
+        return "stringPool[" + data + ']';
+      case TYPE_FLOAT:
+        return String.valueOf(data);
+      case TYPE_DIMENSION:
+        int complex = data & (COMPLEX_UNIT_MASK << COMPLEX_UNIT_SHIFT);
+        switch (complex) {
+          case COMPLEX_UNIT_PX:
+            return data + "px";
+          case COMPLEX_UNIT_DIP:
+            return data + "dip";
+          case COMPLEX_UNIT_SP:
+            return data + "sp";
+          case COMPLEX_UNIT_PT:
+            return data + "pt";
+          case COMPLEX_UNIT_IN:
+            return data + "in";
+          case COMPLEX_UNIT_MM:
+            return data + "mm";
+          default:
+            return data + "(dimension)";
+        }
+      case TYPE_FRACTION:
+        return data + "(fraction)";
+      case TYPE_DYNAMIC_REFERENCE:
+        return data + "(dynamic_reference)";
+      // case TYPE_FIRST_INT: return "TYPE_FIRST_INT";
+      case TYPE_INT_DEC:
+        return String.valueOf(data);
+      case TYPE_INT_HEX:
+        return Formatter.toHex(Formatter.fromInt(data, true));
+      case TYPE_INT_BOOLEAN:
+        return data == 0 ? "false" : "true";
+      // case TYPE_FIRST_COLOR_INT: return "TYPE_FIRST_COLOR_INT";
+      case TYPE_INT_COLOR_ARGB8:
+        return data + "(argb8)";
+      case TYPE_INT_COLOR_RGB8:
+        return data + "(rgb8)";
+      case TYPE_INT_COLOR_ARGB4:
+        return data + "(argb4)";
+      case TYPE_INT_COLOR_RGB4:
+        return data + "(rgb4)";
+      // case TYPE_LAST_COLOR_INT: return "TYPE_LAST_COLOR_INT";
+      // case TYPE_LAST_INT: return "TYPE_LAST_INT";
+      default:
+        return Formatter.toHex(Formatter.fromInt(data, true));
+    }
+  }
 }
 ```
 
@@ -1219,11 +1387,11 @@ public static int[] parseTypeOffsetArray(ObjectIO objectIO, ResTableType tableTy
 }
 ```
 
-示例文件 resource_gdt1.arsc 的解析结果为：
+示例文件 resources_gdt1.arsc 的解析结果为：
 
 ```java
 table type type:
-{header={type=513(RES_TABLE_TYPE_TYPE), headerSize=68, size=132}, id=0x01, res0=0, res1=0, entryCount=2, entriesStart=76, tableConfig={size=786434, localeScript=    , localeVariant=        , mobile={data=Struct{mcc=48, mnc=0}, imsi=48}, locale={data={language=  , country=  }, locale=0}, screenType={data={orientation=0, touchscreen=0, density=0}, screenType=0}, input={data={keyboard=0, navigation=0, inputFlags=0, inputPad0=0}, input=0}, screenSize={data={screenWidth=0, screenHeight=0}, screenSize=0}, version={data={sdkVersion=0, minorVersion=0}, screenSize=0}, screenConfig={data={screenLayout=0, uiMode=0, screenConfigPad1=0, screenConfigPad2=0}, screenConfig=0}, screenSizeDp={data={screenWidth=0, screenHeight=0}, screenSizeDp=0}}}
+{header={type=513(RES_TABLE_TYPE_TYPE), headerSize=68, size=132}, id=0x01, res0=0, res1=0, entryCount=2, entriesStart=76, config={size=48, localeScript=    , localeVariant=        , mobile={data=Struct{mcc=0, mnc=0}, imsi=0}, locale={data={language=  , country=  }, locale=0}, screenType={data={orientation=0, touchscreen=0, density=0}, screenType=0}, input={data={keyboard=0, navigation=0, inputFlags=0, inputPad0=0}, input=0}, screenSize={data={screenWidth=0, screenHeight=0}, screenSize=0}, version={data={sdkVersion=0, minorVersion=0}, screenSize=0}, screenConfig={data={screenLayout=0, uiMode=0, screenConfigPad1=0, screenConfigPad2=0}, screenConfig=0}, screenSizeDp={data={screenWidth=0, screenHeight=0}, screenSizeDp=0}, screenConfig2={data={screenLayout2=0, screenConfigPad1=0, screenConfigPad2=0}, screenConfig2=0}}}
 
 offset array:
 [0, 28]
@@ -1233,14 +1401,14 @@ header: {size=16, flags=1, key={index=0}}
 entry name: buttonBarStyle
 {parent={ident=0x00000000}, count=1, size=16, flags=1, key={index=0}}
 table map 0:
-{name={ident=0x00000001}, value={size=8, res0=0, dataType=16, data=1}}
+{name={ident=0x01000000}, value={size=8, res0=0, dataType=TYPE_INT_DEC, data=1}}
 
 table type type entry 1:
 header: {size=16, flags=1, key={index=1}}
 entry name: buttonBarButtonStyle
 {parent={ident=0x00000000}, count=1, size=16, flags=1, key={index=1}}
 table map 0:
-{name={ident=0x00000001}, value={size=8, res0=0, dataType=16, data=1}}
+{name={ident=0x01000000}, value={size=8, res0=0, dataType=TYPE_INT_DEC, data=1}}
 ```
 
 ## 源码

@@ -263,6 +263,7 @@ struct ResTable_config
  */
 public class ResTableConfig implements Struct {
 
+  /** ResTableConfig 配置大小 */
   public int size;
 
   public static class MobileConfig implements Union {

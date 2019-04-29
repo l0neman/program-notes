@@ -129,9 +129,7 @@ struct Res_value
 };
  */
 public class ResValue implements Struct {
-  public static final int BYTES = Short.BYTES + Byte.BYTES + Short.BYTES + Integer.BYTES;
-
-  /** {@link #BYTES} 大小 */
+  /** ResValue 值大小 */
   public short size;
   /** 0, 保留 */
   public byte res0;

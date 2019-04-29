@@ -60,8 +60,10 @@ public class StringPoolChunkParser {
     for (int i = 0; i < header.stringCount; i++) {
       final long index = stringPoolIndex + stringIndexArray[i].index;
       final int parseStringLength = parseStringLength(objectIO.readBytes(index, Short.BYTES));
+      // 经过测试，发现 flags 为0 时，字符串每个字符间会间隔一个空白符，长度变为 2 倍。
       final int stringLength = header.flags == 0 ? parseStringLength * 2 : parseStringLength;
 
+      // trim 去除多余空白符。
       stringPool[i] = Formatter.trim(new String(objectIO.readBytes(index + Short.BYTES, stringLength), 0,
           stringLength, StandardCharsets.UTF_8));
     }

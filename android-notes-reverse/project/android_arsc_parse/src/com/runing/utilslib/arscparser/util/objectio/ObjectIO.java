@@ -16,7 +16,6 @@ import java.util.*;
  * <p>
  * 接口借鉴 C 语言中的 read/write 函数用法。
  */
-@SuppressWarnings("ALL")
 public class ObjectIO implements Closeable {
 
   private ByteOrder byteOrder;

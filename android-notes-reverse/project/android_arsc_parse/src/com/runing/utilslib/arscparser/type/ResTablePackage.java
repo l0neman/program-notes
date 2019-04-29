@@ -73,7 +73,7 @@ public class ResTablePackage implements Struct {
     return Config.BEAUTIFUL ?
         "{" +
             "header=" + header +
-            ", id=" + Formatter.toHex(Formatter.fromInt(id, true)) +
+            ", id=" + Formatter.toHex(Formatter.fromInt(id, false)) +
             ", name=" + Formatter.trim(new String(name)) +
             ", typeStrings=" + typeStrings +
             ", lastPublicType=" + lastPublicType +
