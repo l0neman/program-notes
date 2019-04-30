@@ -1,7 +1,7 @@
 package com.runing.utilslib.arscparser;
 
 import com.runing.utilslib.arscparser.core.ArscParser;
-import com.runing.utilslib.arscparser.xml.XmlParser;
+import com.runing.utilslib.arscparser.xml.export.AXmlParser;
 
 public class Main {
 
@@ -19,7 +19,7 @@ public class Main {
   }
 
   private static void parseBinaryXmlFile() {
-    new XmlParser().parse("./file/AM.xml");
+    new AXmlParser().parse("./file/AM.xml");
   }
 
 }

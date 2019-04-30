@@ -2,33 +2,33 @@ package com.runing.utilslib.arscparser.core;
 
 import com.runing.utilslib.arscparser.type.ResTableType;
 import com.runing.utilslib.arscparser.type.ResTableTypeSpec;
-import com.runing.utilslib.arscparser.util.objectio.ObjectIO;
+import com.runing.utilslib.arscparser.util.objectio.ObjectInput;
 
 import java.io.IOException;
 
 public class TableTypeChunkParser {
 
   @SuppressWarnings("Duplicates")
-  public static int[] parseSpecEntryArray(ObjectIO objectIO, ResTableTypeSpec tableTypeSpec, long typeSpecIndex)
+  public static int[] parseSpecEntryArray(ObjectInput objectInput, ResTableTypeSpec tableTypeSpec, long typeSpecIndex)
       throws IOException {
     int[] entryArray = new int[tableTypeSpec.entryCount];
     long index = typeSpecIndex + tableTypeSpec.header.headerSize;
 
     for (int i = 0; i < entryArray.length; i++) {
-      entryArray[i] = objectIO.readInt(index);
+      entryArray[i] = objectInput.readInt(index);
       index += Integer.BYTES;
     }
     return entryArray;
   }
 
   @SuppressWarnings("Duplicates")
-  public static int[] parseTypeOffsetArray(ObjectIO objectIO, ResTableType tableType, long typeIndex)
+  public static int[] parseTypeOffsetArray(ObjectInput objectInput, ResTableType tableType, long typeIndex)
       throws IOException {
     int[] entryArray = new int[tableType.entryCount];
     long index = typeIndex + tableType.header.headerSize;
 
     for (int i = 0; i < entryArray.length; i++) {
-      entryArray[i] = objectIO.readInt(index);
+      entryArray[i] = objectInput.readInt(index);
       index += Integer.BYTES;
     }
     return entryArray;

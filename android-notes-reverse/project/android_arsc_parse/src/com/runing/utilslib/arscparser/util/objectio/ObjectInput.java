@@ -8,36 +8,32 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.util.*;
 
 /**
- * 对象输入输出，提供了一种从文件中解析各种文件格式的通用方法，或将某种数据格式写入文件。
+ * 对象输入，提供了一种从文件中解析各种文件格式的通用方法，与 ObjectOutput 配合使用。
  * <p>
- * 接口借鉴 C 语言中的 read/write 函数用法。
+ * 接口借鉴 C 语言中的 read 函数用法。
  */
-public class ObjectIO implements Closeable {
+public class ObjectInput implements Closeable {
 
   private ByteOrder byteOrder;
   private final FileChannel inputChannel;
-  //  private final FileChannel outputChannel;
   private final long size;
 
   /*
     构建类内部成员列表。
    */
-  public ObjectIO(String file) throws IOException {
+  public ObjectInput(String file) throws IOException {
     inputChannel = new FileInputStream(file).getChannel();
     size = inputChannel.size();
   }
 
-  public ObjectIO(String file, boolean bigEndian) throws IOException {
+  public ObjectInput(String file, boolean bigEndian) throws IOException {
     this(file);
     this.byteOrder = bigEndian ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN;
-  }
-
-  private <T> void toByteBuffer(T object, ByteBuffer byteBuffer) throws IOException {
-
   }
 
   @SuppressWarnings("unchecked")
@@ -117,10 +113,6 @@ public class ObjectIO implements Closeable {
 
     throw new IllegalArgumentException("Not a struct or union type: " + target);
 
-  }
-
-  // todo write.
-  public <T extends Struct> void write(T target, long offset) throws IOException {
   }
 
   /**
@@ -236,7 +228,7 @@ public class ObjectIO implements Closeable {
     private static SimpleLru<Class<?>, Field[]> sFullDeclaredFieldsMap = new SimpleLru<>(MAX_CACHE_CLASS);
     private static SimpleLru<Class<?>, Integer> sClassSizeCache = new SimpleLru<>(20);
 
-    public static Field[] fullDeclaredFields(Class<?> clazz) {
+    static Field[] fullDeclaredFields(Class<?> clazz) {
       Field[] fullDeclaredFields = sFullDeclaredFieldsMap.get(clazz);
       if (fullDeclaredFields == null) {
         fullDeclaredFields = buildFullDeclaredFields(clazz);
@@ -261,7 +253,7 @@ public class ObjectIO implements Closeable {
       return fullFields.toArray(new Field[0]);
     }
 
-    public static int sizeOfUnion(Class<?> clazz) {
+    static int sizeOfUnion(Class<?> clazz) {
 
       if (clazz.isPrimitive()) {
         return sizeOf(clazz);
@@ -364,7 +356,6 @@ public class ObjectIO implements Closeable {
       throw new IllegalArgumentException("Not a struct or union type: " + clazz);
     }
 
-
     private static boolean isStruct(Class<?> type) {
       return Struct.class.isAssignableFrom(type);
     }
@@ -385,7 +376,7 @@ public class ObjectIO implements Closeable {
       }
     }
 
-    public static <T> T newObject(Class<T> target) {
+    static <T> T newObject(Class<T> target) {
       try {
         return target.newInstance();
       } catch (Exception e) {
@@ -393,7 +384,7 @@ public class ObjectIO implements Closeable {
       }
     }
 
-    public static int getArrayFieldLength(Field field, Class<?> extra) {
+    static int getArrayFieldLength(Field field, Class<?> extra) {
       final Object helper = newObject(extra);
       try {
         final Object array = field.get(helper);
@@ -433,5 +424,4 @@ public class ObjectIO implements Closeable {
       }
     }
   }
-
 }

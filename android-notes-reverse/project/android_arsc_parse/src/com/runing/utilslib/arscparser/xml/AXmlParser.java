@@ -3,7 +3,7 @@ package com.runing.utilslib.arscparser.xml;
 import com.runing.utilslib.arscparser.core.StringPoolChunkParser;
 import com.runing.utilslib.arscparser.type.*;
 import com.runing.utilslib.arscparser.util.Formatter;
-import com.runing.utilslib.arscparser.util.objectio.ObjectIO;
+import com.runing.utilslib.arscparser.util.objectio.ObjectInput;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 @SuppressWarnings("ALL")
-public class XmlParser {
+public class AXmlParser {
 
   // 输出调试信息（打印对象值）。
   private static final boolean DEBUG_INFO = false;
@@ -25,12 +25,12 @@ public class XmlParser {
   private static final boolean XML_PRINT = true;
 
   private int mIndex;
-  private StringPoolChunkParser stringPoolChunkParser;
-  private XmlEditor xmlEditor = new XmlEditor();
+  private String[] stringPool;
+  private AXmlEditor AXmlEditor = new AXmlEditor();
   private Map<String, String> namespaceMap = new HashMap<>();
 
-  private void parseXMLTreeHeader(ObjectIO objectIO) throws IOException {
-    ResXMLTreeHeader xmlTreeHeader = objectIO.read(ResXMLTreeHeader.class, mIndex);
+  private void parseXMLTreeHeader(ObjectInput objectInput) throws IOException {
+    ResXMLTreeHeader xmlTreeHeader = objectInput.read(ResXMLTreeHeader.class, mIndex);
 
     if (DEBUG_INFO) {
       System.out.println("ResXMLTreeHeader:");
@@ -40,16 +40,16 @@ public class XmlParser {
     mIndex += xmlTreeHeader.header.headerSize;
   }
 
-  private void parseStringPool(ObjectIO objectIO) throws IOException {
+  private void parseStringPool(ObjectInput objectInput) throws IOException {
     final long stringPoolIndex = mIndex;
-    ResStringPoolHeader stringPoolHeader = objectIO.read(ResStringPoolHeader.class, stringPoolIndex);
+    ResStringPoolHeader stringPoolHeader = objectInput.read(ResStringPoolHeader.class, stringPoolIndex);
     if (DEBUG_INFO) {
       System.out.println("string pool header:");
       System.out.println(stringPoolHeader);
     }
 
-    stringPoolChunkParser = new StringPoolChunkParser();
-    stringPoolChunkParser.parseStringPoolChunk(objectIO, stringPoolHeader, stringPoolIndex);
+    StringPoolChunkParser stringPoolChunkParser = new StringPoolChunkParser();
+    stringPoolChunkParser.parseStringPoolChunk(objectInput, stringPoolHeader, stringPoolIndex);
 
     if (DEBUG_INFO) {
       System.out.println();
@@ -61,7 +61,7 @@ public class XmlParser {
       System.out.println(Arrays.toString(stringPoolChunkParser.getStyleIndexArray()));
     }
 
-    final String[] stringPool = stringPoolChunkParser.getStringPool();
+    stringPool = stringPoolChunkParser.getStringPool();
 
     if (PARSE_INFO) {
       System.out.println();
@@ -88,8 +88,8 @@ public class XmlParser {
     mIndex += stringPoolHeader.header.size;
   }
 
-  private void parseResourceIds(ObjectIO objectIO) throws IOException {
-    ResChunkHeader header = objectIO.read(ResChunkHeader.class, mIndex);
+  private void parseResourceIds(ObjectInput objectInput) throws IOException {
+    ResChunkHeader header = objectInput.read(ResChunkHeader.class, mIndex);
     // 解析 xml 文件中出现的资源 ID。
     final int size = header.size;
     final int count = size / Integer.BYTES;
@@ -99,7 +99,7 @@ public class XmlParser {
     if (PARSE_INFO) {
       for (int i = 0; i < count; i++) {
         System.out.println("resId: " + Formatter.toHex(Formatter.fromInt(
-            objectIO.readInt(index), true
+            objectInput.readInt(index), true
         )));
         index += i * Integer.BYTES;
       }
@@ -108,13 +108,12 @@ public class XmlParser {
     mIndex += header.size;
   }
 
-  private void parseStartNamespace(ObjectIO objectIO) throws IOException {
-    ResXMLTreeNode node = objectIO.read(ResXMLTreeNode.class, mIndex);
-    final String[] stringPool = stringPoolChunkParser.getStringPool();
+  private void parseStartNamespace(ObjectInput objectInput) throws IOException {
+    ResXMLTreeNode node = objectInput.read(ResXMLTreeNode.class, mIndex);
     int namespaceExtIndex = mIndex + node.header.headerSize;
 
     if (PARSE_INFO) {
-      System.out.println("node:");
+      System.out.println("node comment: " + (node.comment.index != -1 ? stringPool[node.comment.index] : ""));
     }
 
     if (DEBUG_INFO) {
@@ -122,7 +121,7 @@ public class XmlParser {
     }
 
     final ResXMLTreeNamespaceExt namespaceExt =
-        objectIO.read(ResXMLTreeNamespaceExt.class, namespaceExtIndex);
+        objectInput.read(ResXMLTreeNamespaceExt.class, namespaceExtIndex);
 
     if (PARSE_INFO) {
       System.out.println();
@@ -134,35 +133,38 @@ public class XmlParser {
     }
 
     String namespace = stringPool[namespaceExt.prefix.index];
+
     if (PARSE_INFO) {
       System.out.println("namepsace name: " + namespace);
     }
 
     String namespaceUri = stringPool[namespaceExt.uri.index];
+
     if (PARSE_INFO) {
       System.out.println("namepsace uri: " + namespaceUri);
     }
 
     if (XML_PRINT) {
-      xmlEditor.addNamespace(namespace, namespaceUri);
+      AXmlEditor.addNamespace(namespace, namespaceUri);
       namespaceMap.put(namespaceUri, namespace);
     }
 
     mIndex += node.header.size;
   }
 
-  private void parseStartElement(ObjectIO objectIO) throws IOException {
-    String[] stringPool = stringPoolChunkParser.getStringPool();
-    ResXMLTreeNode xmlTreeNode = null;
-
-    xmlTreeNode = objectIO.read(ResXMLTreeNode.class, mIndex);
-    int index = mIndex + xmlTreeNode.header.headerSize;
-
-    if (DEBUG_INFO) {
-      System.out.println(xmlTreeNode);
+  private void parseStartElement(ObjectInput objectInput) throws IOException {
+    ResXMLTreeNode node = objectInput.read(ResXMLTreeNode.class, mIndex);
+    if (PARSE_INFO) {
+      System.out.println("node comment: " + (node.comment.index != -1 ? stringPool[node.comment.index] : ""));
     }
 
-    ResXMLTreeAttrExt attrExt = objectIO.read(ResXMLTreeAttrExt.class, index);
+    int index = mIndex + node.header.headerSize;
+
+    if (DEBUG_INFO) {
+      System.out.println(node);
+    }
+
+    ResXMLTreeAttrExt attrExt = objectInput.read(ResXMLTreeAttrExt.class, index);
 
     if (DEBUG_INFO) {
       System.out.println(attrExt);
@@ -186,13 +188,13 @@ public class XmlParser {
     }
 
     if (XML_PRINT) {
-      xmlEditor.openElement(elementName);
+      AXmlEditor.openElement(elementName);
     }
 
-    index += ObjectIO.sizeOf(ResXMLTreeAttrExt.class);
+    index += ObjectInput.sizeOf(ResXMLTreeAttrExt.class);
 
     for (int i = 0; i < attrExt.attributeCount; i++) {
-      ResXMLTreeAttribute attr = objectIO.read(ResXMLTreeAttribute.class, index);
+      ResXMLTreeAttribute attr = objectInput.read(ResXMLTreeAttribute.class, index);
 
       if (DEBUG_INFO) {
         System.out.println(attr);
@@ -229,25 +231,28 @@ public class XmlParser {
       }
 
       if (XML_PRINT) {
-        String nsPrefixx = namespaceMap.get(namespace);
+        String nsPrefix = namespaceMap.get(namespace);
 
-        nsPrefixx = nsPrefixx == null ? "" : nsPrefixx + ":";
-        xmlEditor.addAttribute(nsPrefixx + attrName, attrText != null ?
+        nsPrefix = nsPrefix == null ? "" : nsPrefix + ":";
+        AXmlEditor.addAttribute(nsPrefix + attrName, attrText != null ?
             attrText : attrValue);
       }
 
-      index += ObjectIO.sizeOf(ResXMLTreeAttribute.class);
+      index += ObjectInput.sizeOf(ResXMLTreeAttribute.class);
     }
 
-    mIndex += xmlTreeNode.header.size;
+    mIndex += node.header.size;
   }
 
-  private void parseCData(ObjectIO objectIO) throws IOException {
-    String[] stringPool = stringPoolChunkParser.getStringPool();
-    ResXMLTreeNode xmlTreeNode = objectIO.read(ResXMLTreeNode.class, mIndex);
-    int index = mIndex + xmlTreeNode.header.headerSize;
+  private void parseCData(ObjectInput objectInput) throws IOException {
+    ResXMLTreeNode node = objectInput.read(ResXMLTreeNode.class, mIndex);
+    if (PARSE_INFO) {
+      System.out.println("node comment: " + (node.comment.index != -1 ? stringPool[node.comment.index] : ""));
+    }
 
-    ResXMLTreeCdataExt cdataExt = objectIO.read(ResXMLTreeCdataExt.class, index);
+    int index = mIndex + node.header.headerSize;
+
+    ResXMLTreeCdataExt cdataExt = objectInput.read(ResXMLTreeCdataExt.class, index);
 
     if (PARSE_INFO) {
       System.out.println("cdata:");
@@ -260,18 +265,21 @@ public class XmlParser {
     }
 
     if (XML_PRINT) {
-      xmlEditor.addData(cdata);
+      AXmlEditor.addData(cdata);
     }
 
-    mIndex += xmlTreeNode.header.size;
+    mIndex += node.header.size;
   }
 
-  private void parseEndElement(ObjectIO objectIO) throws IOException {
-    String[] stringPool = stringPoolChunkParser.getStringPool();
-    ResXMLTreeNode xmlTreeNode = objectIO.read(ResXMLTreeNode.class, mIndex);
-    int index = mIndex + xmlTreeNode.header.headerSize;
+  private void parseEndElement(ObjectInput objectInput) throws IOException {
+    ResXMLTreeNode node = objectInput.read(ResXMLTreeNode.class, mIndex);
+    if (PARSE_INFO) {
+      System.out.println("node comment: " + (node.comment.index != -1 ? stringPool[node.comment.index] : ""));
+    }
 
-    ResXMLTreeEndElementExt endElementExt = objectIO.read(ResXMLTreeEndElementExt.class, index);
+    int index = mIndex + node.header.headerSize;
+
+    ResXMLTreeEndElementExt endElementExt = objectInput.read(ResXMLTreeEndElementExt.class, index);
     if (PARSE_INFO) {
       System.out.println("element end:");
     }
@@ -290,18 +298,21 @@ public class XmlParser {
     }
 
     if (XML_PRINT) {
-      xmlEditor.closeElement(elementName);
+      AXmlEditor.closeElement(elementName);
     }
 
-    mIndex += xmlTreeNode.header.size;
+    mIndex += node.header.size;
   }
 
-  private void parseEndNamespace(ObjectIO objectIO) throws IOException {
-    String[] stringPool = stringPoolChunkParser.getStringPool();
-    ResXMLTreeNode xmlTreeNode = objectIO.read(ResXMLTreeNode.class, mIndex);
-    int index = mIndex + xmlTreeNode.header.headerSize;
+  private void parseEndNamespace(ObjectInput objectInput) throws IOException {
+    ResXMLTreeNode node = objectInput.read(ResXMLTreeNode.class, mIndex);
+    if (PARSE_INFO) {
+      System.out.println("node comment: " + (node.comment.index != -1 ? stringPool[node.comment.index] : ""));
+    }
 
-    ResXMLTreeNamespaceExt namespaceExt = objectIO.read(ResXMLTreeNamespaceExt.class, index);
+    int index = mIndex + node.header.headerSize;
+
+    ResXMLTreeNamespaceExt namespaceExt = objectInput.read(ResXMLTreeNamespaceExt.class, index);
 
     if (PARSE_INFO) {
       System.out.println();
@@ -324,12 +335,12 @@ public class XmlParser {
       System.out.println("namepsace end uri: " + namespaceUri);
     }
 
-    mIndex += xmlTreeNode.header.size;
+    mIndex += node.header.size;
   }
 
-  private void parse(ObjectIO objectIO) throws IOException {
-    while (!objectIO.isEof(mIndex)) {
-      ResChunkHeader header = objectIO.read(ResChunkHeader.class, mIndex);
+  private void parse(ObjectInput objectInput) throws IOException {
+    while (!objectInput.isEof(mIndex)) {
+      ResChunkHeader header = objectInput.read(ResChunkHeader.class, mIndex);
 
       if (PARSE_INFO || DEBUG_INFO) {
         System.out.println();
@@ -340,35 +351,35 @@ public class XmlParser {
 
       switch (header.type) {
         case ResourceTypes.RES_XML_TYPE:
-          parseXMLTreeHeader(objectIO);
+          parseXMLTreeHeader(objectInput);
           break;
 
         case ResourceTypes.RES_STRING_POOL_TYPE:
-          parseStringPool(objectIO);
+          parseStringPool(objectInput);
           break;
 
         case ResourceTypes.RES_XML_RESOURCE_MAP_TYPE:
-          parseResourceIds(objectIO);
+          parseResourceIds(objectInput);
           break;
 
         case ResourceTypes.RES_XML_START_NAMESPACE_TYPE:
-          parseStartNamespace(objectIO);
+          parseStartNamespace(objectInput);
           break;
 
         case ResourceTypes.RES_XML_START_ELEMENT_TYPE:
-          parseStartElement(objectIO);
+          parseStartElement(objectInput);
           break;
 
         case ResourceTypes.RES_XML_CDATA_TYPE:
-          parseCData(objectIO);
+          parseCData(objectInput);
           break;
 
         case ResourceTypes.RES_XML_END_ELEMENT_TYPE:
-          parseEndElement(objectIO);
+          parseEndElement(objectInput);
           break;
 
         case ResourceTypes.RES_XML_END_NAMESPACE_TYPE:
-          parseEndNamespace(objectIO);
+          parseEndNamespace(objectInput);
           break;
 
         default:
@@ -378,7 +389,7 @@ public class XmlParser {
 
     if (XML_PRINT) {
       System.out.println();
-      System.out.println(xmlEditor.print());
+      System.out.println(AXmlEditor.print());
     }
   }
 
@@ -394,14 +405,14 @@ public class XmlParser {
   }
 
   public void parse(String file) {
-    ObjectIO objectIO = null;
+    ObjectInput objectInput = null;
     try {
-      objectIO = new ObjectIO(file);
-      parse(objectIO);
+      objectInput = new ObjectInput(file);
+      parse(objectInput);
     } catch (IOException e) {
       e.printStackTrace();
     } finally {
-      closeQuietly(objectIO);
+      closeQuietly(objectInput);
     }
   }
 }

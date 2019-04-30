@@ -1,10 +1,9 @@
-package com.runing.utilslib.arscparser.core;
+package com.runing.utilslib.arscparser.xml.export;
 
-import com.runing.utilslib.arscparser.type.ResStringPoolHeader;
-import com.runing.utilslib.arscparser.type.ResStringPoolRef;
-import com.runing.utilslib.arscparser.type.ResStringPoolSpan;
-import com.runing.utilslib.arscparser.util.Formatter;
-import com.runing.utilslib.arscparser.util.objectio.ObjectInput;
+import com.runing.utilslib.arscparser.xml.export.type.ResStringPoolHeader;
+import com.runing.utilslib.arscparser.xml.export.type.ResStringPoolRef;
+import com.runing.utilslib.arscparser.xml.export.type.ResStringPoolSpan;
+import com.runing.utilslib.arscparser.xml.export.util.objectio.ObjectInput;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -19,7 +18,7 @@ public class StringPoolChunkParser {
   private String[] stringPool;
   private List<ResStringPoolSpan>[] stylePool;
 
-  private ResStringPoolRef[] parseStringIndexArray(ObjectInput objectInput, ResStringPoolHeader header, long index)
+  private ResStringPoolRef[] parseStringIndexArray(ObjectInput objectIO, ResStringPoolHeader header, long index)
       throws IOException {
     stringIndexArray = new ResStringPoolRef[header.stringCount];
 
@@ -27,14 +26,14 @@ public class StringPoolChunkParser {
     final int resStringPoolRefSize = ObjectInput.sizeOf(ResStringPoolRef.class);
 
     for (int i = 0; i < header.stringCount; i++) {
-      stringIndexArray[i] = objectInput.read(ResStringPoolRef.class, start);
+      stringIndexArray[i] = objectIO.read(ResStringPoolRef.class, start);
       start += resStringPoolRefSize;
     }
 
     return stringIndexArray;
   }
 
-  private ResStringPoolRef[] parseStyleIndexArray(ObjectInput objectInput, ResStringPoolHeader header, long index)
+  private ResStringPoolRef[] parseStyleIndexArray(ObjectInput objectIO, ResStringPoolHeader header, long index)
       throws IOException {
     styleIndexArray = new ResStringPoolRef[header.styleCount];
 
@@ -42,7 +41,7 @@ public class StringPoolChunkParser {
     final int resStringPoolRefSize = ObjectInput.sizeOf(ResStringPoolRef.class);
 
     for (int i = 0; i < header.styleCount; i++) {
-      styleIndexArray[i] = objectInput.read(ResStringPoolRef.class, start);
+      styleIndexArray[i] = objectIO.read(ResStringPoolRef.class, start);
       start += resStringPoolRefSize;
     }
 
@@ -53,25 +52,38 @@ public class StringPoolChunkParser {
     return b[0] & 0x7F;
   }
 
-  private String[] parseStringPool(ObjectInput objectInput, ResStringPoolHeader header, long stringPoolIndex)
+  private String[] parseStringPool(ObjectInput objectIO, ResStringPoolHeader header, long stringPoolIndex)
       throws IOException {
     String[] stringPool = new String[header.stringCount];
 
     for (int i = 0; i < header.stringCount; i++) {
       final long index = stringPoolIndex + stringIndexArray[i].index;
-      final int parseStringLength = parseStringLength(objectInput.readBytes(index, Short.BYTES));
+      final int parseStringLength = parseStringLength(objectIO.readBytes(index, Short.BYTES));
       // 经过测试，发现 flags 为0 时，字符串每个字符间会间隔一个空白符，长度变为 2 倍。
       final int stringLength = header.flags == 0 ? parseStringLength * 2 : parseStringLength;
 
       // trim 去除多余空白符。
-      stringPool[i] = Formatter.trim(new String(objectInput.readBytes(index + Short.BYTES, stringLength), 0,
+      stringPool[i] = trim(new String(objectIO.readBytes(index + Short.BYTES, stringLength), 0,
           stringLength, StandardCharsets.UTF_8));
     }
 
     return stringPool;
   }
 
-  private List<ResStringPoolSpan>[] parseStylePool(ObjectInput objectInput, ResStringPoolHeader header, long stylePoolIndex)
+  public static String trim(String str) {
+    final char[] chars = str.toCharArray();
+    int i = 0;
+    int j = 0;
+    while (j < chars.length) {
+      if (chars[j] != 0) {
+        chars[i++] = chars[j];
+      }
+      j++;
+    }
+    return new String(chars, 0, i);
+  }
+
+  private List<ResStringPoolSpan>[] parseStylePool(ObjectInput objectIO, ResStringPoolHeader header, long stylePoolIndex)
       throws IOException {
     @SuppressWarnings("unchecked")
     List<ResStringPoolSpan>[] stylePool = new List[header.styleCount];
@@ -83,12 +95,12 @@ public class StringPoolChunkParser {
 
       List<ResStringPoolSpan> stringPoolSpans = new ArrayList<>();
       while (end != ResStringPoolSpan.END) {
-        ResStringPoolSpan stringPoolSpan = objectInput.read(ResStringPoolSpan.class, littleIndex);
+        ResStringPoolSpan stringPoolSpan = objectIO.read(ResStringPoolSpan.class, littleIndex);
         stringPoolSpans.add(stringPoolSpan);
 
         littleIndex += ObjectInput.sizeOf(ResStringPoolSpan.class);
 
-        end = objectInput.readInt(littleIndex);
+        end = objectIO.readInt(littleIndex);
       }
 
       stylePool[i] = stringPoolSpans;
@@ -96,24 +108,24 @@ public class StringPoolChunkParser {
     return stylePool;
   }
 
-  public void parseStringPoolChunk(ObjectInput objectInput, ResStringPoolHeader header, long stringPoolHeaderIndex)
+  public void parseStringPoolChunk(ObjectInput objectIO, ResStringPoolHeader header, long stringPoolHeaderIndex)
       throws IOException {
     // parse string index array.
     final long stringIndexArrayIndex = stringPoolHeaderIndex + ObjectInput.sizeOf(ResStringPoolHeader.class);
 
     stringIndexArray = header.stringCount == 0 ? new ResStringPoolRef[0] :
-        parseStringIndexArray(objectInput, header, stringIndexArrayIndex);
+        parseStringIndexArray(objectIO, header, stringIndexArrayIndex);
 
     final long styleIndexArrayIndex = stringIndexArrayIndex + header.stringCount *
         ObjectInput.sizeOf(ResStringPoolRef.class);
 
     styleIndexArray = header.styleCount == 0 ? new ResStringPoolRef[0] :
-        parseStyleIndexArray(objectInput, header, styleIndexArrayIndex);
+        parseStyleIndexArray(objectIO, header, styleIndexArrayIndex);
 
     // parse string pool.
     if (header.stringCount != 0) {
       final long stringPoolIndex = stringPoolHeaderIndex + header.stringStart;
-      stringPool = parseStringPool(objectInput, header, stringPoolIndex);
+      stringPool = parseStringPool(objectIO, header, stringPoolIndex);
     } else {
       stringPool = new String[0];
     }
@@ -121,7 +133,7 @@ public class StringPoolChunkParser {
     // parse style pool.
     if (header.styleCount != 0) {
       final long stylePoolIndex = stringPoolHeaderIndex + header.styleStart;
-      stylePool = parseStylePool(objectInput, header, stylePoolIndex);
+      stylePool = parseStylePool(objectIO, header, stylePoolIndex);
     } else {
       //noinspection unchecked
       stylePool = new List[0];

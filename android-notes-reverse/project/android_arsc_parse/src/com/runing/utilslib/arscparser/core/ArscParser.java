@@ -1,7 +1,7 @@
 package com.runing.utilslib.arscparser.core;
 
 import com.runing.utilslib.arscparser.type.*;
-import com.runing.utilslib.arscparser.util.objectio.ObjectIO;
+import com.runing.utilslib.arscparser.util.objectio.ObjectInput;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -14,8 +14,8 @@ public class ArscParser {
   private long mIndex;
   private String[] stringPool;
 
-  private void parseResTableType(ObjectIO objectIO) throws Exception {
-    final ResTableHeader tableType = objectIO.read(ResTableHeader.class, mIndex);
+  private void parseResTableType(ObjectInput objectInput) throws Exception {
+    final ResTableHeader tableType = objectInput.read(ResTableHeader.class, mIndex);
     System.out.println("resource table header:");
     System.out.println(tableType);
 
@@ -23,14 +23,14 @@ public class ArscParser {
     mIndex += tableType.header.headerSize;
   }
 
-  private void parseStringPool(ObjectIO objectIO) throws Exception {
+  private void parseStringPool(ObjectInput objectInput) throws Exception {
     final long stringPoolIndex = mIndex;
-    ResStringPoolHeader stringPoolHeader = objectIO.read(ResStringPoolHeader.class, stringPoolIndex);
+    ResStringPoolHeader stringPoolHeader = objectInput.read(ResStringPoolHeader.class, stringPoolIndex);
     System.out.println("string pool header:");
     System.out.println(stringPoolHeader);
 
     StringPoolChunkParser stringPoolChunkParser = new StringPoolChunkParser();
-    stringPoolChunkParser.parseStringPoolChunk(objectIO, stringPoolHeader, stringPoolIndex);
+    stringPoolChunkParser.parseStringPoolChunk(objectInput, stringPoolHeader, stringPoolIndex);
 
     System.out.println();
     System.out.println("string index array:");
@@ -65,9 +65,9 @@ public class ArscParser {
     mIndex += stringPoolHeader.header.size;
   }
 
-  private void parseTablePackageType(ObjectIO objectIO) throws IOException {
+  private void parseTablePackageType(ObjectInput objectInput) throws IOException {
     final long tablePackageIndex = mIndex;
-    final ResTablePackage tablePackage = objectIO.read(ResTablePackage.class, tablePackageIndex);
+    final ResTablePackage tablePackage = objectInput.read(ResTablePackage.class, tablePackageIndex);
 
     System.out.println("table package type:");
     System.out.println(tablePackage);
@@ -76,14 +76,14 @@ public class ArscParser {
     mIndex += tablePackage.header.headerSize;
   }
 
-  private void parseTableTypeSpecType(ObjectIO objectIO) throws IOException {
+  private void parseTableTypeSpecType(ObjectInput objectInput) throws IOException {
     final long typeSpecIndex = mIndex;
-    ResTableTypeSpec tableTypeSpec = objectIO.read(ResTableTypeSpec.class, typeSpecIndex);
+    ResTableTypeSpec tableTypeSpec = objectInput.read(ResTableTypeSpec.class, typeSpecIndex);
 
     System.out.println("table type spec type:");
     System.out.println(tableTypeSpec);
 
-    int[] entryArray = TableTypeChunkParser.parseSpecEntryArray(objectIO, tableTypeSpec, typeSpecIndex);
+    int[] entryArray = TableTypeChunkParser.parseSpecEntryArray(objectInput, tableTypeSpec, typeSpecIndex);
 
     System.out.println();
     System.out.println("table type spec type entry array:");
@@ -93,14 +93,14 @@ public class ArscParser {
     mIndex += tableTypeSpec.header.size;
   }
 
-  private void parseTableTypeType(ObjectIO objectIO) throws IOException {
+  private void parseTableTypeType(ObjectInput objectInput) throws IOException {
     final long tableTypeIndex = mIndex;
-    final ResTableType tableType = objectIO.read(ResTableType.class, tableTypeIndex);
+    final ResTableType tableType = objectInput.read(ResTableType.class, tableTypeIndex);
 
     System.out.println("table type type:");
     System.out.println(tableType);
 
-    int[] offsetArray = TableTypeChunkParser.parseTypeOffsetArray(objectIO, tableType, tableTypeIndex);
+    int[] offsetArray = TableTypeChunkParser.parseTypeOffsetArray(objectInput, tableType, tableTypeIndex);
 
     System.out.println();
     System.out.println("offset array:");
@@ -110,7 +110,7 @@ public class ArscParser {
 
     for (int i = 0; i < offsetArray.length; i++) {
       final long entryIndex = offsetArray[i] + tableEntryIndex;
-      final ResTableEntry tableEntry = objectIO.read(ResTableEntry.class, entryIndex);
+      final ResTableEntry tableEntry = objectInput.read(ResTableEntry.class, entryIndex);
 
       System.out.println();
       System.out.println("table type type entry " + i + ":");
@@ -119,7 +119,7 @@ public class ArscParser {
 
       if (tableEntry.flags == ResTableEntry.FLAG_COMPLEX) {
         // parse ResTable_map
-        final ResTableMapEntry tableMapEntry = objectIO.read(ResTableMapEntry.class, entryIndex);
+        final ResTableMapEntry tableMapEntry = objectInput.read(ResTableMapEntry.class, entryIndex);
 
         System.out.println(tableMapEntry);
 
@@ -128,50 +128,50 @@ public class ArscParser {
         for (int j = 0; j < tableMapEntry.count; j++) {
           final long tableMapIndex = index + entryIndex + tableMapEntry.size;
 
-          ResTableMap tableMap = objectIO.read(ResTableMap.class, tableMapIndex);
+          ResTableMap tableMap = objectInput.read(ResTableMap.class, tableMapIndex);
           System.out.println("table map " + j + ":");
           System.out.println(tableMap);
 
-          index += ObjectIO.sizeOf(ResTableMap.class);
+          index += ObjectInput.sizeOf(ResTableMap.class);
         }
       } else {
         // parse Res_value
-        final int entrySize = ObjectIO.sizeOf(ResTableEntry.class);
-        final ResValue value = objectIO.read(ResValue.class, entryIndex + entrySize);
+        final int entrySize = ObjectInput.sizeOf(ResTableEntry.class);
+        final ResValue value = objectInput.read(ResValue.class, entryIndex + entrySize);
 
         System.out.println(value);
       }
     }
 
-    mIndex = objectIO.size();
+    mIndex = objectInput.size();
   }
 
-  private void parse(ObjectIO objectIO) throws Exception {
-    while (!objectIO.isEof(mIndex)) {
-      ResChunkHeader header = objectIO.read(ResChunkHeader.class, mIndex);
+  private void parse(ObjectInput objectInput) throws Exception {
+    while (!objectInput.isEof(mIndex)) {
+      ResChunkHeader header = objectInput.read(ResChunkHeader.class, mIndex);
 
       System.out.println();
       System.out.println("================================ " + ResourceTypes.nameOf(header.type) +
           " ================================");
       switch (header.type) {
         case ResourceTypes.RES_TABLE_TYPE:
-          parseResTableType(objectIO);
+          parseResTableType(objectInput);
           break;
 
         case ResourceTypes.RES_STRING_POOL_TYPE:
-          parseStringPool(objectIO);
+          parseStringPool(objectInput);
           break;
 
         case ResourceTypes.RES_TABLE_PACKAGE_TYPE:
-          parseTablePackageType(objectIO);
+          parseTablePackageType(objectInput);
           break;
 
         case ResourceTypes.RES_TABLE_TYPE_SPEC_TYPE:
-          parseTableTypeSpecType(objectIO);
+          parseTableTypeSpecType(objectInput);
           break;
 
         case ResourceTypes.RES_TABLE_TYPE_TYPE:
-          parseTableTypeType(objectIO);
+          parseTableTypeType(objectInput);
           break;
 
         default:
@@ -191,17 +191,17 @@ public class ArscParser {
   }
 
   public void parse(String file) {
-    ObjectIO objectIO = null;
+    ObjectInput objectInput = null;
 
     try {
-      objectIO = new ObjectIO(file, false);
-      parse(objectIO);
+      objectInput = new ObjectInput(file, false);
+      parse(objectInput);
 
     } catch (Exception e) {
       e.printStackTrace();
 
     } finally {
-      closeQuietly(objectIO);
+      closeQuietly(objectInput);
     }
   }
 }

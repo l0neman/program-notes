@@ -6,7 +6,7 @@ import java.util.List;
 /**
  * Android 编辑工具。
  */
-class XmlEditor {
+class AXmlEditor {
   private static final String ACTION_OPEN = "open";
   private static final String ACTION_DATA = "data";
   private static final String ACTION_CLOSE = "close";
@@ -16,7 +16,7 @@ class XmlEditor {
   private List<String[]> namespaceUris = new ArrayList<>();
   private String lastAction;
 
-  XmlEditor() {
+  AXmlEditor() {
     xmlBuilder = new StringBuilder();
     addHeader();
   }
