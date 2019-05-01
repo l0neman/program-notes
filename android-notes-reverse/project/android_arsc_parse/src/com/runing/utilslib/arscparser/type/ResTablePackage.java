@@ -2,6 +2,7 @@ package com.runing.utilslib.arscparser.type;
 
 import com.runing.utilslib.arscparser.util.Formatter;
 import com.runing.utilslib.arscparser.util.objectio.Struct;
+import com.runing.utilslib.arscparser.util.objectio.FieldOrder;
 
 /*
 struct ResTable_package
@@ -46,27 +47,27 @@ public class ResTablePackage implements Struct {
    * {@link ResChunkHeader#size} = head.headerSize + 类型字符串资源池大小 + 类型规范名称字符串池大小 +
    * 类型规范数据块大小 + 数据项信息数据块大小。
    */
-  public ResChunkHeader header;
+  @FieldOrder(n = 0) public ResChunkHeader header;
   /** Package ID */
-  public int id;
+  @FieldOrder(n = 1) public int id;
   /** Package Name */
-  public char[] name = new char[128];
+  @FieldOrder(n = 2) public char[] name = new char[128];
   /**
    * 类型字符串资源池相对头部的偏移位置。
    */
-  public int typeStrings;
+  @FieldOrder(n = 3) public int typeStrings;
   /**
    * 最后一个导出的 public 类型字符串在类型字符串资源池中的索引，目前这个值设置为类型字符串资源池的大小。
    */
-  public int lastPublicType;
+  @FieldOrder(n = 4) public int lastPublicType;
   /**
    * 资源项名称字符串相对头部的偏移位置。
    */
-  public int keyStrings;
+  @FieldOrder(n = 5) public int keyStrings;
   /**
    * 最后一个导出的 public 资源项名称字符串在资源项名称字符串资源池中的索引，目前这个值设置为资源项名称字符串资源池的大小。
    */
-  public int lastPublicKey;
+  @FieldOrder(n = 6) public int lastPublicKey;
 
   @Override
   public String toString() {

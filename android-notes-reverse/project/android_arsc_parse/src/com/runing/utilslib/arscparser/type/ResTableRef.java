@@ -8,13 +8,14 @@ struct ResTable_ref
 
 import com.runing.utilslib.arscparser.util.Formatter;
 import com.runing.utilslib.arscparser.util.objectio.Struct;
+import com.runing.utilslib.arscparser.xml.export.util.objectio.FieldOrder;
 
 /**
  * 资源的引用（ResID）
  */
 public class ResTableRef implements Struct {
 
-  public int ident;
+  @FieldOrder(n = 0) public int ident;
 
   @Override
   public String toString() {

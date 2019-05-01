@@ -10,6 +10,7 @@ struct ResTable_header
 };
  */
 
+import com.runing.utilslib.arscparser.util.objectio.FieldOrder;
 import com.runing.utilslib.arscparser.util.objectio.Struct;
 
 /**
@@ -24,11 +25,11 @@ public class ResTableHeader implements Struct {
    * <p>
    * {@link ResChunkHeader#size} = 整个 resources.arsc 文件的大小。
    */
-  public ResChunkHeader header;
+  @FieldOrder(n = 0) public ResChunkHeader header;
   /**
    * 被编译的资源包数量
    */
-  public int packageCount;
+  @FieldOrder(n = 1) public int packageCount;
 
   @Override
   public String toString() {

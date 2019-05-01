@@ -228,6 +228,24 @@ public class ObjectInput implements Closeable {
     private static SimpleLru<Class<?>, Field[]> sFullDeclaredFieldsMap = new SimpleLru<>(MAX_CACHE_CLASS);
     private static SimpleLru<Class<?>, Integer> sClassSizeCache = new SimpleLru<>(20);
 
+    private static Comparator<Field> fieldComparator = new Comparator<Field>() {
+      @Override
+      public int compare(Field o1, Field o2) {
+        final FieldOrder a1 = o1.getAnnotation(FieldOrder.class);
+        final FieldOrder a2 = o2.getAnnotation(FieldOrder.class);
+        // 静态成员可能没有注解。
+        if (a1 == null) {
+          return -1;
+        }
+
+        if(a2 == null) {
+          return 1;
+        }
+
+        return a1.n() - a2.n();
+      }
+    };
+
     static Field[] fullDeclaredFields(Class<?> clazz) {
       Field[] fullDeclaredFields = sFullDeclaredFieldsMap.get(clazz);
       if (fullDeclaredFields == null) {
@@ -245,10 +263,13 @@ public class ObjectInput implements Closeable {
       Class<?> parent = clazz.getSuperclass();
       while (parent != Object.class) {
         final Field[] parentFields = parent.getDeclaredFields();
+
+        Arrays.sort(parentFields, fieldComparator);
         fullFields.addAll(Arrays.asList(parentFields));
         parent = parent.getSuperclass();
       }
 
+      Arrays.sort(fields, fieldComparator);
       fullFields.addAll(Arrays.asList(fields));
       return fullFields.toArray(new Field[0]);
     }

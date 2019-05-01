@@ -10,6 +10,7 @@ struct ResStringPool_ref
 };
  */
 
+import com.runing.utilslib.arscparser.xml.export.util.objectio.FieldOrder;
 import com.runing.utilslib.arscparser.xml.export.util.objectio.Struct;
 
 /**
@@ -17,5 +18,5 @@ import com.runing.utilslib.arscparser.xml.export.util.objectio.Struct;
  */
 public class ResStringPoolRef implements Struct {
 
-  public int index;
+  @FieldOrder(n = 0) public int index;
 }

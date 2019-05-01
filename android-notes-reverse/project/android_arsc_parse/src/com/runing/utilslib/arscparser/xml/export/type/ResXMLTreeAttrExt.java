@@ -1,6 +1,7 @@
 package com.runing.utilslib.arscparser.xml.export.type;
 
 import com.runing.utilslib.arscparser.xml.export.type.ResStringPoolRef;
+import com.runing.utilslib.arscparser.xml.export.util.objectio.FieldOrder;
 import com.runing.utilslib.arscparser.xml.export.util.objectio.Struct;
 
 
@@ -38,27 +39,27 @@ struct ResXMLTree_attrExt
  */
 public class ResXMLTreeAttrExt implements Struct {
   /** 元素所在命令空间在字符池资源池的索引，未指定则为 -1 */
-  public ResStringPoolRef ns;
+  @FieldOrder(n = 0) public ResStringPoolRef ns;
   /** 元素名称在字符串池资源的索引 */
-  public ResStringPoolRef name;
+  @FieldOrder(n = 1) public ResStringPoolRef name;
   /**
    * 等于 sizeOf(ResXMLTreeAttrExt.class)，表示元素属性 chunk 相对于 RES_XML_START_ELEMENT_TYPE 头部的偏移。
    */
-  public short attributeStart;
+  @FieldOrder(n = 2) public short attributeStart;
   /** sizeOf(ResXMLTreeAttribute.class)，表示每一个属性占据的 chunk 大小 */
-  public short attributeSize;
+  @FieldOrder(n = 3) public short attributeSize;
   /** 表示属性 chunk 数量 */
-  public short attributeCount;
+  @FieldOrder(n = 4) public short attributeCount;
   /**
    * 如果元素有一个名称为 id 的属性，那么将它出现在属性列表中的位置再加上 1 的值记录在 idIndex 中，否则 idIndex 的值等于 0。
    */
-  public short idIndex;
+  @FieldOrder(n = 5) public short idIndex;
   /**
    * 如果元素有一个名称为 class 的属性，那么将它出现在属性列表中的位置再加上 1 的值记录在 classIndex 中，否则 classIndex 的值等于 0。
    */
-  public short classIndex;
+  @FieldOrder(n = 6) public short classIndex;
   /**
    * 如果元素有一个名称为 style 的属性，那么将它出现在属性列表中的位置再加上 1 的值记录在 styleIndex 中，否则 styleIndex 的值等于 0。
    */
-  public short styleIndex;
+  @FieldOrder(n = 7) public short styleIndex;
 }

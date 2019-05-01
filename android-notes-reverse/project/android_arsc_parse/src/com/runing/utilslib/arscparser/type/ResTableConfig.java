@@ -1,5 +1,6 @@
 package com.runing.utilslib.arscparser.type;
 
+import com.runing.utilslib.arscparser.util.objectio.FieldOrder;
 import com.runing.utilslib.arscparser.util.objectio.Struct;
 import com.runing.utilslib.arscparser.util.objectio.Union;
 
@@ -264,7 +265,7 @@ struct ResTable_config
 public class ResTableConfig implements Struct {
 
   /** ResTableConfig 配置大小 */
-  public int size;
+  @FieldOrder(n = 0) public int size;
 
   public static class MobileConfig implements Union {
     public static class Type implements Struct {

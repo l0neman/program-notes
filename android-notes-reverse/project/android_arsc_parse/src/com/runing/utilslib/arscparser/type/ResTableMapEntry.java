@@ -1,5 +1,7 @@
 package com.runing.utilslib.arscparser.type;
 
+import com.runing.utilslib.arscparser.xml.export.util.objectio.FieldOrder;
+
 /*
 struct ResTable_map_entry : public ResTable_entry
 {
@@ -14,9 +16,9 @@ public class ResTableMapEntry extends ResTableEntry {
   /**
    * 指向父 ResTable_map_entry 的资源 ID，如果没有父 ResTable_map_entry，则等于 0。
    */
-  public ResTableRef parent;
+  @FieldOrder(n = 0) public ResTableRef parent;
   /** bag 项的个数。 */
-  public int count;
+  @FieldOrder(n = 1) public int count;
 
   @Override
   public String toString() {

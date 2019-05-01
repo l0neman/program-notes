@@ -399,18 +399,16 @@ public class AXmlParser {
         closeable.close();
       } catch (IOException ignore) {
       } catch (RuntimeException e) {
-        e.printStackTrace();
+        throw new RuntimeException(e);
       }
     }
   }
 
-  public void parse(String file) {
+  public void parse(String file) throws IOException {
     ObjectInput objectInput = null;
     try {
       objectInput = new ObjectInput(file);
       parse(objectInput);
-    } catch (IOException e) {
-      e.printStackTrace();
     } finally {
       closeQuietly(objectInput);
     }

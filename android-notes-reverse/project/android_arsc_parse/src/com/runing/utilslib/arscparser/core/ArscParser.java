@@ -14,7 +14,7 @@ public class ArscParser {
   private long mIndex;
   private String[] stringPool;
 
-  private void parseResTableType(ObjectInput objectInput) throws Exception {
+  private void parseResTableType(ObjectInput objectInput) throws IOException {
     final ResTableHeader tableType = objectInput.read(ResTableHeader.class, mIndex);
     System.out.println("resource table header:");
     System.out.println(tableType);
@@ -23,7 +23,7 @@ public class ArscParser {
     mIndex += tableType.header.headerSize;
   }
 
-  private void parseStringPool(ObjectInput objectInput) throws Exception {
+  private void parseStringPool(ObjectInput objectInput) throws IOException {
     final long stringPoolIndex = mIndex;
     ResStringPoolHeader stringPoolHeader = objectInput.read(ResStringPoolHeader.class, stringPoolIndex);
     System.out.println("string pool header:");
@@ -146,7 +146,7 @@ public class ArscParser {
     mIndex = objectInput.size();
   }
 
-  private void parse(ObjectInput objectInput) throws Exception {
+  private void parse(ObjectInput objectInput) throws IOException {
     while (!objectInput.isEof(mIndex)) {
       ResChunkHeader header = objectInput.read(ResChunkHeader.class, mIndex);
 
@@ -185,21 +185,17 @@ public class ArscParser {
         closeable.close();
       } catch (IOException ignore) {
       } catch (RuntimeException e) {
-        e.printStackTrace();
+        throw new RuntimeException(e);
       }
     }
   }
 
-  public void parse(String file) {
+  public void parse(String file) throws IOException{
     ObjectInput objectInput = null;
 
     try {
       objectInput = new ObjectInput(file, false);
       parse(objectInput);
-
-    } catch (Exception e) {
-      e.printStackTrace();
-
     } finally {
       closeQuietly(objectInput);
     }

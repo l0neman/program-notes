@@ -1,6 +1,7 @@
 package com.runing.utilslib.arscparser.type;
 
 import com.runing.utilslib.arscparser.util.objectio.Struct;
+import com.runing.utilslib.arscparser.xml.export.util.objectio.FieldOrder;
 
 /*
 struct ResTable_map
@@ -90,9 +91,9 @@ enum {
  */
 public class ResTableMap implements Struct {
   /** 引用资源地址 */
-  public ResTableRef name;
+  @FieldOrder(n = 0) public ResTableRef name;
   /** 资源值 */
-  public ResValue value;
+  @FieldOrder(n = 1) public ResValue value;
 
   @Override
   public String toString() {

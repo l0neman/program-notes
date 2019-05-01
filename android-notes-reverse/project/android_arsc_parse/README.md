@@ -37,6 +37,11 @@ AXmlParser xmlParser = new AXmlParser();
 // 设置解析处理器。
 xmlParser.setHandler(new AXmlParser.Handler() {
   @Override
+  protected void startXml() {
+    System.out.println("start xml");
+  }
+
+  @Override
   protected void startNamespace(String ns, String nsUri) {
     System.out.println("start ns :" + ns + " nsUri: " + nsUri);
   }
@@ -64,6 +69,11 @@ xmlParser.setHandler(new AXmlParser.Handler() {
   @Override
   protected void endNamespace(String ns, String nsUri) {
     System.out.println("end ns :" + ns + " nsUri: " + nsUri);
+  }
+  
+  @Override
+  protected void endXml() {
+    System.out.println("end xml");
   }
 });
 

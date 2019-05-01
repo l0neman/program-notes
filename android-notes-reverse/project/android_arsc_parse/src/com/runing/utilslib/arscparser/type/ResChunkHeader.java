@@ -1,5 +1,6 @@
 package com.runing.utilslib.arscparser.type;
 
+import com.runing.utilslib.arscparser.util.objectio.FieldOrder;
 import com.runing.utilslib.arscparser.util.objectio.Struct;
 
 /*
@@ -29,11 +30,11 @@ struct ResChunk_header
 public class ResChunkHeader implements Struct {
 
   /** Chunk 类型 */
-  public short type;
+  @FieldOrder(n = 0) public short type;
   /** Chunk 头部大小 */
-  public short headerSize;
+  @FieldOrder(n = 1) public short headerSize;
   /** Chunk 大小 */
-  public int size;
+  @FieldOrder(n = 2) public int size;
 
   @Override
   public String toString() {

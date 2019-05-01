@@ -1,5 +1,6 @@
 package com.runing.utilslib.arscparser.type;
 
+import com.runing.utilslib.arscparser.util.objectio.FieldOrder;
 import com.runing.utilslib.arscparser.util.objectio.Struct;
 
 /*
@@ -49,17 +50,17 @@ public class ResStringPoolHeader implements Struct {
    * <p>
    * {@link ResChunkHeader#size} = 整个字符串 Chunk 的大小，包括 headerSize 的大小。
    */
-  public ResChunkHeader header;
+  @FieldOrder(n = 0) public ResChunkHeader header;
   /** 字符串的数量 */
-  public int stringCount;
+  @FieldOrder(n = 1) public int stringCount;
   /** 字符串样式的数量 */
-  public int styleCount;
+  @FieldOrder(n = 2) public int styleCount;
   /** 0, SORTED_FLAG, UTF8_FLAG or bitwise or value */
-  public int flags;
+  @FieldOrder(n = 3) public int flags;
   /** 字符串内容块相对于其头部的距离 */
-  public int stringStart;
+  @FieldOrder(n = 4) public int stringStart;
   /** 字符串样式块相对于其头部的距离 */
-  public int styleStart;
+  @FieldOrder(n = 5) public int styleStart;
 
   @Override
   public String toString() {

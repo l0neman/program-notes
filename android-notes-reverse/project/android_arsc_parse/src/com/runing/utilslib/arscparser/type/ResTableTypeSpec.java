@@ -26,6 +26,7 @@ struct ResTable_typeSpec
  */
 
 import com.runing.utilslib.arscparser.util.Formatter;
+import com.runing.utilslib.arscparser.util.objectio.FieldOrder;
 import com.runing.utilslib.arscparser.util.objectio.Struct;
 
 /**
@@ -40,15 +41,15 @@ public class ResTableTypeSpec implements Struct {
    * <p>
    * {@link ResChunkHeader#size} = header.headerSize + {@link Integer#BYTES} * {@link #entryCount}
    */
-  public ResChunkHeader header;
+  @FieldOrder(n = 0) public ResChunkHeader header;
   /** 资源 Type ID */
-  public byte id;
+  @FieldOrder(n = 1) public byte id;
   /** 0，保留 */
-  public byte res0;
+  @FieldOrder(n = 2) public byte res0;
   /** 0，保留 */
-  public short res1;
+  @FieldOrder(n = 3) public short res1;
   /** 本类型的资源项个数，即名称相同的资源项的个数 */
-  public int entryCount;
+  @FieldOrder(n = 4) public int entryCount;
 
   @Override
   public String toString() {

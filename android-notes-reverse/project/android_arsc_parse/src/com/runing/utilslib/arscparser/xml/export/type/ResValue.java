@@ -1,5 +1,6 @@
 package com.runing.utilslib.arscparser.xml.export.type;
 
+import com.runing.utilslib.arscparser.xml.export.util.objectio.FieldOrder;
 import com.runing.utilslib.arscparser.xml.export.util.objectio.Struct;
 
 /*
@@ -129,13 +130,11 @@ struct Res_value
  */
 public class ResValue implements Struct {
   /** ResValue 值大小 */
-  public short size;
+  @FieldOrder(n = 0) public short size;
   /** 0, 保留 */
-  public byte res0;
-
+  @FieldOrder(n = 1) public byte res0;
   /** 数据类型 */
-  public byte dataType;
-
+  @FieldOrder(n = 2) public byte dataType;
   /** 数据 */
-  public int data;
+  @FieldOrder(n = 3) public int data;
 }

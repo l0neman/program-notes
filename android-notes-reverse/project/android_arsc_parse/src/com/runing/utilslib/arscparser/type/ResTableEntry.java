@@ -25,6 +25,7 @@ struct ResTable_entry
 };
  */
 
+import com.runing.utilslib.arscparser.util.objectio.FieldOrder;
 import com.runing.utilslib.arscparser.util.objectio.Struct;
 
 /**
@@ -35,16 +36,16 @@ public class ResTableEntry implements Struct {
   public static final int FLAG_PUBLIC = 0x0002;
 
   /** sizeOf(ResTableEntry.class) 资源项头部大小 */
-  public short size;
+  @FieldOrder(n = 0) public short size;
   /**
    * 资源项标志位。如果是一个 Bag 资源项，那么 FLAG_COMPLEX 位就等于 1，并且在 ResTable_entry 后面跟有一个 ResTable_map 数组，
    * 否则的话，在 ResTable_entry {@link ResTableEntry} 后面跟的是一个 Res_value。如果是一个可以被引用的资源项，那么 FLAG_PUBLIC 位就等于1
    */
-  public short flags;
+  @FieldOrder(n = 1) public short flags;
   /**
    * 资源项名称在资源项名称字符串资源池的索引。
    */
-  public ResStringPoolRef key;
+  @FieldOrder(n = 2) public ResStringPoolRef key;
 
   @Override
   public String toString() {

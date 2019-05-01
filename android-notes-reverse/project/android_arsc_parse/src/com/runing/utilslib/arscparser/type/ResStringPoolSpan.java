@@ -17,6 +17,7 @@ struct ResStringPool_span
 };
  */
 
+import com.runing.utilslib.arscparser.util.objectio.FieldOrder;
 import com.runing.utilslib.arscparser.util.objectio.Struct;
 
 /**
@@ -27,11 +28,11 @@ public class ResStringPoolSpan implements Struct {
   public static final int END = 0xFFFFFFFF;
 
   /** 本样式在字符串内容块中的字节位置 */
-  public ResStringPoolRef name;
+  @FieldOrder(n = 0) public ResStringPoolRef name;
   /** 包含样式的字符串的第一个字符索引 */
-  public int firstChar;
+  @FieldOrder(n = 1) public int firstChar;
   /** 包含样式的字符串的最后一个字符索引 */
-  public int lastChar;
+  @FieldOrder(n = 2) public int lastChar;
 
   @Override
   public String toString() {

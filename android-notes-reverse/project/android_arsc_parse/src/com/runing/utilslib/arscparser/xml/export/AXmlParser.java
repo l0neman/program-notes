@@ -17,6 +17,10 @@ public class AXmlParser {
 
   /** 解析处理器 */
   public static abstract class Handler {
+
+    /** 开启解析 xml */
+    protected void startXml() {}
+
     /**
      * 命名空间解析起始点。
      *
@@ -67,10 +71,15 @@ public class AXmlParser {
      * @param nsUri 命名空间 uri。
      */
     protected void endNamespace(String ns, String nsUri) {}
+
+    /** 解析 xml 完毕 */
+    protected void endXml() {}
   }
 
   private void parseXMLTreeHeader(ObjectInput ObjectInput) throws IOException {
     ResXMLTreeHeader xmlTreeHeader = ObjectInput.read(ResXMLTreeHeader.class, mIndex);
+
+    mHandler.startXml();
 
     mIndex += xmlTreeHeader.header.headerSize;
   }
@@ -228,6 +237,8 @@ public class AXmlParser {
           break;
       }
     }
+
+    mHandler.endXml();
   }
 
   private static void closeQuietly(Closeable closeable) {

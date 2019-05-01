@@ -1,7 +1,6 @@
 package com.runing.utilslib.arscparser.xml.export.type;
 
-import com.runing.utilslib.arscparser.xml.export.type.ResChunkHeader;
-import com.runing.utilslib.arscparser.xml.export.type.ResourceTypes;
+import com.runing.utilslib.arscparser.xml.export.util.objectio.FieldOrder;
 import com.runing.utilslib.arscparser.xml.export.util.objectio.Struct;
 
 
@@ -19,5 +18,5 @@ public class ResXMLTreeHeader implements Struct {
    * <p>
    * {@link ResChunkHeader#size} = 整个二进制 Xml 文件的大小，包括头部的大小。
    */
-  public ResChunkHeader header;
+  @FieldOrder(n = 0) public ResChunkHeader header;
 }

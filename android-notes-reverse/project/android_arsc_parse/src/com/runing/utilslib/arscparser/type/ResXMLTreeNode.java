@@ -1,5 +1,6 @@
 package com.runing.utilslib.arscparser.type;
 
+import com.runing.utilslib.arscparser.util.objectio.FieldOrder;
 import com.runing.utilslib.arscparser.util.objectio.Struct;
 
 /*
@@ -29,15 +30,15 @@ public class ResXMLTreeNode implements Struct {
    * <p>
    * {@link ResChunkHeader#size} = sizeof(ResXMLTreeNode.class) + sizeof(ResXMLTreeNamespaceExt.class)
    */
-  public ResChunkHeader header;
+  @FieldOrder(n = 0) public ResChunkHeader header;
   /**
    * 命名空间开始标签在原来文本格式的 Xml 文件出现的行号
    */
-  public int lineNumber;
+  @FieldOrder(n = 1) public int lineNumber;
   /**
    * 命名空间的注释在字符池资源池的索引。
    */
-  public ResStringPoolRef comment;
+  @FieldOrder(n = 2) public ResStringPoolRef comment;
 
   @Override
   public String toString() {

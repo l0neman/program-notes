@@ -1,5 +1,6 @@
 package com.runing.utilslib.arscparser.type;
 
+import com.runing.utilslib.arscparser.util.objectio.FieldOrder;
 import com.runing.utilslib.arscparser.util.objectio.Struct;
 
 /*
@@ -20,13 +21,13 @@ struct ResXMLTree_attribute
  */
 public class ResXMLTreeAttribute implements Struct {
   /** 表示属性的命令空间在字符池资源池的索引，未指定则等于 -1 */
-  public ResStringPoolRef ns;
+  @FieldOrder(n = 0) public ResStringPoolRef ns;
   /** 属性名称字符串在字符池资源池的索引 */
-  public ResStringPoolRef name;
+  @FieldOrder(n = 1) public ResStringPoolRef name;
   /** 属性的原始值在字符池资源池的索引，这是可选的，如果不保留，它的值等于 -1 */
-  public ResStringPoolRef rawValue;
+  @FieldOrder(n = 2) public ResStringPoolRef rawValue;
   /** resValue */
-  public ResValue typeValue;
+  @FieldOrder(n = 3) public ResValue typeValue;
 
   @Override
   public String toString() {

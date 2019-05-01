@@ -32,6 +32,7 @@ struct ResTable_type
 
 import com.runing.utilslib.arscparser.util.Formatter;
 import com.runing.utilslib.arscparser.util.objectio.Struct;
+import com.runing.utilslib.arscparser.xml.export.util.objectio.FieldOrder;
 
 /**
  * 类型资源项数据块。
@@ -46,19 +47,19 @@ public class ResTableType implements Struct {
    * <p>
    * {@link ResChunkHeader#size} = header.headerSize + {@link Integer#BYTES} * {@link #entryCount}
    */
-  public ResChunkHeader header;
+  @FieldOrder(n = 0) public ResChunkHeader header;
   /** 资源 Type ID */
-  public byte id;
+  @FieldOrder(n = 1) public byte id;
   /** 0，保留 */
-  public byte res0;
+  @FieldOrder(n = 2) public byte res0;
   /** 0，保留 */
-  public short res1;
+  @FieldOrder(n = 3) public short res1;
   /** 本类型的资源项个数，即名称相同的资源项的个数 */
-  public int entryCount;
+  @FieldOrder(n = 4) public int entryCount;
   /** 资源项数据块相对头部的偏移值 */
-  public int entriesStart;
+  @FieldOrder(n = 5) public int entriesStart;
   /** 描述配置信息 */
-  public ResTableConfig config;
+  @FieldOrder(n = 6) public ResTableConfig config;
 
   @Override
   public String toString() {

@@ -2,6 +2,7 @@ package com.runing.utilslib.arscparser.type;
 
 import com.runing.utilslib.arscparser.util.Formatter;
 import com.runing.utilslib.arscparser.util.objectio.Struct;
+import com.runing.utilslib.arscparser.util.objectio.FieldOrder;
 
 /*
 struct Res_value
@@ -130,9 +131,9 @@ struct Res_value
  */
 public class ResValue implements Struct {
   /** ResValue 值大小 */
-  public short size;
+  @FieldOrder(n = 0) public short size;
   /** 0, 保留 */
-  public byte res0;
+  @FieldOrder(n = 1) public byte res0;
 
   public static final short TYPE_NULL = 0x00;
   public static final short TYPE_REFERENCE = 0x01;
@@ -155,7 +156,7 @@ public class ResValue implements Struct {
   public static final short TYPE_LAST_INT = 0x1f;
 
   /** 数据类型 */
-  public byte dataType;
+  @FieldOrder(n = 2) public byte dataType;
 
   public static final int COMPLEX_UNIT_SHIFT = 0;
   public static final int COMPLEX_UNIT_MASK = 0xf;
@@ -180,7 +181,7 @@ public class ResValue implements Struct {
   public static final int DATA_NULL_EMPTY = 1;
 
   /** 数据 */
-  public int data;
+  @FieldOrder(n = 3) public int data;
 
   private String dataTypeStr() {
     switch (dataType) {

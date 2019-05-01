@@ -1,7 +1,9 @@
 package com.runing.utilslib.arscparser;
 
 import com.runing.utilslib.arscparser.core.ArscParser;
-import com.runing.utilslib.arscparser.xml.export.AXmlParser;
+import com.runing.utilslib.arscparser.xml.AXmlParser;
+
+import java.io.IOException;
 
 public class Main {
 
@@ -15,11 +17,18 @@ public class Main {
   }
 
   private static void parseArscFile() {
-    new ArscParser().parse("./file/resources_gdt1.arsc");
+    try {
+      new ArscParser().parse("./file/resources_gdt1.arsc");
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
   }
 
   private static void parseBinaryXmlFile() {
-    new AXmlParser().parse("./file/AM.xml");
+    try {
+      new AXmlParser().parse("./file/drawable.xml");
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
   }
-
 }
