@@ -329,6 +329,27 @@ public class ResChunkHeader {
 
 使用方法为：
 
+1. 首先定义需要被解析的目标类型，例如 `ResChunkHeader.java`：
+
+```java
+/**
+ * 资源表 Chunk 基础结构。
+ */
+public class ResChunkHeader implements Struct {
+
+  /** Chunk 类型 */
+  @FieldOrder(n = 0) public short type;
+  /** Chunk 头部大小 */
+  @FieldOrder(n = 1) public short headerSize;
+  /** Chunk 大小 */
+  @FieldOrder(n = 2) public int size;
+}
+```
+
+由于需要按照成员顺序解析，而通过反射方法 `getDeclaredFields` 方法获取的成员列表顺序可能发生变化，所以这里采用 `FieldOrder` 注解的方式，保持成员定义的顺序。
+
+2. 调用解析方法。
+
 ```java
 ...
 private static void closeQuietly(Closeable closeable) {
