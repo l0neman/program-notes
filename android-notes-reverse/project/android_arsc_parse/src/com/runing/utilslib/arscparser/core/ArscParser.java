@@ -191,6 +191,8 @@ public class ArscParser {
   }
 
   public void parse(String file) throws IOException{
+    mIndex = 0;
+    stringPool = null;
     ObjectInput objectInput = null;
 
     try {

@@ -261,6 +261,10 @@ public class AXmlParser {
       throw new NullPointerException("handler is null");
     }
 
+    mIndex = 0;
+    mStringPool = null;
+    mNamespaceMap.clear();
+
     ObjectInput objectInput = null;
     try {
       objectInput = new ObjectInput(file);
