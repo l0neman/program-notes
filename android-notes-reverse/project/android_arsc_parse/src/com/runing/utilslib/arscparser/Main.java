@@ -26,7 +26,7 @@ public class Main {
 
   private static void parseBinaryXmlFile() {
     try {
-      new AXmlParser().parse("./file/AM.xml");
+      new AXmlParser().parse("./file/layout.xml");
     } catch (IOException e) {
       e.printStackTrace();
     }

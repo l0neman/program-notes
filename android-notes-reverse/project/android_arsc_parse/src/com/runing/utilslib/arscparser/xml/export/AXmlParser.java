@@ -102,9 +102,9 @@ public class AXmlParser {
     // 解析 xml 文件中出现的资源 ID。
     /*
     final int size = header.size;
-    final int count = size / Integer.BYTES;
+    final int count = (size - header.headerSize) / Integer.BYTES;
 
-    int index = mIndex + Integer.BYTES * 2;
+    int index = mIndex + header.headerSize;
     // */
 
     mIndex += header.size;
