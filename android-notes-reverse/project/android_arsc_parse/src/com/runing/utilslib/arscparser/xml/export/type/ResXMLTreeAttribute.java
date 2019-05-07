@@ -3,7 +3,6 @@ package com.runing.utilslib.arscparser.xml.export.type;
 import com.runing.utilslib.arscparser.xml.export.util.objectio.FieldOrder;
 import com.runing.utilslib.arscparser.xml.export.util.objectio.Struct;
 
-
 /*
 struct ResXMLTree_attribute
 {

@@ -145,7 +145,518 @@ public class ResStringPoolSpan implements Struct{
 
 ### Resource Ids Chunk
 
+Resource Ids Chunk 包含了 xml 文件中相关的资源 ID，例如 AndroidManifest.xml 中 `versionCode` 属性的 id 为 `0x0101021b`，那么 Resource Ids 块中就包括这个 id 值。
+
+这里 Resource Ids Chunk 的结构很简单，包含一个 `struct ResChunk_header` 结构的 `header`，然后后面包含一个大小为 `header.size - header.headerSize` 的 int 型 id 数组。
+
 ### Xml Content Chunk
+
+Xml Content Chunk 是二进制 Xml 的核心块结构，包含了 Xml 的主要内容。
+
+#### ResXMLTree_node
+
+此 Chunk 结构包含多种子 Chunk 结构，它们都有相同的头部结构，使用 `struct ResXMLTree_node` 结构描述，java 表示为：
+
+```java
+public class ResXMLTreeNode implements Struct {
+  /**
+   * {@link ResChunkHeader#type} =
+   * {@link ResourceTypes#RES_XML_START_NAMESPACE_TYPE} or
+   * {@link ResourceTypes#RES_XML_END_NAMESPACE_TYPE} or
+   * {@link ResourceTypes#RES_XML_START_ELEMENT_TYPE} or
+   * {@link ResourceTypes#RES_XML_END_ELEMENT_TYPE} or
+   * {@link ResourceTypes#RES_XML_CDATA_TYPE}
+   * <p>
+   * {@link ResChunkHeader#headerSize} = sizeOf(ResXMLTreeNode.class) 表示头部大小。
+   * <p>
+   * if (type == RES_XML_START_NAMESPACE_TYPE)
+   * <p>
+   * {@link ResChunkHeader#size} = sizeof(ResXMLTreeNode.class) + sizeof(ResXMLTreeNamespaceExt.class)
+   */
+  public ResChunkHeader header;
+  /**
+   * 命名空间开始标签在原来文本格式的 Xml 文件出现的行号
+   */
+  public int lineNumber;
+  /**
+   * 命名空间的注释在字符池资源池的索引。
+   */
+  public ResStringPoolRef comment;
+}
+```
+
+其中 `header` 描述此 Chunk 的基本信息，`lineNumber` 保存了原始行号，`comment` 则为注释信息。
+
+Start Namespace Chunk
+
+当一个 Xml 文件包含命名空间时，首次解析到的 Chunk 为 `Start Namespace Chunk`，然后后面解析到和 Xml 命名空间数量一致的 `Start Namespace Chunk`，它们使用 `struct ResXMLTree_namespaceExt ` 结构描述，java 表示为：
+
+```java
+public class ResXMLTreeNamespaceExt implements Struct {
+  /** 命名空间字符串在字符串资源池中的索引 */
+  public ResStringPoolRef prefix;
+  /** uri 字符串在字符串资源池中的索引 */
+  public ResStringPoolRef uri;
+}
+```
+
+其中包含命名空间的 `prefix` 和 `uri`，例如布局文件中经常出现的：
+
+```xml
+xmlns:http://schemas.android.com/apk/res/android="android"
+```
+
+它的 `prefix` 为 `android`，`uri` 为 `http://schemas.android.com/apk/res/android`
+
+#### Start Element Chunk
+
+当有 Xml 元素标签出现时，将会解析到 `Start Element Chunk`，它表示一个元素标签的开始，使用 `struct  ResXMLTree_attrExt` 结构描述，java 表示为：
+
+```java
+public class ResXMLTreeAttrExt implements Struct {
+  /** 元素所在命令空间在字符池资源池的索引，未指定则为 -1 */
+  public ResStringPoolRef ns;
+  /** 元素名称在字符串池资源的索引 */
+  public ResStringPoolRef name;
+  /**
+   * 等于 sizeOf(ResXMLTreeAttrExt.class)，表示元素属性 chunk 相对于 RES_XML_START_ELEMENT_TYPE 头部的偏移。
+   */
+  public short attributeStart;
+  /** sizeOf(ResXMLTreeAttribute.class)，表示每一个属性占据的 chunk 大小 */
+  public short attributeSize;
+  /** 表示属性 chunk 数量 */
+  public short attributeCount;
+  /**
+   * 如果元素有一个名称为 id 的属性，那么将它出现在属性列表中的位置再加上 1 的值记录在 idIndex 中，否则 idIndex 的值等于 0。
+   */
+  public short idIndex;
+  /**
+   * 如果元素有一个名称为 class 的属性，那么将它出现在属性列表中的位置再加上 1 的值记录在 classIndex 中，否则 classIndex 的值等于 0。
+   */
+  public short classIndex;
+  /**
+   * 如果元素有一个名称为 style 的属性，那么将它出现在属性列表中的位置再加上 1 的值记录在 styleIndex 中，否则 styleIndex 的值等于 0。
+   */
+  public short styleIndex;
+}
+```
+
+例如：
+
+```xml
+<LinearLayout xmlns:http://schemas.android.com/apk/res/android="android" xmlns:http://schemas.android.com/apk/res-auto="app" layout_gravity="0x00000050" id="@0x7f09002b" background="@0x0106000d" layout_width="-1" layout_height="-2">
+  ...
+</LinearLayout>
+```
+
+它的 `name` 为 `LinearLayout`，`ns` 为 `null`，`attributeCount` 等于 `5`。
+
+通过 `ResXMLTree_attrExt` 结构给出的元素信息，可以解析出它所包含的属性，属性使用 `struct ResXMLTree_attribute` 结构描述，使用 java 表示为：
+
+```java
+public class ResXMLTreeAttribute implements Struct {
+  /** 表示属性的命令空间在字符池资源池的索引，未指定则等于 -1 */
+  public ResStringPoolRef ns;
+  /** 属性名称字符串在字符池资源池的索引 */
+  public ResStringPoolRef name;
+  /** 属性的原始值在字符池资源池的索引，这是可选的，如果不保留，它的值等于 -1 */
+  public ResStringPoolRef rawValue;
+  /** resValue */
+  public ResValue typeValue;
+}
+```
+
+#### CData Chunk
+
+当一个元素标签包含值内容时，将会解析到 CData Chunk 结构。
+
+例如 `<string>abc</string>`，其中的 `CData` 为 abc，CData Chunk 使用 `struct ResXMLTree_cdataExt` 描述，java 表示为：
+
+```java
+public class ResXMLTreeCdataExt implements Struct {
+  /** CDATA 原始值在字符串池中的索引 */
+  public ResStringPoolRef data;
+  /** CDATA 的资源类型 */
+  public ResValue typeData;
+}
+```
+
+#### End Element Chunk
+
+End Element Chunk 表示元素标签的结束，和 Start Element Chunk 对应，它使用 `struct ResXMLTree_endElementExt` 描述，java 表示为：
+
+```java
+public class ResXMLTreeEndElementExt implements Struct {
+  /** 元素的命名空间的字符串在字符串池中的索引，未指定则为 -1 */
+  public ResStringPoolRef ns;
+  /** 元素名称字符串在字符串池中的索引 */
+  public ResStringPoolRef name;
+}
+```
+
+#### End Namespace Chunk
+
+End Element Chunk 表示命名空间的结束符，和 Start Namespace Chunk 对应，描述结构也是一样的。
+
+### Chunk Header Type
+
+上述结构对应的 Chunk Header 的 type 值如下：
+
+```java
+public class ResourceTypes {
+  // Xml Chunk Header.
+  public static final short RES_XML_TYPE = 0x0003;
+  // String Pool Chunk.
+  public static final short RES_STRING_POOL_TYPE = 0x0001;
+  // Start Namespace Chunk.
+  public static final short RES_XML_START_NAMESPACE_TYPE = 0x0100;
+  // End Namspace Chunk.
+  public static final short RES_XML_END_NAMESPACE_TYPE = 0x0101;
+  // Start Element Chunk.
+  public static final short RES_XML_START_ELEMENT_TYPE = 0x0102;
+  // End ELement Chunk.
+  public static final short RES_XML_END_ELEMENT_TYPE = 0x0103;
+  // CData Chunk.
+  public static final short RES_XML_CDATA_TYPE = 0x0104;
+  // Resource IDs Chunk.
+  public static final short RES_XML_RESOURCE_MAP_TYPE = 0x0180;
+}
+```
 
 ## Xml 文件解析
 
+为了便于解析，这里使用了我自己写的工具类，参考这里的简介： [ObjectIO](./utils_parse.md)。
+
+### 解析方法
+
+针对上述二进制 Xml 文件结构，采用如下方式进行解析：
+
+1. 定义指针变量标识当前解析的字节位置，每解析完一个 chunk 则向下移动指针 chunk 的大小。
+2. 采用循环解析的方式，通过 chunk 的 `type` 判断将要解析哪种 chunk，解析对应的结构。
+
+这里定义了 `AXmlParser` 解析器，`mIndex` 为指针变量，`parse(ObjectIO objectIO)` 为解析子方法。
+
+```java
+private void parse(ObjectInput objectInput) throws IOException {
+  // 是否到达文件底部。
+  while (!objectInput.isEof(mIndex)) {
+    // 获取将要解析的 chunk 头部信息。 
+    ResChunkHeader header = objectInput.read(ResChunkHeader.class, mIndex);
+
+    // 根据类型解析对应格式。
+    switch (header.type) {
+      case ResourceTypes.RES_XML_TYPE: ...
+        break;
+      case ResourceTypes.RES_STRING_POOL_TYPE: ...
+        break;
+      case ResourceTypes.RES_XML_RESOURCE_MAP_TYPE: ...
+        break;
+      case ResourceTypes.RES_XML_START_NAMESPACE_TYPE: ...
+        break;
+      case ResourceTypes.RES_XML_START_ELEMENT_TYPE: ...
+        break;
+      case ResourceTypes.RES_XML_CDATA_TYPE: ...
+        break;
+      case ResourceTypes.RES_XML_END_ELEMENT_TYPE: ...
+        break;
+      case ResourceTypes.RES_XML_END_NAMESPACE_TYPE: ...
+        break;
+    }
+  }
+}
+```
+
+### Xml Chunk Header
+
+首先解析 Xml Chunk Header，直接一步就行。
+
+```java
+// AXmlParser.java
+
+private void parse(ObjectInput objectInput) throws IOException {
+  ///
+  ResChunkHeader header = objectInput.read(ResChunkHeader.class, mIndex);
+
+  switch (header.type) {
+    case ResourceTypes.RES_XML_TYPE:
+      parseXMLTreeHeader(objectInput);
+      break;
+      ...
+  }
+}
+```
+
+```java
+// AXmlParser.java
+
+private void parseXMLTreeHeader(ObjectInput objectInput) throws IOException {
+  ResXMLTreeHeader xmlTreeHeader = objectInput.read(ResXMLTreeHeader.class, mIndex);
+
+  System.out.println(xmlTreeHeader);
+  // 移动到下一个位置。
+  mIndex += xmlTreeHeader.header.headerSize;
+}
+```
+
+### String Pool Chunk
+
+接下来是符串池的解析了，解析代码如下：
+
+```java
+// AXmlParser.java
+
+private void parse(ObjectIO objectIO) {
+  ...
+  ResChunkHeader header = objectIO.read(ResChunkHeader.class, mIndex);
+
+  switch (header.type) {
+    case ResourceTypes.RES_STRING_POOL_TYPE:
+      parseStringPool(objectIO);
+      break;
+      ...
+  }
+  ...
+}
+```
+
+```java
+// AXmlParser.java
+
+...
+private void parseStringPool(ObjectIO objectIO) throws Exception {
+  final long stringPoolIndex = mIndex;
+  ResStringPoolHeader stringPoolHeader = objectIO.read(ResStringPoolHeader.class, stringPoolIndex);
+  System.out.println("string pool header:");
+  System.out.println(stringPoolHeader);
+
+  StringPoolChunkParser stringPoolChunkParser = new StringPoolChunkParser();
+  stringPoolChunkParser.parseStringPoolChunk(objectIO, stringPoolHeader, stringPoolIndex);
+
+  System.out.println();
+  System.out.println("string index array:");
+  System.out.println(Arrays.toString(stringPoolChunkParser.getStringIndexArray()));
+
+  System.out.println();
+  System.out.println("style index array:");
+  System.out.println(Arrays.toString(stringPoolChunkParser.getStyleIndexArray()));
+
+  stringPool = stringPoolChunkParser.getStringPool();
+
+  System.out.println();
+  System.out.println("string pool:");
+  System.out.println(Arrays.toString(stringPool));
+
+  System.out.println();
+  System.out.println("style pool:");
+  final List<ResStringPoolSpan>[] stylePool = stringPoolChunkParser.getStylePool();
+
+  System.out.println(Arrays.toString(stylePool));
+
+  System.out.println();
+  System.out.println("style detail:");
+  for (List<ResStringPoolSpan> spans : stylePool) {
+    System.out.println("---------");
+    for (ResStringPoolSpan span : spans) {
+      System.out.println(stringPool[span.name.index]);
+    }
+  }
+
+  // 向下移动字符串池的大小。
+  mIndex += stringPoolHeader.header.size;
+}
+```
+
+```java
+// StringPoolChunkParser.java
+
+public class StringPoolChunkParser {
+
+  private ResStringPoolRef[] stringIndexArray;
+  private ResStringPoolRef[] styleIndexArray;
+  private String[] stringPool;
+  private List<ResStringPoolSpan>[] stylePool;
+
+  private ResStringPoolRef[] parseStringIndexArray(ObjectIO objectIO, ResStringPoolHeader header, long index)
+      throws IOException {
+    stringIndexArray = new ResStringPoolRef[header.stringCount];
+
+    long start = index;
+    final int resStringPoolRefSize = ObjectIO.sizeOf(ResStringPoolRef.class);
+
+    for (int i = 0; i < header.stringCount; i++) {
+      stringIndexArray[i] = objectIO.read(ResStringPoolRef.class, start);
+      start += resStringPoolRefSize;
+    }
+
+    return stringIndexArray;
+  }
+
+  private ResStringPoolRef[] parseStyleIndexArray(ObjectIO objectIO, ResStringPoolHeader header, long index)
+      throws IOException {
+    styleIndexArray = new ResStringPoolRef[header.styleCount];
+
+    long start = index;
+    final int resStringPoolRefSize = ObjectIO.sizeOf(ResStringPoolRef.class);
+
+    for (int i = 0; i < header.styleCount; i++) {
+      styleIndexArray[i] = objectIO.read(ResStringPoolRef.class, start);
+      start += resStringPoolRefSize;
+    }
+
+    return styleIndexArray;
+  }
+
+  private static int parseStringLength(byte[] b) {
+    return b[1] & 0x7F;
+  }
+
+  private String[] parseStringPool(ObjectIO objectIO, ResStringPoolHeader header, long stringPoolIndex)
+      throws IOException {
+    String[] stringPool = new String[header.stringCount];
+
+    for (int i = 0; i < header.stringCount; i++) {
+      final long index = stringPoolIndex + stringIndexArray[i].index;
+      final int parseStringLength = parseStringLength(objectIO.readBytes(index, Short.BYTES));
+      // 经过测试，发现 flags 为0 时，字符串每个字符间会间隔一个空白符，长度变为 2 倍。
+      final int stringLength = header.flags == 0 ? parseStringLength * 2 : parseStringLength;
+
+      // trim 去除多余空白符。
+      stringPool[i] = Formatter.trim(new String(objectIO.readBytes(index + Short.BYTES, stringLength), 0,
+          stringLength, StandardCharsets.UTF_8));
+    }
+
+    return stringPool;
+  }
+
+  private List<ResStringPoolSpan>[] parseStylePool(ObjectIO objectIO, ResStringPoolHeader header, long stylePoolIndex)
+      throws IOException {
+    @SuppressWarnings("unchecked")
+    List<ResStringPoolSpan>[] stylePool = new List[header.styleCount];
+
+    for (int i = 0; i < header.styleCount; i++) {
+      final long index = stylePoolIndex + styleIndexArray[i].index;
+      int end = 0;
+      long littleIndex = index;
+
+      List<ResStringPoolSpan> stringPoolSpans = new ArrayList<>();
+      while (end != ResStringPoolSpan.END) {
+        ResStringPoolSpan stringPoolSpan = objectIO.read(ResStringPoolSpan.class, littleIndex);
+        stringPoolSpans.add(stringPoolSpan);
+
+        littleIndex += ObjectIO.sizeOf(ResStringPoolSpan.class);
+
+        end = objectIO.readInt(littleIndex);
+      }
+
+      stylePool[i] = stringPoolSpans;
+    }
+    return stylePool;
+  }
+
+  public void parseStringPoolChunk(ObjectIO objectIO, ResStringPoolHeader header, long stringPoolHeaderIndex)
+      throws IOException {
+    // parse string index array.
+    final long stringIndexArrayIndex = stringPoolHeaderIndex + ObjectIO.sizeOf(ResStringPoolHeader.class);
+
+    stringIndexArray = header.stringCount == 0 ? new ResStringPoolRef[0] :
+        parseStringIndexArray(objectIO, header, stringIndexArrayIndex);
+
+    final long styleIndexArrayIndex = stringIndexArrayIndex + header.stringCount *
+        ObjectIO.sizeOf(ResStringPoolRef.class);
+
+    styleIndexArray = header.styleCount == 0 ? new ResStringPoolRef[0] :
+        parseStyleIndexArray(objectIO, header, styleIndexArrayIndex);
+
+    // parse string pool.
+    if (header.stringCount != 0) {
+      final long stringPoolIndex = stringPoolHeaderIndex + header.stringStart;
+      stringPool = parseStringPool(objectIO, header, stringPoolIndex);
+    } else {
+      stringPool = new String[0];
+    }
+
+    // parse style pool.
+    if (header.styleCount != 0) {
+      final long stylePoolIndex = stringPoolHeaderIndex + header.styleStart;
+      stylePool = parseStylePool(objectIO, header, stylePoolIndex);
+    } else {
+      //noinspection unchecked
+      stylePool = new List[0];
+    }
+  }
+
+  public ResStringPoolRef[] getStringIndexArray() {
+    return stringIndexArray;
+  }
+
+  public ResStringPoolRef[] getStyleIndexArray() {
+    return styleIndexArray;
+  }
+
+  public String[] getStringPool() {
+    return stringPool;
+  }
+
+  public List<ResStringPoolSpan>[] getStylePool() {
+    return stylePool;
+  }
+}
+```
+
+### Resource Ids Chunk
+
+解析如下，根据 Chunk 头部，解析出 id 数量，然后逐个解析。
+
+```java
+// AXmlParser.java
+
+private void parse(ObjectInput objectInput) throws IOException {
+  // ...
+  ResChunkHeader header = objectInput.read(ResChunkHeader.class, mIndex);
+
+  switch (header.type) {
+    case ResourceTypes.RES_XML_RESOURCE_MAP_TYPE:
+      parseResourceIds(objectInput);
+      break;
+      ...
+  }
+}
+```
+
+```java
+// AXmlParser.java
+
+private void parseResourceIds(ObjectInput objectInput) throws IOException {
+  ResChunkHeader header = objectInput.read(ResChunkHeader.class, mIndex);
+  // 解析 xml 文件中出现的资源 ID。
+  final int size = header.size;
+  final int count = (size - header.headerSize) / Integer.BYTES;
+  int index = mIndex + header.headerSize;
+
+  for (int i = 0; i < count; i++) {
+    // 转化为 16 进制输出。
+    System.out.println("resId: " + Formatter.toHex(Formatter.fromInt(
+        objectInput.readInt(index), true
+    )));
+    index += i * Integer.BYTES;
+  }
+
+  mIndex += header.size;
+}
+```
+
+### Xml Content Chunk
+
+#### Start Namespace Chunk
+
+#### Start Element Chunk
+
+#### CData Chunk
+
+#### End Element Chunk
+
+#### End Namespace Chunk
+
+
+
+### 
