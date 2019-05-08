@@ -1,6 +1,21 @@
 # Android 二进制 Xml 文件解析
 
-
+- [前言](#前言)
+- [Xml 文件结构](#xml-文件结构)
+  - [Xml Chunk Header](#xml-chunk-header)
+  - [String Pool Chunk](#string-pool-chunk)
+  - [Resource Ids Chunk](#resource-ids-chunk)
+  - [Xml Content Chunk](#xml-content-chunk)
+  - [Chunk Header Type](#chunk-header-type)
+- [Xml 文件解析](#xml-文件解析)
+  - [解析方法](#解析方法)
+  - [Xml Chunk Header](#xml-chunk-header)
+  - [String Pool Chunk](#string-pool-chunk)
+  - [Resource Ids Chunk](#resource-ids-chunk)
+  - [Xml Content Chunk](#xml-content-chunk)
+  - [Xml 文档输出](#xml-文档输出)
+- [源码](#源码)
+- [参考](#参考)
 
 ## 前言
 
@@ -374,7 +389,7 @@ private void parse(ObjectInput objectInput) throws IOException {
 // AXmlParser.java
 
 private void parse(ObjectInput objectInput) throws IOException {
-  ///
+  // ...
   ResChunkHeader header = objectInput.read(ResChunkHeader.class, mIndex);
 
   switch (header.type) {
@@ -647,16 +662,545 @@ private void parseResourceIds(ObjectInput objectInput) throws IOException {
 
 ### Xml Content Chunk
 
+解析来是解析 Xml 内容，每种 Xml Chunk 都包含有相同的头部结构 `struct ResXMLTree_node`，它包含一个 Xml Chunk 块的基本信息和行号，所以需要首先解析它。
+
 #### Start Namespace Chunk
+
+直接解析即可：
+
+```java
+// AXmlParser.java
+
+private void parse(ObjectInput objectInput) throws IOException {
+  // ...
+  ResChunkHeader header = objectInput.read(ResChunkHeader.class, mIndex);
+
+  switch (header.type) {
+    case ResourceTypes.RES_XML_START_NAMESPACE_TYPE:
+      parseStartNamespace(objectInput);
+      break;
+      ...
+  }
+}
+```
+
+```java
+// AXmlPArser.java
+
+private void parseStartNamespace(ObjectInput objectInput) throws IOException {
+  ResXMLTreeNode node = objectInput.read(ResXMLTreeNode.class, mIndex);
+  // 跳过已解析过的头部字节。
+  int namespaceExtIndex = mIndex + node.header.headerSize;
+  // 解析注释。
+  System.out.println("node comment: " + (node.comment.index != -1 ? stringPool[node.comment.index] : ""));
+
+  final ResXMLTreeNamespaceExt namespaceExt =
+      objectInput.read(ResXMLTreeNamespaceExt.class, namespaceExtIndex);
+  // 解析命名空间名字。
+  String namespace = stringPool[namespaceExt.prefix.index];
+  System.out.println("namepsace name: " + namespace);
+  // 解析命名空间 uri。
+  String namespaceUri = stringPool[namespaceExt.uri.index];
+  System.out.println("namepsace uri: " + namespaceUri);
+
+  mIndex += node.header.size;
+}
+```
 
 #### Start Element Chunk
 
+直接上代码：
+
+```java
+// AXmlParser.java
+
+private void parse(ObjectInput objectInput) throws IOException {
+  // ...
+  ResChunkHeader header = objectInput.read(ResChunkHeader.class, mIndex);
+
+  switch (header.type) {
+    case ResourceTypes.RES_XML_START_ELEMENT_TYPE:
+      parseStartElement(objectInput);
+      break;
+      ...
+  }
+}
+```
+
+```java
+// AXmlParser.java
+
+private void parseStartElement(ObjectInput objectInput) throws IOException {
+  ResXMLTreeNode node = objectInput.read(ResXMLTreeNode.class, mIndex);
+  System.out.println("node comment: " + (node.comment.index != -1 ? stringPool[node.comment.index] : ""));
+  int index = mIndex + node.header.headerSize;
+
+  ResXMLTreeAttrExt attrExt = objectInput.read(ResXMLTreeAttrExt.class, index);
+  // 解析元素命名空间 uri。
+  String ns = attrExt.ns.index != -1 ?
+      stringPool[attrExt.ns.index] : null;
+  System.out.println("element ns: " + ns);
+  // 解析元素名字。
+  final String elementName = stringPool[attrExt.name.index];
+  System.out.println("element name: " + elementName);
+  // 跳过头部字节。
+  index += ObjectInput.sizeOf(ResXMLTreeAttrExt.class);
+  // 解析元素属性。
+  for (int i = 0; i < attrExt.attributeCount; i++) {
+    ResXMLTreeAttribute attr = objectInput.read(ResXMLTreeAttribute.class, index);
+    // 解析属性命名空间 uri。
+    final String namespace = attr.ns.index != -1 ?
+        stringPool[attr.ns.index] : null;
+    System.out.println("attr ns: " + namespace);
+    // 解析属性名字。    
+    final String attrName = stringPool[attr.name.index];
+    System.out.println("attr name: " + attrName);
+    // 解析输属性文本或数值。
+    final String attrText = attr.rawValue.index != -1 ?
+        stringPool[attr.rawValue.index] : null;
+    System.out.println("attr text: " + attrText);
+
+    final String attrValue = attr.typeValue.dataStr();
+    System.out.println("attr value: " + attr.typeValue);
+
+    index += ObjectInput.sizeOf(ResXMLTreeAttribute.class);
+  }
+
+  mIndex += node.header.size;
+}
+```
+
+上面的属性数值可能为任何资源类型，其中 `Res_Value` 结构会包含资源类型，这里根据它的 `dataType` 简单解析了对应类型。
+
+```java
+// ResValue.java
+
+public String dataStr() {
+  switch (dataType) {
+    case TYPE_NULL:
+      return "null";
+    case TYPE_REFERENCE:
+      return "@" + Formatter.toHex(Formatter.fromInt(data, true));
+    case TYPE_ATTRIBUTE:
+      return "@:id/" + Formatter.toHex(Formatter.fromInt(data, true));
+    case TYPE_STRING:
+      return "stringPool[" + data + ']';
+    case TYPE_FLOAT:
+      return String.valueOf(data);
+    case TYPE_DIMENSION:
+      int complex = data & (COMPLEX_UNIT_MASK << COMPLEX_UNIT_SHIFT);
+      switch (complex) {
+        case COMPLEX_UNIT_PX:
+          return data + "px";
+        case COMPLEX_UNIT_DIP:
+          return data + "dip";
+        case COMPLEX_UNIT_SP:
+          return data + "sp";
+        case COMPLEX_UNIT_PT:
+          return data + "pt";
+        case COMPLEX_UNIT_IN:
+          return data + "in";
+        case COMPLEX_UNIT_MM:
+          return data + "mm";
+        default:
+          return data + "(dimension)";
+      }
+    case TYPE_FRACTION:
+      return data + "(fraction)";
+    case TYPE_DYNAMIC_REFERENCE:
+      return data + "(dynamic_reference)";
+    // case TYPE_FIRST_INT: return "TYPE_FIRST_INT";
+    case TYPE_INT_DEC:
+      return String.valueOf(data);
+    case TYPE_INT_HEX:
+      return Formatter.toHex(Formatter.fromInt(data, true));
+    case TYPE_INT_BOOLEAN:
+      return data == 0 ? "false" : "true";
+    // case TYPE_FIRST_COLOR_INT: return "TYPE_FIRST_COLOR_INT";
+    case TYPE_INT_COLOR_ARGB8:
+      return data + "(argb8)";
+    case TYPE_INT_COLOR_RGB8:
+      return data + "(rgb8)";
+    case TYPE_INT_COLOR_ARGB4:
+      return data + "(argb4)";
+    case TYPE_INT_COLOR_RGB4:
+      return data + "(rgb4)";
+    // case TYPE_LAST_COLOR_INT: return "TYPE_LAST_COLOR_INT";
+    // case TYPE_LAST_INT: return "TYPE_LAST_INT";
+    default:
+      return Formatter.toHex(Formatter.fromInt(data, true));
+  }
+}
+```
+
 #### CData Chunk
+
+```java
+// AXmlParser.java
+
+private void parse(ObjectInput objectInput) throws IOException {
+  // ...
+  ResChunkHeader header = objectInput.read(ResChunkHeader.class, mIndex);
+
+  switch (header.type) {
+    case ResourceTypes.RES_XML_CDATA_TYPE:
+      parseCData(objectInput);
+      break;
+      ...
+  }
+}
+```
+
+```java
+// AXmlParser.java
+
+private void parseCData(ObjectInput objectInput) throws IOException {
+  ResXMLTreeNode node = objectInput.read(ResXMLTreeNode.class, mIndex);
+  System.out.println("node comment: " + (node.comment.index != -1 ? stringPool[node.comment.index] : ""));
+  int index = mIndex + node.header.headerSize;
+
+  ResXMLTreeCdataExt cdataExt = objectInput.read(ResXMLTreeCdataExt.class, index);
+  // 解析标签内部内容。
+  final String cdata = stringPool[cdataExt.data.index];
+  System.out.println("cdata:" + cdata);
+
+  mIndex += node.header.size;
+}
+```
 
 #### End Element Chunk
 
+```java
+// AXmlParser.java
+
+private void parse(ObjectInput objectInput) throws IOException {
+  // ...
+  ResChunkHeader header = objectInput.read(ResChunkHeader.class, mIndex);
+
+  switch (header.type) {
+    case ResourceTypes.RES_XML_END_ELEMENT_TYPE:
+      parseEndElement(objectInput);
+      break;
+      ...
+  }
+}
+```
+
+```java
+// AXmlParser.java
+
+private void parseEndElement(ObjectInput objectInput) throws IOException {
+  ResXMLTreeNode node = objectInput.read(ResXMLTreeNode.class, mIndex);
+  System.out.println("node comment: " + (node.comment.index != -1 ? stringPool[node.comment.index] : ""));
+
+  int index = mIndex + node.header.headerSize;
+  
+  ResXMLTreeEndElementExt endElementExt = objectInput.read(ResXMLTreeEndElementExt.class, index);
+  // 解析结束元素命名空间 Uri。
+  final String ns = endElementExt.ns.index != -1 ?
+      stringPool[endElementExt.ns.index] : "";
+  System.out.println("element end ns: " + ns);
+  // 解析结束元素名字。
+  final String elementName = stringPool[endElementExt.name.index];
+  System.out.println("element end name: " + elementName);
+
+  mIndex += node.header.size;
+}
+```
+
 #### End Namespace Chunk
 
+```java
+// AXmlParser.java
 
+private void parse(ObjectInput objectInput) throws IOException {
+  // ...
+  ResChunkHeader header = objectInput.read(ResChunkHeader.class, mIndex);
 
-### 
+  switch (header.type) {
+    case ResourceTypes.RES_XML_END_NAMESPACE_TYPE:
+      parseEndNamespace(objectInput);
+      break;
+      ...
+  }
+}
+```
+
+```java
+// AXmlParser.java
+
+private void parseEndNamespace(ObjectInput objectInput) throws IOException {
+  ResXMLTreeNode node = objectInput.read(ResXMLTreeNode.class, mIndex);
+  System.out.println("node comment: " + (node.comment.index != -1 ? stringPool[node.comment.index] : ""));
+
+  int index = mIndex + node.header.headerSize;
+
+  ResXMLTreeNamespaceExt namespaceExt = objectInput.read(ResXMLTreeNamespaceExt.class, index);
+  // 解析结束命名空间名字。
+  String namespace = stringPool[namespaceExt.prefix.index];
+  System.out.println("namepsace end name: " + namespace);
+  // 解析结束命名空间 uri。
+  String namespaceUri = stringPool[namespaceExt.uri.index];
+  System.out.println("namepsace end uri: " + namespaceUri);
+
+  mIndex += node.header.size;
+}
+```
+
+### Xml 文档输出
+
+上面的解析只是将数值打印出来，看起来，并不直观，所以现在需求是将二进制的 Xml 转化为一个可读且格式标准的 Xml 文档。
+
+这里首先定义了一个 `AXmlEditor` 负责将解析的数值输出为一个标准 Xml 文档。
+
+```java
+/**
+ * Android Xml 编辑工具。
+ */
+class AXmlEditor {
+  private static final String ACTION_OPEN = "open";
+  private static final String ACTION_DATA = "data";
+  private static final String ACTION_CLOSE = "close";
+
+  private final StringBuilder xmlBuilder;
+  private String tab = "";
+  private List<String[]> namespaceUris = new ArrayList<>();
+  private String lastAction;
+
+  AXmlEditor() {
+    xmlBuilder = new StringBuilder();
+    addHeader();
+  }
+
+  private void addHeader() {
+    xmlBuilder.append("<?xml version=\"1.0\" encoding=\"utf-8\"?>").append('\n');
+  }
+
+  /** 输入一个元素的开始 */
+  void openElement(String elementName) {
+    // 上次是 open 操作，证明本次打开了子标签。
+    if (ACTION_OPEN.equals(lastAction)) {
+      xmlBuilder.append(">\n");
+    }
+
+    xmlBuilder.append(tab).append('<').append(elementName);
+
+    // 最外层的标签添加命名空间。
+    if (!namespaceUris.isEmpty()) {
+      for (String[] nu : namespaceUris) {
+        xmlBuilder.append(' ')
+            .append("xmlns:").append(nu[0]).append("=\"").append(nu[1]).append("\"");
+      }
+      namespaceUris.clear();
+    }
+
+    // 每打开一个新元素就增加 tab。
+    tab = tab + "  ";
+    lastAction = ACTION_OPEN;
+  }
+
+  /** 输入一个命名空间的开始 */
+  void addNamespace(String namespace, String uri) {
+    namespaceUris.add(new String[]{namespace, uri});
+  }
+
+  /** 输入一个元素的属性 */
+  void addAttribute(String name, String value) {
+    xmlBuilder.append(' ')
+        .append(name).append("=\"").append(value).append("\"");
+  }
+
+  /** 输入一个元素的标签内容 */
+  void addData(String data) {
+    xmlBuilder.append('>').append(data);
+
+    lastAction = ACTION_DATA;
+  }
+
+  /** 输入一个元素的结束 */
+  void closeElement(String elementName) {
+    // 每关闭一个元素就减少 tab。
+    tab = tab.substring(2);
+
+    StringBuilder t = new StringBuilder();
+
+    // 上次是 open 操作，证明不含有子标签。
+    if (ACTION_OPEN.equals(lastAction)) {
+      t.append(">");
+    } else if (ACTION_CLOSE.equals(lastAction)) {
+      t.append(tab);
+    }
+
+    t.append("</").append(elementName).append(">\n");
+
+    // 空标签化简。
+    if (t.toString().contains("><")) {
+      t.delete(0, t.length()).append(" />\n");
+    }
+
+    xmlBuilder.append(t);
+
+    lastAction = ACTION_CLOSE;
+  }
+
+  /** 输出 xml 文档 */
+  String print() {
+    return xmlBuilder.toString();
+  }
+}
+```
+
+通过使用上面的解析器即可打印出如下形式的 Xml 文档，除了相关资源需要对应的 arsc 文件才能解析出来，输出的文档和标准文档一致。
+
+实例 AM.xml：
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:http://schemas.android.com/apk/res/android="android" versionCode="2017082900" versionName="1.2.455" package="com.zuoxia.iconpack" platformBuildVersionCode="25" platformBuildVersionName="7.1.1">
+  <uses-sdk minSdkVersion="16" targetSdkVersion="25" />
+  <uses-permission name="android.permission.WRITE_EXTERNAL_STORAGE" />
+  <uses-permission name="android.permission.INTERNET" />
+  <uses-permission name="android.permission.ACCESS_NETWORK_STATE" />
+  <uses-permission name="android.permission.ACCESS_WIFI_STATE" />
+  <uses-permission name="android.permission.SET_WALLPAPER" />
+  <uses-permission name="android.permission.SET_WALLPAPER_HINTS" />
+  <uses-permission name="android.permission.WAKE_LOCK" />
+  <uses-permission name="android.permission.RECEIVE_BOOT_COMPLETED" />
+  <uses-permission name="android.permission.VIBRATE" />
+  <supports-screens anyDensity="true" smallScreens="true" normalScreens="true" largeScreens="true" resizeable="true" xlargeScreens="true" />
+  <uses-permission name="com.google.android.c2dm.permission.RECEIVE" />
+  <permission name="com.zuoxia.iconpack.permission.C2D_MESSAGE" protectionLevel="0x00000002" />
+  <uses-permission name="com.zuoxia.iconpack.permission.C2D_MESSAGE" />
+  <application theme="@0x7f0b0059" label="@0x7f0800f2" icon="@0x7f030000" allowBackup="true" largeHeap="true" supportsRtl="true">
+    <uses-library name="com.sec.android.app.multiwindow" required="false" />
+    <meta-data name="com.sec.android.support.multiwindow" value="true" />
+    <meta-data name="com.sec.android.multiwindow.DEFAULT_SIZE_W" value="632.0dip" />
+    <meta-data name="com.sec.android.multiwindow.DEFAULT_SIZE_H" value="598.0dip" />
+    <meta-data name="com.sec.android.multiwindow.MINIMUM_SIZE_W" value="632.0dip" />
+    <meta-data name="com.sec.android.multiwindow.MINIMUM_SIZE_H" value="598.0dip" />
+    <meta-data name="com.lge.support.SPLIT_WINDOW" value="true" />
+    <activity theme="@0x7f0b00d1" label="@0x7f0800f2" name="com.zuoxia.iconpack.HomeActivity" noHistory="true">
+      <intent-filter>
+        <action name="android.intent.action.MAIN" />
+        <category name="android.intent.category.LAUNCHER" />
+        <category name="android.intent.category.MULTIWINDOW_LAUNCHER" />
+      </intent-filter>
+      <meta-data name="android.app.shortcuts" resource="@0x7f070008" />
+    </activity>
+    <service name="com.zuoxia.iconpack.FirebaseService">
+      <intent-filter>
+        <action name="com.google.firebase.MESSAGING_EVENT" />
+      </intent-filter>
+    </service>
+    <meta-data name="com.google.firebase.messaging.default_notification_icon" resource="@0x7f02014d" />
+    <meta-data name="com.google.firebase.messaging.default_notification_color" resource="@0x7f0e0063" />
+    <activity label="@0x7f0800f2" name="jahirfiquitiva.iconshowcase.activities.ShowcaseActivity">
+      <intent-filter>
+        <action name="android.intent.action.VIEW" />
+        <category name="android.intent.category.DEFAULT" />
+        <category name="android.intent.category.BROWSABLE" />
+      </intent-filter>
+      <intent-filter>
+        <action name="android.intent.action.SET_WALLPAPER" />
+        <category name="android.intent.category.DEFAULT" />
+      </intent-filter>
+      <intent-filter>
+        <action name="android.intent.action.GET_CONTENT" />
+        <category name="android.intent.category.DEFAULT" />
+        <category name="android.intent.category.OPENABLE" />
+        <data mimeType="image/*" />
+      </intent-filter>
+      
+      ...
+      
+      <intent-filter>
+        <action name="android.intent.action.MAIN" />
+        <action name="com.lge.launcher2.THEME" />
+        <category name="android.intent.category.DEFAULT" />
+      </intent-filter>
+    </activity>
+    <activity theme="@0x7f0b0059" label="@0x7f0800c6" name="jahirfiquitiva.iconshowcase.activities.AltWallpaperViewerActivity" />
+    <service label="@0x7f0800f9" icon="@0x7f020149" name="jahirfiquitiva.iconshowcase.services.MuzeiArtSourceService" description="@0x7f0800f8">
+      <intent-filter>
+        <action name="com.google.android.apps.muzei.api.MuzeiArtSource" />
+      </intent-filter>
+      <meta-data name="color" value="@0x7f0e01be" />
+      <meta-data name="settingsActivity" value="jahirfiquitiva.iconshowcase.activities.MuzeiSettings" />
+    </service>
+    <activity theme="@0x7f0b00d1" label="@0x7f080080" name="jahirfiquitiva.iconshowcase.activities.MuzeiSettings" exported="true" />
+    <receiver label="@0x7f080064" icon="@0x7f020064" name="jahirfiquitiva.iconshowcase.widgets.IconRestorerWidget">
+      <intent-filter>
+        <action name="android.appwidget.action.APPWIDGET_UPDATE" />
+      </intent-filter>
+      <meta-data name="android.appwidget.provider" resource="@0x7f070005" />
+    </receiver>
+    <activity theme="@0x7f0b0108" label="@0x7f0800f2" name="jahirfiquitiva.iconshowcase.activities.LauncherIconRestorerActivity" noHistory="true">
+      <intent-filter>
+        <action name="android.intent.action.MAIN" />
+      </intent-filter>
+    </activity>
+    <receiver label="@0x7f080035" name="jahirfiquitiva.iconshowcase.widgets.ClockWidget">
+      <intent-filter>
+        <action name="android.appwidget.action.APPWIDGET_UPDATE" />
+      </intent-filter>
+      <meta-data name="android.appwidget.oldName" value="com.android.deskclock.AnalogAppWidgetProvider" />
+      <meta-data name="android.appwidget.provider" resource="@0x7f070003" />
+    </receiver>
+    <meta-data name="jahirfiquitiva.iconshowcase.utilities.GlideConfiguration" value="GlideModule" />
+    <service name="com.google.firebase.messaging.FirebaseMessagingService" exported="true">
+      <intent-filter priority="-500">
+        <action name="com.google.firebase.MESSAGING_EVENT" />
+      </intent-filter>
+    </service>
+    <receiver name="com.google.firebase.iid.FirebaseInstanceIdReceiver" permission="com.google.android.c2dm.permission.SEND" exported="true">
+      <intent-filter>
+        <action name="com.google.android.c2dm.intent.RECEIVE" />
+        <action name="com.google.android.c2dm.intent.REGISTRATION" />
+        <category name="com.zuoxia.iconpack" />
+      </intent-filter>
+    </receiver>
+    <receiver name="com.google.firebase.iid.FirebaseInstanceIdInternalReceiver" exported="false" />
+    <service name="com.google.firebase.iid.FirebaseInstanceIdService" exported="true">
+      <intent-filter priority="-500">
+        <action name="com.google.firebase.INSTANCE_ID_EVENT" />
+      </intent-filter>
+    </service>
+    <provider name="com.google.firebase.provider.FirebaseInitProvider" exported="false" authorities="com.zuoxia.iconpack.firebaseinitprovider" initOrder="100" />
+    <meta-data name="com.google.android.gms.version" value="@0x7f0d000e" />
+  </application>
+</manifest>
+```
+
+实例 layout.xml：
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:http://schemas.android.com/apk/res/android="android" xmlns:http://schemas.android.com/apk/res-auto="app" layout_gravity="0x00000050" id="@0x7f09002b" background="@0x0106000d" layout_width="-1" layout_height="-2">
+  <LinearLayout orientation="0" id="@0x7f09002a" background="@0x7f08044a" paddingTop="@0x7f07006f" paddingBottom="@0x7f07006f" layout_width="-1" layout_height="-2" baselineAligned="false">
+    <RelativeLayout id="@0x7f0900a1" background="@:id/0x7f040199" clipChildren="false" layout_width="1dip" layout_height="-2" layout_weight="1065353216">
+      <ImageView id="@0x7f0900a0" padding="@0x7f07006f" focusable="false" clickable="false" clipChildren="false" layout_width="-2" layout_height="-2" layout_marginTop="@0x7f07006f" layout_marginBottom="@0x7f07006f" layout_centerInParent="true" contentDescription="@0x7f100093" srcCompat="@0x7f0804ee" />
+    </RelativeLayout>
+    <RelativeLayout id="@0x7f090065" background="@:id/0x7f040199" clipChildren="false" layout_width="1dip" layout_height="-2" layout_weight="1065353216">
+      <ImageView id="@0x7f090064" padding="@0x7f07006f" focusable="false" clickable="false" layout_width="-2" layout_height="-2" layout_marginTop="@0x7f07006f" layout_marginBottom="@0x7f07006f" layout_centerInParent="true" contentDescription="@0x7f100073" srcCompat="@0x7f0804e3" />
+    </RelativeLayout>
+    <RelativeLayout id="@0x7f090024" background="@:id/0x7f040199" clipChildren="false" layout_width="1dip" layout_height="-2" layout_weight="1065353216">
+      <ImageView id="@0x7f090023" padding="@0x7f07006f" focusable="false" clickable="false" layout_width="-2" layout_height="-2" layout_marginTop="@0x7f07006f" layout_marginBottom="@0x7f07006f" layout_centerInParent="true" contentDescription="@0x7f100038" srcCompat="@0x7f0804d4" />
+    </RelativeLayout>
+    <RelativeLayout id="@0x7f09007a" background="@:id/0x7f040199" clipChildren="false" layout_width="1dip" layout_height="-2" layout_weight="1065353216">
+      <ImageView id="@0x7f090079" padding="@0x7f07006f" focusable="false" clickable="false" clipChildren="false" layout_width="-2" layout_height="-2" layout_marginTop="@0x7f07006f" layout_marginBottom="@0x7f07006f" layout_centerInParent="true" contentDescription="@0x7f100080" />
+    </RelativeLayout>
+  </LinearLayout>
+</LinearLayout>
+```
+
+## 源码
+
+源码包含两块，打印器和解析器。
+
+[AXmlParser](./project/android_arsc_parse) 可直接打印标准格式的文档。
+
+[AXmlParser export](./project/android_arsc_parse) 可在 Android 中作为解析器使用，去除多余了调试代码。
+
+## 参考
+
+- [Android应用程序资源的编译和打包过程分析](https://blog.csdn.net/luoshengyang/article/details/8744683)

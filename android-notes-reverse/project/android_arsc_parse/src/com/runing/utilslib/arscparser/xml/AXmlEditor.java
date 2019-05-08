@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Android 编辑工具。
+ * Android Xml 编辑工具。
  */
 class AXmlEditor {
   private static final String ACTION_OPEN = "open";
