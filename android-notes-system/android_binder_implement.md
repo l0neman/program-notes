@@ -1,12 +1,10 @@
-# Android Binder 的设计、实现与应用 - Binder 实现部分
-
-# Native 层
+# Android Binder 的设计、实现与应用 - Binder Native 层实现部分
 
 ## 前言
 
 通过分析 MediaServer 的实现，了解其中的与 Binder 相关的逻辑，作为典型案例，以理解 Binder 具体是如何工作的。
 
-MediaServer 是 Android 系统中极其中重要的系统服务，它包含了媒体相关的多个核心服务，包括：AuditFlinger(音频核心服务)，AudiaPolicyService(音频系统策略相关服务)，MediaPlayerService(多媒体系统服务)，CameraService(相机相关服务)。
+MediaServer 是 Android 系统中极其中重要的系统服务，它包含了媒体相关的多个运行在系统 frameowrk 层的核心服务，包括：AuditFlinger(音频核心服务)，AudiaPolicyService(音频系统策略相关服务)，MediaPlayerService(多媒体系统服务)，CameraService(相机相关服务)。
 
 MediaServer 本身是一个 Binder Server 端，它将向 ServiceManager 请求注册服务，并且通过 Binder 通信与 Client 端沟通，所以通过解析 MediaServer 的实现，理解 Binder 系统的具体实现。
 
@@ -215,6 +213,7 @@ sp<IBinder> ProcessState::getStrongProxyForHandle(int32_t handle)
             if (handle == 0) {
                 Parcel data;
                 // 通过 0 号引用和 PING_TRANSACTION 操作测试 ServiceManager 是否有效。
+                // 后面会分析 IPCThreadState。
                 status_t status = IPCThreadState::self()->transact(
                         0, IBinder::PING_TRANSACTION, data, NULL, 0);
                 if (status == DEAD_OBJECT)
@@ -703,9 +702,532 @@ status_t BpBinder::transact(
 }
 ```
 
+这里使用了 `IPCThreadState` 的 `transact` 函数将数据包发数出去，下面看一下它的实现。
+
 ### IPCThreadState
 
+首先通过 `IPCThreadState::self` 函数获得对象实例，这里采用了线程本地存储来保存 `IPCThreadState` 对象，即每个线程有自己独立的 `IPCThreadState` 对象负责通信。
 
+```c++
+// IPCThreadState.cpp
+
+IPCThreadState* IPCThreadState::self()
+{
+    if (gHaveTLS) {
+restart:
+        const pthread_key_t k = gTLS;
+        // 取出线程本地存储的 IPCThreadState 对象。
+        IPCThreadState* st = (IPCThreadState*)pthread_getspecific(k);
+        if (st) return st;
+        // 创建新的 IPCThreadState 对象。
+        return new IPCThreadState;
+    }
+    
+    if (gShutdown) return NULL;
+    
+    pthread_mutex_lock(&gTLSMutex);
+    if (!gHaveTLS) {
+        if (pthread_key_create(&gTLS, threadDestructor) != 0) {
+            pthread_mutex_unlock(&gTLSMutex);
+            return NULL;
+        }
+        gHaveTLS = true;
+    }
+    pthread_mutex_unlock(&gTLSMutex);
+    goto restart;
+}
+```
+
+下面是它的构造函数：
+
+```c++
+// IPCThreadState.cpp
+
+IPCThreadState::IPCThreadState()
+    // 这里持有了 ProcessState 对象。
+    : mProcess(ProcessState::self()),
+      mMyThreadId(gettid()),
+      mStrictModePolicy(0),
+      mLastTransactionBinderFlags(0)
+{
+    // 设置对象至本地线程存储。
+    pthread_setspecific(gTLS, this);
+    clearCaller();
+    // 设置通信缓冲区。
+    mIn.setDataCapacity(256);
+    mOut.setDataCapacity(256);
+}
+```
+
+```c++
+// IPCThreadState.cpp
+
+void IPCThreadState::clearCaller()
+{
+    mCallingPid = getpid();
+    mCallingUid = getuid();
+}
+```
+
+下面是 `transact` 函数的实现：
+
+```c++
+// IPCThreadState.cpp
+
+status_t IPCThreadState::transact(int32_t handle,
+                                  uint32_t code, const Parcel& data,
+                                  Parcel* reply, uint32_t flags)
+{
+    status_t err = data.errorCheck();
+    flags |= TF_ACCEPT_FDS;
+    
+    if (err == NO_ERROR) {
+        LOG_ONEWAY(">>>> SEND from pid %d uid %d %s", getpid(), getuid(),
+            (flags & TF_ONE_WAY) == 0 ? "READ REPLY" : "ONE WAY");
+        // 1. 处理数据包（BC_TRANSACTION 命令表示数据请求）。
+        err = writeTransactionData(BC_TRANSACTION, flags, handle, code, data, NULL);
+    }
+    
+    if (err != NO_ERROR) {
+        if (reply) reply->setError(err);
+        return (mLastError = err);
+    }
+    
+    // 2. 等待对方响应。
+    if ((flags & TF_ONE_WAY) == 0) {
+        if (reply) {
+            err = waitForResponse(reply);
+        } else {
+            Parcel fakeReply;
+            err = waitForResponse(&fakeReply);
+        }
+    } else {
+        err = waitForResponse(NULL, NULL);
+    }
+    
+    return err;
+}
+```
+
+可以看到 `IPCThreadState::transact` 函数包含两个重要操作，发送请求和接收响应。
+
+首先分析 `writeTransactionData` 函数。
+
+```c++
+// IPCThreadState.cpp
+
+status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,
+    int32_t handle, uint32_t code, const Parcel& data, status_t* statusBuffer)
+{
+    binder_transaction_data tr;
+
+    tr.target.ptr = 0; /* Don't pass uninitialized stack data to a remote process */
+    tr.target.handle = handle;
+    tr.code = code;
+    tr.flags = binderFlags;
+    tr.cookie = 0;
+    tr.sender_pid = 0;
+    tr.sender_euid = 0;
+    
+    const status_t err = data.errorCheck();
+    if (err == NO_ERROR) {
+        tr.data_size = data.ipcDataSize();
+        tr.data.ptr.buffer = data.ipcData();
+        tr.offsets_size = data.ipcObjectsCount()*sizeof(binder_size_t);
+        tr.data.ptr.offsets = data.ipcObjects();
+    } else if (statusBuffer) {
+        tr.flags |= TF_STATUS_CODE;
+        *statusBuffer = err;
+        tr.data_size = sizeof(status_t);
+        tr.data.ptr.buffer = reinterpret_cast<uintptr_t>(statusBuffer);
+        tr.offsets_size = 0;
+        tr.data.ptr.offsets = 0;
+    } else {
+        return (mLastError = err);
+    }
+    
+    // 将数据写入缓冲区。
+    mOut.writeInt32(cmd);
+    mOut.write(&tr, sizeof(tr));
+    
+    return NO_ERROR;
+}
+```
+
+`writeTransactionData` 只是将数据包写入了前面创建的缓冲区中。
+
+接着分析 `waitForResponse` 函数。
+
+```c++
+// IPCThreadState.cpp
+
+status_t IPCThreadState::waitForResponse(Parcel *reply, status_t *acquireResult)
+{
+    uint32_t cmd;
+    int32_t err;
+
+    while (1) {
+        // 1. 和驱动进行通信交互。
+        if ((err=talkWithDriver()) < NO_ERROR) break;
+        err = mIn.errorCheck();
+        if (err < NO_ERROR) break;
+        if (mIn.dataAvail() == 0) continue;
+        
+        cmd = (uint32_t)mIn.readInt32();
+
+        // 处理返回命令。
+        switch (cmd) {
+        // 发送消息成功。
+        case BR_TRANSACTION_COMPLETE:
+            if (!reply && !acquireResult) goto finish;
+            break;
+        // 对方进程或线程已经死亡。
+        case BR_DEAD_REPLY:
+            err = DEAD_OBJECT;
+            goto finish;
+        // 发送非法引用号。
+        case BR_FAILED_REPLY:
+            err = FAILED_TRANSACTION;
+            goto finish;
+        
+        case BR_ACQUIRE_RESULT:
+            {
+                ALOG_ASSERT(acquireResult != NULL, "Unexpected brACQUIRE_RESULT");
+                const int32_t result = mIn.readInt32();
+                if (!acquireResult) continue;
+                *acquireResult = result ? NO_ERROR : INVALID_OPERATION;
+            }
+            goto finish;
+        // 对应接收方的 BC_REPLY 回执操作。
+        case BR_REPLY:
+            {
+                binder_transaction_data tr;
+                err = mIn.read(&tr, sizeof(tr));
+                ALOG_ASSERT(err == NO_ERROR, "Not enough command data for brREPLY");
+                if (err != NO_ERROR) goto finish;
+                if (reply) {
+                    if ((tr.flags & TF_STATUS_CODE) == 0) {
+                        reply->ipcSetDataReference(
+                            reinterpret_cast<const uint8_t*>(tr.data.ptr.buffer),
+                            tr.data_size,
+                            reinterpret_cast<const binder_size_t*>(tr.data.ptr.offsets),
+                            tr.offsets_size/sizeof(binder_size_t),
+                            freeBuffer, this);
+                    } else {
+                        err = *reinterpret_cast<const status_t*>(tr.data.ptr.buffer);
+                        freeBuffer(NULL,
+                            reinterpret_cast<const uint8_t*>(tr.data.ptr.buffer),
+                            tr.data_size,
+                            reinterpret_cast<const binder_size_t*>(tr.data.ptr.offsets),
+                            tr.offsets_size/sizeof(binder_size_t), this);
+                    }
+                } else {
+                    freeBuffer(NULL,
+                        reinterpret_cast<const uint8_t*>(tr.data.ptr.buffer),
+                        tr.data_size,
+                        reinterpret_cast<const binder_size_t*>(tr.data.ptr.offsets),
+                        tr.offsets_size/sizeof(binder_size_t), this);
+                    continue;
+                }
+            }
+            goto finish;
+
+        default:
+            // 2. 处理对方的消息。
+            err = executeCommand(cmd);
+            if (err != NO_ERROR) goto finish;
+            break;
+        }
+    }
+
+finish:
+    if (err != NO_ERROR) {
+        if (acquireResult) *acquireResult = err;
+        if (reply) reply->setError(err);
+        mLastError = err;
+    }
+    
+    return err;
+}
+```
+
+上面有两个地方需要注意，`talkWithDriver` 负责于驱动交互，`executeCommand` 负责进一步处理对方数据。
+
+首先是 `talkWithDriver ` 的实现：
+
+```c++
+// IPCThreadState.cpp
+
+status_t IPCThreadState::talkWithDriver(bool doReceive)
+{
+    if (mProcess->mDriverFD <= 0) {
+        return -EBADF;
+    }
+    
+    binder_write_read bwr;
+    
+    // Is the read buffer empty?
+    const bool needRead = mIn.dataPosition() >= mIn.dataSize();
+    
+    // We don't want to write anything if we are still reading
+    // from data left in the input buffer and the caller
+    // has requested to read the next data.
+    const size_t outAvail = (!doReceive || needRead) ? mOut.dataSize() : 0;
+    
+    bwr.write_size = outAvail;
+    // 将缓冲区数据放入数据包中。
+    bwr.write_buffer = (uintptr_t)mOut.data();
+
+    // This is what we'll read.
+    if (doReceive && needRead) {
+        bwr.read_size = mIn.dataCapacity();
+        // 初始化接收缓冲区。
+        bwr.read_buffer = (uintptr_t)mIn.data();
+    } else {
+        bwr.read_size = 0;
+        bwr.read_buffer = 0;
+    }
+    
+    // Return immediately if there is nothing to do.
+    if ((bwr.write_size == 0) && (bwr.read_size == 0)) return NO_ERROR;
+
+    bwr.write_consumed = 0;
+    bwr.read_consumed = 0;
+    status_t err;
+    do {
+        // 使用 ioctl 操作，通过 mDriverFD 与驱动直接进行通信。
+        // BINDER_WRITE_READ 命令为向驱动请求发送数据。
+        if (ioctl(mProcess->mDriverFD, BINDER_WRITE_READ, &bwr) >= 0)
+            err = NO_ERROR;
+        else
+            err = -errno;
+        
+        if (mProcess->mDriverFD <= 0) {
+            err = -EBADF;
+        }
+    } while (err == -EINTR);
+
+    if (err >= NO_ERROR) {
+        if (bwr.write_consumed > 0) {
+            if (bwr.write_consumed < mOut.dataSize())
+                mOut.remove(0, bwr.write_consumed);
+            else
+                mOut.setDataSize(0);
+        }
+        if (bwr.read_consumed > 0) {
+            mIn.setDataSize(bwr.read_consumed);
+            mIn.setDataPosition(0);
+        }
+        return NO_ERROR;
+    }
+    
+    return err;
+}
+```
+
+可以看到，在 `talkWithDriver` 函数中，将 `mOut` 携带的数据放入数据包，并将 `mIn` 作为返回接收数据的缓冲区，使用 `ioctl`  通过 Binder 驱动向接收方发送数据。
+
+最后是 `executeCommand` 的实现：
+
+```c++
+
+status_t IPCThreadState::executeCommand(int32_t cmd)
+{
+    BBinder* obj;
+    RefBase::weakref_type* refs;
+    status_t result = NO_ERROR;
+    
+    switch ((uint32_t)cmd) {
+    case BR_ERROR:
+        result = mIn.readInt32();
+        break;
+        
+    case BR_OK:
+        break;
+        
+    case BR_ACQUIRE:
+        refs = (RefBase::weakref_type*)mIn.readPointer();
+        obj = (BBinder*)mIn.readPointer();
+        ALOG_ASSERT(refs->refBase() == obj,
+                   "BR_ACQUIRE: object %p does not match cookie %p (expected %p)",
+                   refs, obj, refs->refBase());
+        obj->incStrong(mProcess.get());
+        IF_LOG_REMOTEREFS() {
+            LOG_REMOTEREFS("BR_ACQUIRE from driver on %p", obj);
+            obj->printRefs();
+        }
+        mOut.writeInt32(BC_ACQUIRE_DONE);
+        mOut.writePointer((uintptr_t)refs);
+        mOut.writePointer((uintptr_t)obj);
+        break;
+        
+    case BR_RELEASE:
+        refs = (RefBase::weakref_type*)mIn.readPointer();
+        obj = (BBinder*)mIn.readPointer();
+        ALOG_ASSERT(refs->refBase() == obj,
+                   "BR_RELEASE: object %p does not match cookie %p (expected %p)",
+                   refs, obj, refs->refBase());
+        IF_LOG_REMOTEREFS() {
+            LOG_REMOTEREFS("BR_RELEASE from driver on %p", obj);
+            obj->printRefs();
+        }
+        mPendingStrongDerefs.push(obj);
+        break;
+        
+    case BR_INCREFS:
+        refs = (RefBase::weakref_type*)mIn.readPointer();
+        obj = (BBinder*)mIn.readPointer();
+        refs->incWeak(mProcess.get());
+        mOut.writeInt32(BC_INCREFS_DONE);
+        mOut.writePointer((uintptr_t)refs);
+        mOut.writePointer((uintptr_t)obj);
+        break;
+        
+    case BR_DECREFS:
+        refs = (RefBase::weakref_type*)mIn.readPointer();
+        obj = (BBinder*)mIn.readPointer();
+        // NOTE: This assertion is not valid, because the object may no
+        // longer exist (thus the (BBinder*)cast above resulting in a different
+        // memory address).
+        //ALOG_ASSERT(refs->refBase() == obj,
+        //           "BR_DECREFS: object %p does not match cookie %p (expected %p)",
+        //           refs, obj, refs->refBase());
+        mPendingWeakDerefs.push(refs);
+        break;
+        
+    case BR_ATTEMPT_ACQUIRE:
+        refs = (RefBase::weakref_type*)mIn.readPointer();
+        obj = (BBinder*)mIn.readPointer();
+         
+        {
+            const bool success = refs->attemptIncStrong(mProcess.get());
+            ALOG_ASSERT(success && refs->refBase() == obj,
+                       "BR_ATTEMPT_ACQUIRE: object %p does not match cookie %p (expected %p)",
+                       refs, obj, refs->refBase());
+            
+            mOut.writeInt32(BC_ACQUIRE_RESULT);
+            mOut.writeInt32((int32_t)success);
+        }
+        break;
+    
+    case BR_TRANSACTION:
+        {
+            binder_transaction_data tr;
+            result = mIn.read(&tr, sizeof(tr));
+            ALOG_ASSERT(result == NO_ERROR,
+                "Not enough command data for brTRANSACTION");
+            if (result != NO_ERROR) break;
+            
+            Parcel buffer;
+            buffer.ipcSetDataReference(
+                reinterpret_cast<const uint8_t*>(tr.data.ptr.buffer),
+                tr.data_size,
+                reinterpret_cast<const binder_size_t*>(tr.data.ptr.offsets),
+                tr.offsets_size/sizeof(binder_size_t), freeBuffer, this);
+            
+            const pid_t origPid = mCallingPid;
+            const uid_t origUid = mCallingUid;
+            const int32_t origStrictModePolicy = mStrictModePolicy;
+            const int32_t origTransactionBinderFlags = mLastTransactionBinderFlags;
+
+            mCallingPid = tr.sender_pid;
+            mCallingUid = tr.sender_euid;
+            mLastTransactionBinderFlags = tr.flags;
+
+            int curPrio = getpriority(PRIO_PROCESS, mMyThreadId);
+            if (gDisableBackgroundScheduling) {
+                if (curPrio > ANDROID_PRIORITY_NORMAL) {
+                    // We have inherited a reduced priority from the caller, but do not
+                    // want to run in that state in this process.  The driver set our
+                    // priority already (though not our scheduling class), so bounce
+                    // it back to the default before invoking the transaction.
+                    setpriority(PRIO_PROCESS, mMyThreadId, ANDROID_PRIORITY_NORMAL);
+                }
+            } else {
+                if (curPrio >= ANDROID_PRIORITY_BACKGROUND) {
+                    // We want to use the inherited priority from the caller.
+                    // Ensure this thread is in the background scheduling class,
+                    // since the driver won't modify scheduling classes for us.
+                    // The scheduling group is reset to default by the caller
+                    // once this method returns after the transaction is complete.
+                    set_sched_policy(mMyThreadId, SP_BACKGROUND);
+                }
+            }
+
+            Parcel reply;
+            status_t error;
+            if (tr.target.ptr) {
+                // 这里的 BBinder 
+                sp<BBinder> b((BBinder*)tr.cookie);
+                error = b->transact(tr.code, buffer, &reply, tr.flags);
+
+            } else {
+                error = the_context_object->transact(tr.code, buffer, &reply, tr.flags);
+            }
+
+            //ALOGI("<<<< TRANSACT from pid %d restore pid %d uid %d\n",
+            //     mCallingPid, origPid, origUid);
+            
+            if ((tr.flags & TF_ONE_WAY) == 0) {
+                LOG_ONEWAY("Sending reply to %d!", mCallingPid);
+                if (error < NO_ERROR) reply.setError(error);
+                sendReply(reply, 0);
+            } else {
+                LOG_ONEWAY("NOT sending reply to %d!", mCallingPid);
+            }
+            
+            mCallingPid = origPid;
+            mCallingUid = origUid;
+            mStrictModePolicy = origStrictModePolicy;
+            mLastTransactionBinderFlags = origTransactionBinderFlags;
+        }
+        break;
+    // 向对方发送 binder 死亡通知。
+    case BR_DEAD_BINDER:
+        {
+            BpBinder *proxy = (BpBinder*)mIn.readPointer();
+            proxy->sendObituary();
+            mOut.writeInt32(BC_DEAD_BINDER_DONE);
+            mOut.writePointer((uintptr_t)proxy);
+        } break;
+    // 对方收到 binder 死亡通知。
+    case BR_CLEAR_DEATH_NOTIFICATION_DONE:
+        {
+            BpBinder *proxy = (BpBinder*)mIn.readPointer();
+            proxy->getWeakRefs()->decWeak(proxy);
+        } break;
+        
+    case BR_FINISHED:
+        result = TIMED_OUT;
+        break;
+    // 操作完成。
+    case BR_NOOP:
+        break;
+    // 对方要求创建更多处理线程。
+    case BR_SPAWN_LOOPER:
+        mProcess->spawnPooledThread(false);
+        break;
+        
+    default:
+        printf("*** BAD COMMAND %d received from Binder driver\n", cmd);
+        result = UNKNOWN_ERROR;
+        break;
+    }
+
+    if (result != NO_ERROR) {
+        mLastError = result;
+    }
+    
+    return result;
+}
+
+```
+
+到这里就分析完了服务的 Binder `addService` 的实现过程，同时它也是一次与驱动的完整交互过程。
+
+以上过程使用时序图表示如下：
+
+## todo addService 时序图
 
 ## 数据包收发处理
 
@@ -714,10 +1236,4 @@ status_t BpBinder::transact(
 ### joinThreadPool
 
 ## ServiceManager 的注册
-
-
-
-# Framework 层
-
-### 前言
 

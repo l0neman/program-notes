@@ -145,10 +145,10 @@ Binder 协议使用 `ioctl(fd, cmd, arg)` 函数实现，fd 为驱动的文件�
 | BR_TRANSACTION<br />BR_REPLY                               | 对应发送方的 `BC_TRANSCATION` 和 `BC_REPLY`                  | binder_transcation_data                                      |
 | BR_ACQUIRE_RESULT<br />BR_ATTEMPT_ACQUIRE<br />BR_FINISHED | 尚未实现                                                     | -                                                            |
 | BR_DEAD_REPLY                                              | 交互过程中如果发现对方进程或线程已经死亡则返回该消息。       | -                                                            |
-| BR_TRANSCATION_COMPLETE                                    | 发送方通过 `BC_TRANSACTION` 或 `BC_REPLY` 发送完一个数据包后，都能收到该消息作为成功的反馈。无论异步或同步。 | -                                                            |
+| BR_TRANSACTION_COMPLETE                                    | 发送方通过 `BC_TRANSACTION` 或 `BC_REPLY` 发送完一个数据包后，都能收到该消息作为成功的反馈。无论异步或同步。 | -                                                            |
 | BR_INCREFS<br />BR_ACQUIRE<br />BR_RELEASE<br />BR_DECREFS | 用于管理强/弱指针的引用计数，只有提供 Binder 实体的进程才能收到该组消息。 | 1. `void *ptr` Binder 实体在用户空间的指针。<br />2. `void *cookie` 与该实体相关的附加数据。 |
 | BR_DEAD_BINDER<br />BR_CLEAR_DEATH_NOTIFICATION_DONE       | 1. 向获得 Binder 引用的进程发送Binder 实体死亡通知书。<br />2. 收到死亡通知书的进程接下来会返回 `BC_DEAD_BINDER_DONE` 做确认。 | `void **cookie` 在使用BC_REQUEST<br />_DEATH_NOTIFICATION 注册死亡通知时的附加参数。 |
-| BR_FAILED_REPLAY                                           | 如果发送非法引用号则返回该消息。                             | -                                                            |
+| BR_FAILED_REPLY                                           | 如果发送非法引用号则返回该消息。                             | -                                                            |
 
 ### binder_transaction_data 结构
 
