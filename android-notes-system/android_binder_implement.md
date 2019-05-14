@@ -1,4 +1,4 @@
-# Android Binder 的设计、实现与应用 - Binder Native 层实现部分
+# Android Binder 的设计、实现与应用 - Binder Native 层实现分析
 
 ## 前言
 
@@ -461,11 +461,13 @@ gDefaultServiceManager = new BpServiceManager(new BpBinder(0));
 
 那么最终得到的 `gDefaultServiceManager` 对象实质上为 `new BpServiceManage(new BpBinder(0))`。
 
+### 时序图
+
 整理上面的流程，用时序图表示如下：
 
 ![getServiceManager](./image/android_binder_implement/getServiceManager.png)
 
-下面分析 BpServiceManager 的实现。
+下面分析 `BpServiceManager` 的实现。
 
 ### BpServiceManager
 
@@ -480,7 +482,7 @@ public:
     BpServiceManager(const sp<IBinder>& impl)
         : BpInterface<IServiceManager>(impl) {}
 
-	// 获得已注册过的 Service。
+    // 获得已注册过的 Service。
     virtual sp<IBinder> getService(const String16& name) const
     {
         unsigned n;
@@ -493,7 +495,7 @@ public:
         return NULL;
     }
 
-	// 检查 Service 是否注册。
+    // 检查 Service 是否注册。
     virtual sp<IBinder> checkService( const String16& name) const
     {
         Parcel data, reply;
@@ -503,7 +505,7 @@ public:
         return reply.readStrongBinder();
     }
 
-	// 注册 Service。
+    // 注册 Service。
     virtual status_t addService(const String16& name, const sp<IBinder>& service,
             bool allowIsolated)
     {
@@ -516,7 +518,7 @@ public:
         return err == NO_ERROR ? reply.readExceptionCode() : err;
     }
 
-	// 列出注册的所有 Service。
+    // 列出注册的所有 Service。
     virtual Vector<String16> listServices()
     {
         Vector<String16> res;
@@ -1038,6 +1040,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
     status_t result = NO_ERROR;
     
     switch ((uint32_t)cmd) {
+    // 发生内部错误。
     case BR_ERROR:
         result = mIn.readInt32();
         break;
@@ -1052,28 +1055,20 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
                    "BR_ACQUIRE: object %p does not match cookie %p (expected %p)",
                    refs, obj, refs->refBase());
         obj->incStrong(mProcess.get());
-        IF_LOG_REMOTEREFS() {
-            LOG_REMOTEREFS("BR_ACQUIRE from driver on %p", obj);
-            obj->printRefs();
-        }
         mOut.writeInt32(BC_ACQUIRE_DONE);
         mOut.writePointer((uintptr_t)refs);
         mOut.writePointer((uintptr_t)obj);
         break;
-        
+    // 释放指针引用。
     case BR_RELEASE:
         refs = (RefBase::weakref_type*)mIn.readPointer();
         obj = (BBinder*)mIn.readPointer();
         ALOG_ASSERT(refs->refBase() == obj,
                    "BR_RELEASE: object %p does not match cookie %p (expected %p)",
                    refs, obj, refs->refBase());
-        IF_LOG_REMOTEREFS() {
-            LOG_REMOTEREFS("BR_RELEASE from driver on %p", obj);
-            obj->printRefs();
-        }
         mPendingStrongDerefs.push(obj);
         break;
-        
+    // 增加引用计数。
     case BR_INCREFS:
         refs = (RefBase::weakref_type*)mIn.readPointer();
         obj = (BBinder*)mIn.readPointer();
@@ -1082,7 +1077,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
         mOut.writePointer((uintptr_t)refs);
         mOut.writePointer((uintptr_t)obj);
         break;
-        
+    // 减少引用计数。
     case BR_DECREFS:
         refs = (RefBase::weakref_type*)mIn.readPointer();
         obj = (BBinder*)mIn.readPointer();
@@ -1109,7 +1104,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
             mOut.writeInt32((int32_t)success);
         }
         break;
-    
+    // 发送数据包成功。
     case BR_TRANSACTION:
         {
             binder_transaction_data tr;
@@ -1157,7 +1152,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
             Parcel reply;
             status_t error;
             if (tr.target.ptr) {
-                // 这里的 BBinder 
+                // 需要注意这里的 BBinder，表示服务端 binder 引用。 
                 sp<BBinder> b((BBinder*)tr.cookie);
                 error = b->transact(tr.code, buffer, &reply, tr.flags);
 
@@ -1223,11 +1218,15 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
 
 ```
 
+上面需要注意的一点是 `BBinder` 类型，它表示服务端 binder 的引用，与 `BpBinder` 表示的客户端对应。
+
 到这里就分析完了服务的 Binder `addService` 的实现过程，同时它也是一次与驱动的完整交互过程。
+
+### 时序图
 
 以上过程使用时序图表示如下：
 
-## todo addService 时序图
+![addService](./image/android_binder_implement/addService.png)
 
 ## 数据包收发处理
 
@@ -1237,3 +1236,4 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
 
 ## ServiceManager 的注册
 
+ 
