@@ -1,4 +1,4 @@
-# Android Binder 的设计、实现与应用 - Binder 设计部分
+# Android Binder 的设计、实现与应用 - Binder 设计分析
 
 - [前言](#前言)
 - [Binder 的优势](#binder-的优势)
