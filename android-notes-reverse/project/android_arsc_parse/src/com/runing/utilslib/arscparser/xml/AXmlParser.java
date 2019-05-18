@@ -19,7 +19,7 @@ public class AXmlParser {
   private static final boolean DEBUG_INFO = false;
 
   // 输出解析相关信息（可读方式打印）。
-  private static final boolean PARSE_INFO = true;
+  private static final boolean PARSE_INFO = false;
 
   // 开启 xml 文档解析。
   private static final boolean XML_PRINT = true;

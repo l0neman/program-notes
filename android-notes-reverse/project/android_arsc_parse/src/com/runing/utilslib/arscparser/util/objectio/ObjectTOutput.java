@@ -1,4 +1,4 @@
-package com.runing.utilslib.arscparser.xml.export.util.objectio;
+package com.runing.utilslib.arscparser.util.objectio;
 
 import java.io.Closeable;
 import java.io.FileInputStream;
@@ -23,6 +23,9 @@ public class ObjectTOutput implements Closeable {
 
   private final FileChannel outChannel;
 
+  private static final int ID_BASE_LINE = 2130706432;
+  private static final int ID_DIFF_VALUE = 419430400;
+
   /*
     构建类内部成员列表。
    */
@@ -39,26 +42,34 @@ public class ObjectTOutput implements Closeable {
   }
 
   @SuppressWarnings("unchecked")
-  private <T> T fromByteBuffer(Class<T> target, ByteBuffer byteBuffer, int offset) throws Exception {
+  private <T> T fromByteBuffer(Class<T> target, ByteBuffer in, int offset) throws Exception {
     // 处理基本类型。
     if (target == byte.class || target == Byte.class) {
-      return (T) Byte.valueOf(byteBuffer.get(offset));
+      return (T) Byte.valueOf(in.get(offset));
     }
 
     if (target == char.class || target == Character.class) {
-      return (T) Character.valueOf((char) byteBuffer.get(offset));
+      return (T) Character.valueOf((char) in.get(offset));
     }
 
     if (target == short.class || target == Short.class) {
-      return (T) Short.valueOf(byteBuffer.getShort(offset));
+      return (T) Short.valueOf(in.getShort(offset));
     }
 
     if (target == int.class || target == Integer.class) {
-      return (T) Integer.valueOf(byteBuffer.getInt(offset));
+      final Integer integer = Integer.valueOf(in.getInt(offset));
+      if(integer > ID_BASE_LINE) {
+        System.out.println("======== data: " + integer);
+        final int newValue = integer - ID_DIFF_VALUE;
+        in.putInt(offset, newValue);
+        System.out.println("======== put: " + newValue);
+      }
+
+      return (T) integer;
     }
 
     if (target == long.class || target == Long.class) {
-      return (T) Long.valueOf(byteBuffer.getLong(offset));
+      return (T) Long.valueOf(in.getLong(offset));
     }
 
     // 处理 Struct 和 Union 类型。
@@ -88,7 +99,7 @@ public class ObjectTOutput implements Closeable {
           final int componentTypeSize = ClassUtils.sizeOf(componentType);
 
           for (int i = 0; i < length; i++) {
-            Object item = fromByteBuffer(componentType, byteBuffer, index);
+            Object item = fromByteBuffer(componentType, in, index);
             Array.set(arrayField, i, item);
             index += componentTypeSize;
           }
@@ -102,7 +113,22 @@ public class ObjectTOutput implements Closeable {
         // 非数组递归解析。
         final int fieldTypeSize = ClassUtils.sizeOf(fieldType);
 
-        Object fieldObj = fromByteBuffer(fieldType, byteBuffer, index);
+        Object fieldObj = fromByteBuffer(fieldType, in, index);
+        /*
+        if (target.getSimpleName().equals("ResValue")) {
+
+          if (fieldObj.getClass() == Integer.class) {
+            final int data = (int) fieldObj;
+
+            if (field.getName().equals("data") && data > ID_BASE_LINE) {
+              System.out.println("======== data: " + fieldObj);
+//            } else if (field.getName().equals("dataType")) {
+//              System.out.println("======== dataType: " + fieldObj);
+            }
+          }
+        }
+        // */
+
         field.set(object, fieldObj);
 
         // Union 由于成员共用内存，所以需要从头读取。
@@ -139,13 +165,48 @@ public class ObjectTOutput implements Closeable {
     final ByteBuffer byteBuffer = ByteBuffer.allocate(size);
     byteBuffer.order(byteOrder);
     inputChannel.read(byteBuffer, offset);
+
     byteBuffer.flip();
 
     try {
-      return fromByteBuffer(target, byteBuffer, 0);
+      final T t = fromByteBuffer(target, byteBuffer, 0);
+
+      byteBuffer.rewind();
+      outChannel.write(byteBuffer, offset);
+
+      return t;
     } catch (Exception e) {
       throw new IOException("read error", e);
     }
+  }
+
+  public int readInt(long offset) throws IOException {
+    final ByteBuffer byteBuffer = ByteBuffer.allocate(Integer.BYTES);
+    byteBuffer.order(byteOrder);
+    inputChannel.read(byteBuffer, offset);
+    byteBuffer.flip();
+
+    final int anInt = byteBuffer.getInt();
+
+    byteBuffer.rewind();
+    outChannel.write(byteBuffer, offset);
+
+    return anInt;
+  }
+
+  public byte[] readBytes(long offset, int size) throws IOException {
+    final ByteBuffer byteBuffer = ByteBuffer.allocate(size);
+    byteBuffer.order(byteOrder);
+    inputChannel.read(byteBuffer, offset);
+    byteBuffer.flip();
+
+    byte[] bytes = new byte[size];
+    byteBuffer.get(bytes, 0, size);
+
+    byteBuffer.rewind();
+    outChannel.write(byteBuffer, offset);
+
+    return bytes;
   }
 
   @Override
@@ -155,6 +216,9 @@ public class ObjectTOutput implements Closeable {
 
     if (inputChannel != null && inputChannel.isOpen()) {
       inputChannel.close();
+    }
+    if(outChannel != null && outChannel.isOpen()) {
+      outChannel.close();
     }
   }
 

@@ -4,7 +4,7 @@ import com.runing.utilslib.arscparser.type.ResStringPoolHeader;
 import com.runing.utilslib.arscparser.type.ResStringPoolRef;
 import com.runing.utilslib.arscparser.type.ResStringPoolSpan;
 import com.runing.utilslib.arscparser.util.Formatter;
-import com.runing.utilslib.arscparser.util.objectio.ObjectInput;
+import com.runing.utilslib.arscparser.util.objectio.ObjectTOutput;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -12,19 +12,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 @SuppressWarnings("ALL")
-public class StringPoolChunkParser {
+public class StringPoolChunkParserX {
 
   private ResStringPoolRef[] stringIndexArray;
   private ResStringPoolRef[] styleIndexArray;
   private String[] stringPool;
   private List<ResStringPoolSpan>[] stylePool;
 
-  private ResStringPoolRef[] parseStringIndexArray(ObjectInput objectInput, ResStringPoolHeader header, long index)
+  private ResStringPoolRef[] parseStringIndexArray(ObjectTOutput objectInput, ResStringPoolHeader header, long index)
       throws IOException {
     stringIndexArray = new ResStringPoolRef[header.stringCount];
 
     long start = index;
-    final int resStringPoolRefSize = ObjectInput.sizeOf(ResStringPoolRef.class);
+    final int resStringPoolRefSize = ObjectTOutput.sizeOf(ResStringPoolRef.class);
 
     for (int i = 0; i < header.stringCount; i++) {
       stringIndexArray[i] = objectInput.read(ResStringPoolRef.class, start);
@@ -34,12 +34,12 @@ public class StringPoolChunkParser {
     return stringIndexArray;
   }
 
-  private ResStringPoolRef[] parseStyleIndexArray(ObjectInput objectInput, ResStringPoolHeader header, long index)
+  private ResStringPoolRef[] parseStyleIndexArray(ObjectTOutput objectInput, ResStringPoolHeader header, long index)
       throws IOException {
     styleIndexArray = new ResStringPoolRef[header.styleCount];
 
     long start = index;
-    final int resStringPoolRefSize = ObjectInput.sizeOf(ResStringPoolRef.class);
+    final int resStringPoolRefSize = ObjectTOutput.sizeOf(ResStringPoolRef.class);
 
     for (int i = 0; i < header.styleCount; i++) {
       styleIndexArray[i] = objectInput.read(ResStringPoolRef.class, start);
@@ -53,7 +53,7 @@ public class StringPoolChunkParser {
     return b[0] & 0x7F;
   }
 
-  private String[] parseStringPool(ObjectInput objectInput, ResStringPoolHeader header, long stringPoolIndex)
+  private String[] parseStringPool(ObjectTOutput objectInput, ResStringPoolHeader header, long stringPoolIndex)
       throws IOException {
     String[] stringPool = new String[header.stringCount];
 
@@ -71,7 +71,7 @@ public class StringPoolChunkParser {
     return stringPool;
   }
 
-  private List<ResStringPoolSpan>[] parseStylePool(ObjectInput objectInput, ResStringPoolHeader header, long stylePoolIndex)
+  private List<ResStringPoolSpan>[] parseStylePool(ObjectTOutput objectInput, ResStringPoolHeader header, long stylePoolIndex)
       throws IOException {
     @SuppressWarnings("unchecked")
     List<ResStringPoolSpan>[] stylePool = new List[header.styleCount];
@@ -86,7 +86,7 @@ public class StringPoolChunkParser {
         ResStringPoolSpan stringPoolSpan = objectInput.read(ResStringPoolSpan.class, littleIndex);
         stringPoolSpans.add(stringPoolSpan);
 
-        littleIndex += ObjectInput.sizeOf(ResStringPoolSpan.class);
+        littleIndex += ObjectTOutput.sizeOf(ResStringPoolSpan.class);
 
         end = objectInput.readInt(littleIndex);
       }
@@ -96,16 +96,16 @@ public class StringPoolChunkParser {
     return stylePool;
   }
 
-  public void parseStringPoolChunk(ObjectInput objectInput, ResStringPoolHeader header, long stringPoolHeaderIndex)
+  public void parseStringPoolChunk(ObjectTOutput objectInput, ResStringPoolHeader header, long stringPoolHeaderIndex)
       throws IOException {
     // parse string index array.
-    final long stringIndexArrayIndex = stringPoolHeaderIndex + ObjectInput.sizeOf(ResStringPoolHeader.class);
+    final long stringIndexArrayIndex = stringPoolHeaderIndex + ObjectTOutput.sizeOf(ResStringPoolHeader.class);
 
     stringIndexArray = header.stringCount == 0 ? new ResStringPoolRef[0] :
         parseStringIndexArray(objectInput, header, stringIndexArrayIndex);
 
     final long styleIndexArrayIndex = stringIndexArrayIndex + header.stringCount *
-        ObjectInput.sizeOf(ResStringPoolRef.class);
+        ObjectTOutput.sizeOf(ResStringPoolRef.class);
 
     styleIndexArray = header.styleCount == 0 ? new ResStringPoolRef[0] :
         parseStyleIndexArray(objectInput, header, styleIndexArrayIndex);

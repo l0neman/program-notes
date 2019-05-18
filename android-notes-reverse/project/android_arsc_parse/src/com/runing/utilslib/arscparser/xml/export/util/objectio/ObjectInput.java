@@ -12,7 +12,7 @@ import java.nio.channels.FileChannel;
 import java.util.*;
 
 /**
- * 对象输入，提供了一种从文件中解析各种文件格式的通用方法，与 ObjectOutput 配合使用。
+ * 对象输入，提供了一种从文件中解析各种文件格式的通用方法，与 ObjectTOutput 配合使用。
  * <p>
  * 接口借鉴 C 语言中的 read 函数用法。
  */
