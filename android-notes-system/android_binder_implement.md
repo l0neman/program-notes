@@ -436,7 +436,7 @@ IServiceManager::IServiceManager() { }
 IServiceManager::~IServiceManager() { }
 ```
 
-其中的 `queryLocalInterface` 方法，BpBinder 并没有实现，所以是 `IBinder` 提供的默认实现：
+其中的 `queryLocalInterface` 方法，`BpBinder` 并没有实现，所以是 `IBinder` 提供的默认实现：
 
 ```c++
 // Binder.cpp
@@ -1032,6 +1032,7 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
 最后是 `executeCommand` 的实现：
 
 ```c++
+// IPCThreadState.cpp
 
 status_t IPCThreadState::executeCommand(int32_t cmd)
 {
@@ -1047,7 +1048,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
         
     case BR_OK:
         break;
-        
+    // 获取指针引用。
     case BR_ACQUIRE:
         refs = (RefBase::weakref_type*)mIn.readPointer();
         obj = (BBinder*)mIn.readPointer();
@@ -1215,7 +1216,6 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
     
     return result;
 }
-
 ```
 
 上面需要注意的一点是 `BBinder` 类型，它表示服务端 binder 的引用，与 `BpBinder` 表示的客户端对应。
@@ -1230,9 +1230,242 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
 
 ## 数据包收发处理
 
+上面通过分析 `MediaPlayer` 服务初始化和注册过程了解了服务端 Binder 注册的一个典型过程，现在回到 MediaServer 的入口处继续分析：
+
+```c++
+// main_mediaserver.h
+
+int main(int argc __unuserd, char** argv)
+{
+  	...
+    MediaPlayerService::instantiate();
+    ...
+    // 目前是空的实现。
+    registerExtensions();
+    // 启用线程收发 Binder 数据包。
+    ProcessState::self()->startThreadPool();
+    IPCThreadState::self()->joinThreadPool();
+}
+```
+
 ### startThreadPool
 
+下面执行了 `ProcessState` 的 `startThreadPool` 函数，看一下实现：
+
+```c++
+// ProcessState.cpp
+
+void ProcessState::startThreadPool()
+{
+    AutoMutex _l(mLock);
+    if (!mThreadPoolStarted) {
+        mThreadPoolStarted = true;
+        spawnPooledThread(true);
+    }
+}
+```
+
+```c++
+// ProcessState.cpp
+
+void ProcessState::spawnPooledThread(bool isMain)
+{
+    if (mThreadPoolStarted) {
+        String8 name = makeBinderThreadName();
+        ALOGV("Spawning new pooled thread, name=%s\n", name.string());
+        // 启用了一个线程。
+        sp<Thread> t = new PoolThread(isMain);
+        t->run(name.string());
+    }
+}
+```
+
+```c++
+// ProcessState.cpp
+
+String8 ProcessState::makeBinderThreadName() {
+    int32_t s = android_atomic_add(1, &mThreadPoolSeq);
+    String8 name;
+    name.appendFormat("Binder_%X", s);
+    return name;
+}
+```
+
+```c++
+// ProcessState.cpp
+
+class PoolThread : public Thread
+{
+public:
+    PoolThread(bool isMain)
+        : mIsMain(isMain) {}
+protected:
+    virtual bool threadLoop()
+    {
+        // 这里最终调用了 IPCThreadState 的 joinThreadPool 函数。
+        IPCThreadState::self()->joinThreadPool(mIsMain);
+        return false;
+    }
+    
+    const bool mIsMain;
+};
+```
+
+可以看到，`startThreadPool` 最终只是开启新线程并调用了 `IPCThreadState` 的 `joinThreadPool` 函数，那么去看其实现。
+
 ### joinThreadPool
+
+```c++
+void IPCThreadState::joinThreadPool(bool isMain)
+{
+    LOG_THREADPOOL("**** THREAD %p (PID %d) IS JOINING THE THREAD POOL\n", (void*)pthread_self(), getpid());
+
+    // BC_ENTER_LOOPER 通知驱动该线程已经进入主循环，可以接受数据。
+    // BC_REGISTER_LOOPER 通知驱动线程池中的一个线程已经创建了。
+    mOut.writeInt32(isMain ? BC_ENTER_LOOPER : BC_REGISTER_LOOPER);
+    
+    // This thread may have been spawned by a thread that was in the background
+    // scheduling group, so first we will make sure it is in the foreground
+    // one to avoid performing an initial transaction in the background.
+    set_sched_policy(mMyThreadId, SP_FOREGROUND);
+        
+    status_t result;
+    do {
+        processPendingDerefs();
+        // now get the next command to be processed, waiting if necessary
+        result = getAndExecuteCommand();
+
+        if (result < NO_ERROR && result != TIMED_OUT && result != -ECONNREFUSED && result != -EBADF) {
+            ALOGE("getAndExecuteCommand(fd=%d) returned unexpected error %d, aborting",
+                  mProcess->mDriverFD, result);
+            abort();
+        }
+        
+        // Let this thread exit the thread pool if it is no longer
+        // needed and it is not the main process thread.
+        if(result == TIMED_OUT && !isMain) {
+            break;
+        }
+    } while (result != -ECONNREFUSED && result != -EBADF);
+
+    LOG_THREADPOOL("**** THREAD %p (PID %d) IS LEAVING THE THREAD POOL err=%p\n",
+        (void*)pthread_self(), getpid(), (void*)result);
+    
+    mOut.writeInt32(BC_EXIT_LOOPER);
+    talkWithDriver(false);
+}
+```
+
+```c++
+// 当清理到来的命令队列时，处理所有挂起的 Binder 引用。
+void IPCThreadState::processPendingDerefs()
+{
+    if (mIn.dataPosition() >= mIn.dataSize()) {
+        size_t numPending = mPendingWeakDerefs.size();
+        if (numPending > 0) {
+            for (size_t i = 0; i < numPending; i++) {
+                RefBase::weakref_type* refs = mPendingWeakDerefs[i];
+                refs->decWeak(mProcess.get());
+            }
+            mPendingWeakDerefs.clear();
+        }
+
+        numPending = mPendingStrongDerefs.size();
+        if (numPending > 0) {
+            for (size_t i = 0; i < numPending; i++) {
+                BBinder* obj = mPendingStrongDerefs[i];
+                obj->decStrong(mProcess.get());
+            }
+            mPendingStrongDerefs.clear();
+        }
+    }
+}
+```
+
+`processPendingDerefs` 用于清理 Binder 引用，其中 `mPendingWeakDerefs` 和 `mPendingStrongDerefs` 在后面的 `executeCommand` 里会收集引用。
+
+```c++ 
+// IPCThreadState.cpp
+
+status_t IPCThreadState::executeCommand(int32_t cmd)
+{
+    BBinder* obj;
+    RefBase::weakref_type* refs;
+    status_t result = NO_ERROR;
+    
+    switch ((uint32_t)cmd) {
+    ...
+    // 释放指针引用。
+    case BR_RELEASE:
+        refs = (RefBase::weakref_type*)mIn.readPointer();
+        obj = (BBinder*)mIn.readPointer();
+        ALOG_ASSERT(refs->refBase() == obj,
+                   "BR_RELEASE: object %p does not match cookie %p (expected %p)",
+                   refs, obj, refs->refBase());
+        mPendingStrongDerefs.push(obj);
+        break;
+    ...
+    // 减少引用计数。
+    case BR_DECREFS:
+        refs = (RefBase::weakref_type*)mIn.readPointer();
+        obj = (BBinder*)mIn.readPointer();
+        // NOTE: This assertion is not valid, because the object may no
+        // longer exist (thus the (BBinder*)cast above resulting in a different
+        // memory address).
+        //ALOG_ASSERT(refs->refBase() == obj,
+        //           "BR_DECREFS: object %p does not match cookie %p (expected %p)",
+        //           refs, obj, refs->refBase());
+        mPendingWeakDerefs.push(refs);
+        break;
+    ...
+    return result;
+}
+```
+
+`getAndExecuteCommand` 负责处理下一条命令。
+
+```c++
+status_t IPCThreadState::getAndExecuteCommand()
+{
+    status_t result;
+    int32_t cmd;
+    // 1. 和驱动进行交互。
+    result = talkWithDriver();
+    if (result >= NO_ERROR) {
+        size_t IN = mIn.dataAvail();
+        if (IN < sizeof(int32_t)) return result;
+        cmd = mIn.readInt32();
+        IF_LOG_COMMANDS() {
+            alog << "Processing top-level Command: "
+                 << getReturnString(cmd) << endl;
+        }
+
+        pthread_mutex_lock(&mProcess->mThreadCountLock);
+        mProcess->mExecutingThreadsCount++;
+        pthread_mutex_unlock(&mProcess->mThreadCountLock);
+        // 前面分析过，用于处理命令。
+        result = executeCommand(cmd);
+
+        pthread_mutex_lock(&mProcess->mThreadCountLock);
+        mProcess->mExecutingThreadsCount--;
+        pthread_cond_broadcast(&mProcess->mThreadCountDecrement);
+        pthread_mutex_unlock(&mProcess->mThreadCountLock);
+
+        // After executing the command, ensure that the thread is returned to the
+        // foreground cgroup before rejoining the pool.  The driver takes care of
+        // restoring the priority, but doesn't do anything with cgroups so we
+        // need to take care of that here in userspace.  Note that we do make
+        // sure to go in the foreground after executing a transaction, but
+        // there are other callbacks into user code that could have changed
+        // our group so we want to make absolutely sure it is put back.
+        set_sched_policy(mMyThreadId, SP_FOREGROUND);
+    }
+
+    return result;
+}
+```
+
+# todo 还没懂
 
 ## ServiceManager 的注册
 
