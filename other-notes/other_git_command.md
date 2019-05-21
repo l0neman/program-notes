@@ -43,6 +43,10 @@
 
 `git reset --hard HEAD^`
 
+- 撤销暂存区的文件
+
+`git reset HEAD <file>`
+
 - 查看命令记录。
 
 `git reflog`
@@ -55,7 +59,7 @@
 
 `git checkout -- readme.txt`
 
-- 删除。
+- 删除并添加到缓存区。
 
 `git rm test.txt`
 
@@ -81,35 +85,43 @@
 
 ## 分支管理
 
-- 创建并切换分支 dev。
+- 创建并切换到目标分支。
 
-`git checkout -b dev`
+`git checkout -b [branch]`
 
-- 切换dev分支。
+- 切换到目标分支。
 
-`git branch dev
+`git branch [branch]`
 
 - 查看分支。
 
 `git branch`
 
-- 合并 dev 分支到。
+- 查看分支合并图
 
-`git merge dev`
+`git log --graph`
 
-- 删除分支 dev。
+- 合并目标分支到当前分支，相当于指针直接指向目标分支。
 
-`git branch -d dev`
+`git merge [branch]`
+
+- 合并目标分支到当前分支，禁用 `Fast forward` 模式。
+
+`git merge --no-ff -m "no-ff" dev`
+
+- 删除目标分支。
+
+`git branch -d [branch]`
 
 - 合并分支并禁用 Fast forward 模式。
 
 `git merge --no-ff -m "merge with no-ff" dev`
 
-- 保存当前。
+- 保存当前工作现场。
 
 `git stash`
 
-- 查看保存的工作。
+- 查看保存的 stash。
 
 `git stash list`
 
@@ -125,7 +137,7 @@
 
 `git stash drop`
 
-- 强行删除dev分支。
+- 强行删除目标分支。
 
 `git branch -D dev`
 
