@@ -37,7 +37,7 @@ git init
 - 放弃文件在工作区的修改。
 
 ```git
-git checkout -- <文件>
+git checkout -- <文件名>
 ```
 
 - 添加文件到暂存区。
@@ -277,7 +277,7 @@ git clone <远程库地址>
 
 GitHub 提供：[https://github.com/github/gitignore](https://github.com/github/gitignore)
 
-- Android
+- android.gitignore
 
 ```gitignore
 # Built application files
