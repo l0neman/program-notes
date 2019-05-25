@@ -130,7 +130,7 @@ Binder 协议使用 `ioctl(fd, cmd, arg)` 函数实现，fd 为驱动的文件�
 | BC_INCREFS <br/>BC_ACQUIRE<br />BC_RELEASE<br />BC_DECREFS  | 这组命令增加或减少 Binder 的引用计数，用以实现强指针或弱指针的功能。 | 32 位 Binder引用号。                                         |
 | BC_INCREFS_DONE <br/>BC_ACQUIRE_DONE                        | 1. 第一次增加 Binder 实体引用计数时，驱动向 Binder 实体所在的进程发送 `BR_INCREFS`, `BR_ACQUIRE` 消息。<br />2. Binder 实体所在的进程处理完毕回复 `BC_INCREFS_DONE`，`BC_ACQUIRE_DONE`。 | 1. `void *ptr`：Binder实体在用户空间中的指针。<br />2. `void *cookie`：与该实体相关的附加数据。 |
 | BC_REGISTER_LOOPER <br/>BC_ENTER_LOOPER<br />BC_EXIT_LOOPER | 1. 与 `BINDER_SET_MAX_THREADS` 共同实现 Binder 驱动对接收方线程池管理。<br />2. `BC_REGISTER_LOOPER` 通知驱动线程池中的一个线程已经创建了。<br />3. `BC_ENTER_LOOPER` 通知驱动该线程已经进入主循环，可以接受数据。<br />4. `BC_EXIT_LOOPER` 通知驱动该线程退出主循环，不再接受数据。 | -                                                            |
-| BC_REQUEST_DEATH_NOTIFICATION                               | 已经获得 Binder 引用的进程通过此命令请求驱动在 Binder 实体销毁时得到通知。虽然强制真可以确保引用存在时实体不会被销毁，但没人能保证是否由于实体所在的 Server 关闭 Binder 驱动或者异常退出而消失，引用者能做的就是要求 Server 在此时给出通知。 | 1. `uint32 *ptr` 需要得到死亡通知的 Binder 引用。<br />2. `void **cookie` 与死亡通知相关的信息，驱动会在发出死亡通知时返回给发出请求的进程。 |
+| BC_REQUEST_DEATH_NOTIFICATION                               | 已经获得 Binder 引用的进程通过此命令请求驱动在 Binder 实体销毁时得到通知。虽然强指针可以确保引用存在时实体不会被销毁，但没人能保证是否由于实体所在的 Server 关闭 Binder 驱动或者异常退出而消失，引用者能做的就是要求 Server 在此时给出通知。 | 1. `uint32 *ptr` 需要得到死亡通知的 Binder 引用。<br />2. `void **cookie` 与死亡通知相关的信息，驱动会在发出死亡通知时返回给发出请求的进程。 |
 | BC_DEAD_BINDER_DONE                                         | 收到 Binder 实体通知的进程在删除 Binder 引用后使用本命令告知驱动。 | `void **cookie`                                              |
 
 ### BINDER_WRITE_READ 读取
