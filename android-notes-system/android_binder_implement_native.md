@@ -1,35 +1,589 @@
-# Android Binder 的设计、实现与应用 - Binder Native 层实现分析
+# Android Binder 的设计、实现与应用 - Native 层实现分析
+
+- [前言](#前言)
+- [ServiceManager](#servicemanager)
+  - [ServiceManager 的注册](#servicemanager-的注册)
+  - [请求处理](#请求处理)
+  - [addService](#addservice)
+  - [getService](#getservice)
+- [Server Binder](#server-binder)
+  - [ServiceManager 的获取](#servicemanager-的获取)
+  - [Server Binder 的注册](#server-binder-的注册)
+- [Client Binder](#client-binder)
 
 ## 前言
 
-通过分析 MediaServer 的实现，了解其中的与 Binder 相关的逻辑，作为典型案例，以理解 Binder 具体是如何工作的。
+通过分析 Native 层的 Binder 框架，了解 Binder 的进程间通信原理，以及 Android 系统服务与 Binder 的关系。
 
-MediaServer 是 Android 系统中极其中重要的系统服务，它包含了媒体相关的多个运行在系统 frameowrk 层的核心服务，包括：AuditFlinger(音频核心服务)，AudiaPolicyService(音频系统策略相关服务)，MediaPlayerService(多媒体系统服务)，CameraService(相机相关服务)。
+从 Binder 的设计了解到，Binder 的目标是为进程间通信服务，Binder 基于 Client/Server 架构，进程间通信发生时，参与通信的角色包括客户端和服务端，客户端请求服务端处理请求，客户端收到请求，然后两者持续进行交互，那么交互过程如下：
 
-MediaServer 本身是一个 Binder Server 端，它将向 ServiceManager 请求注册服务，并且通过 Binder 通信与 Client 端沟通，所以通过解析 MediaServer 的实现，理解 Binder 系统的具体实现。
+首先一个进程需要成为一个 Server Binder，即服务端的角色，那么它需要首先向服务注册的管理者 ServiceManager 请求注册自身为 Server 端，ServiceManager 需要在所有进程注册之前将自己初始化，并向 Binder 驱动注册自身成为服务管理器，然后，当 Server BInder 向 ServiceManager 注册完毕，客户端即可向服务端发出请求，它会首先向 ServiceManager 请求获取对应的服务端 Binder，获取到服务端 Binder 的引用后即可向服务端发出请求，执行完整的进程间通信。
 
-下面分析 Android 6.0 系统中 MediaServer 的源码。
+那么分析时，可以按照时间顺序，依次递进，下面基于 Android 6.0.1 的系统源码分析 Binder 在 Native 层的实现：
 
-## 源码列表
+## ServiceManager
 
-```c++
-android-6.0.0_r1\frameworks\av\media\mediaserver\main_mediaserver.cpp
-android-6.0.0_r1\frameworks\native\libs\binder\ProcessState.cpp
-android-6.0.0_r1\frameworks\native\libs\binder\IServiceManager.cpp
-android-6.0.0_r1\frameworks\native\libs\binder\BpBinder.cpp
-android-6.0.0_r1\frameworks\native\include\binder\IInterface.h
-android-6.0.0_r1\frameworks\av\media\libmediaplayerservice\MediaPlayerService.cpp
-android-6.0.0_r1\frameworks\native\libs\binder\IPCThreadState.cpp
+首先分析 ServiceManager 自身的初始化以及注册过程，ServiceManager 作为 Server Binder 注册的管理者，必须首先实现自身的注册，然后才能接收 Server Binder 的注册信息，处理注册请求，下面分析其实现：
 
-android-6.0.0_r1\frameworks\native\cmds\servicemanager\service_manager.c
+### ServiceManager 的注册
+
+ServiceManager 的实现在 `service_manager.c` 中，入口点在 `main` 函数中。
+
+ ```c
+// service_manager.c
+
+int main(int argc, char **argv)
+{
+    struct binder_state *bs;
+	// 1. 打开 binder 驱动。
+    bs = binder_open(128*1024);
+    if (!bs) {
+        ALOGE("failed to open binder driver\n");
+        return -1;
+    }
+    
+	// 2. 注册当前进程为 ServiceManager。
+    if (binder_become_context_manager(bs)) {
+        ALOGE("cannot become context manager (%s)\n", strerror(errno));
+        return -1;
+    }
+
+    // 安全系统相关的检查。
+    selinux_enabled = is_selinux_enabled();
+    sehandle = selinux_android_service_context_handle();
+    selinux_status_open(true);
+
+    if (selinux_enabled > 0) {
+        if (sehandle == NULL) {
+            ALOGE("SELinux: Failed to acquire sehandle. Aborting.\n");
+            abort();
+        }
+
+        if (getcon(&service_manager_context) != 0) {
+            ALOGE("SELinux: Failed to acquire service_manager context. Aborting.\n");
+            abort();
+        }
+    }
+
+    union selinux_callback cb;
+    cb.func_audit = audit_callback;
+    selinux_set_callback(SELINUX_CB_AUDIT, cb);
+    cb.func_log = selinux_log_callback;
+    selinux_set_callback(SELINUX_CB_LOG, cb);
+
+    // 3. 开启 binder 循环。
+    binder_loop(bs, svcmgr_handler);
+    return 0;
+}
+ ```
+
+首先看第一步：
+
+```c
+// service_manager.c
+
+struct binder_state *binder_open(size_t mapsize)
+{
+    struct binder_state *bs;
+    struct binder_version vers;
+
+    bs = malloc(sizeof(*bs));
+    if (!bs) {
+        errno = ENOMEM;
+        return NULL;
+    }
+
+    // 通过系统调用打开 binder 驱动设备，得到 binder 文件描述符。
+    bs->fd = open("/dev/binder", O_RDWR);
+    if (bs->fd < 0) {
+        fprintf(stderr,"binder: cannot open device (%s)\n", strerror(errno));
+        goto fail_open;
+    }
+
+    // 通过 BINDER_VERSION 命令获取 binder 驱动版本并检查是否和内核版本相同。
+    if ((ioctl(bs->fd, BINDER_VERSION, &vers) == -1) ||
+        (vers.protocol_version != BINDER_CURRENT_PROTOCOL_VERSION)) {
+        fprintf(stderr,
+                "binder: kernel driver version (%d) differs from user space version (%d)\n",
+                vers.protocol_version, BINDER_CURRENT_PROTOCOL_VERSION);
+        goto fail_open;
+    }
+
+    bs->mapsize = mapsize;
+    // 分配一份映射内存。
+    bs->mapped = mmap(NULL, mapsize, PROT_READ, MAP_PRIVATE, bs->fd, 0);
+    // 映射出错。
+    if (bs->mapped == MAP_FAILED) {
+        fprintf(stderr,"binder: cannot map device (%s)\n", strerror(errno));
+        goto fail_map;
+    }
+
+    return bs;
+
+fail_map:
+    close(bs->fd);
+fail_open:
+    free(bs);
+    return NULL;
+}
 ```
 
-## 入口
+它做了打开驱动并且分配了内存缓冲区，第二步：
 
-MediaServer 的入口在 `main_mediaserver.h` 文件中。
+```c
+// service_manager.c
+
+int binder_become_context_manager(struct binder_state *bs)
+{
+    // 使用 BINDER_SET_CONTEXT_MGR 注册当前进程为 ServiceManager。
+    return ioctl(bs->fd, BINDER_SET_CONTEXT_MGR, 0);
+}
+```
+
+通过命令注册自身进程为 ServiceManager，这里就完成了 ServiceManager 的注册，注册后，前面相关系统服务将可以通过  0 号引用通过驱动向 ServiceManager 发送注册请求。
+
+第三步时，就进入了 ServiceManager 的请求处理部分。
+
+### 请求处理
+
+```c
+// service_manager.c
+
+void binder_loop(struct binder_state *bs, binder_handler func)
+{
+    int res;
+    struct binder_write_read bwr;
+    uint32_t readbuf[32];
+
+    bwr.write_size = 0;
+    bwr.write_consumed = 0;
+    bwr.write_buffer = 0;
+
+    readbuf[0] = BC_ENTER_LOOPER;
+    // 发送 BC_ENTER_LOOPER 命令通知驱动该线程已经进入主循环，可以接受数据。
+    binder_write(bs, readbuf, sizeof(uint32_t));
+
+    // 开启消息读取解析循环。
+    for (;;) {
+        bwr.read_size = sizeof(readbuf);
+        bwr.read_consumed = 0;
+        bwr.read_buffer = (uintptr_t) readbuf;
+
+        // 不断读取消息。
+        res = ioctl(bs->fd, BINDER_WRITE_READ, &bwr);
+
+        if (res < 0) {
+            ALOGE("binder_loop: ioctl failed (%s)\n", strerror(errno));
+            break;
+        }
+		
+        // 解析处理消息。
+        res = binder_parse(bs, 0, (uintptr_t) readbuf, bwr.read_consumed, func);
+        if (res == 0) {
+            ALOGE("binder_loop: unexpected reply?!\n");
+            break;
+        }
+        
+        if (res < 0) {
+            ALOGE("binder_loop: io error %d %s\n", res, strerror(errno));
+            break;
+        }
+    }
+}
+```
+
+追溯 `binder_parse` 的实现：
+
+```c
+// service_manager.c
+
+int binder_parse(struct binder_state *bs, struct binder_io *bio,
+                 uintptr_t ptr, size_t size, binder_handler func)
+{
+    int r = 1;
+    uintptr_t end = ptr + (uintptr_t) size;
+
+    while (ptr < end) {
+        uint32_t cmd = *(uint32_t *) ptr;
+        ptr += sizeof(uint32_t);
+        switch(cmd) {
+        case BR_NOOP:
+            break;
+        case BR_TRANSACTION_COMPLETE:
+            break;
+        case BR_INCREFS:
+        case BR_ACQUIRE:
+        case BR_RELEASE:
+        case BR_DECREFS:
+            ptr += sizeof(struct binder_ptr_cookie);
+            break;
+        case BR_TRANSACTION: {
+            struct binder_transaction_data *txn = (struct binder_transaction_data *) ptr;
+            if ((end - ptr) < sizeof(*txn)) {
+                ALOGE("parse: txn too small!\n");
+                return -1;
+            }
+            
+            binder_dump_txn(txn);
+            // 消息最终由 func 处理。
+            if (func) {
+                unsigned rdata[256/4];
+                struct binder_io msg;
+                struct binder_io reply;
+                int res;
+
+                bio_init(&reply, rdata, sizeof(rdata), 4);
+                bio_init_from_txn(&msg, txn);
+                res = func(bs, txn, &msg, &reply);
+                binder_send_reply(bs, &reply, txn->data.ptr.buffer, res);
+            }
+            ptr += sizeof(*txn);
+            break;
+        }
+        case BR_REPLY: {
+            struct binder_transaction_data *txn = (struct binder_transaction_data *) ptr;
+            if ((end - ptr) < sizeof(*txn)) {
+                ALOGE("parse: reply too small!\n");
+                return -1;
+            }
+            
+            binder_dump_txn(txn);
+            if (bio) {
+                bio_init_from_txn(bio, txn);
+                bio = 0;
+            } else {
+                /* todo FREE BUFFER */
+            }
+            
+            ptr += sizeof(*txn);
+            r = 0;
+            break;
+        }
+        case BR_DEAD_BINDER: {
+            struct binder_death *death = (struct binder_death *)(uintptr_t) *(binder_uintptr_t *)ptr;
+            ptr += sizeof(binder_uintptr_t);
+            death->func(bs, death->ptr);
+            break;
+        }
+        case BR_FAILED_REPLY:
+            r = -1;
+            break;
+        case BR_DEAD_REPLY:
+            r = -1;
+            break;
+        default:
+            ALOGE("parse: OOPS %d\n", cmd);
+            return -1;
+        }
+    }
+
+    return r;
+}
+```
+
+可以看到，消息最终由上面传入的 `func` 函数指针处理了。
+
+```c
+binder_loop(bs, svcmgr_handler);
+```
+
+即 `svcmgr_handler` 函数：
+
+```c
+// service_manager.c
+
+int svcmgr_handler(struct binder_state *bs,
+                   struct binder_transaction_data *txn,
+                   struct binder_io *msg,
+                   struct binder_io *reply)
+{
+    struct svcinfo *si;
+    uint16_t *s;
+    size_t len;
+    uint32_t handle;
+    uint32_t strict_policy;
+    int allow_isolated;
+
+    //ALOGI("target=%p code=%d pid=%d uid=%d\n",
+    //      (void*) txn->target.ptr, txn->code, txn->sender_pid, txn->sender_euid);
+
+    if (txn->target.ptr != BINDER_SERVICE_MANAGER)
+        return -1;
+
+    if (txn->code == PING_TRANSACTION)
+        return 0;
+
+    // Equivalent to Parcel::enforceInterface(), reading the RPC
+    // header with the strict mode policy mask and the interface name.
+    // Note that we ignore the strict_policy and don't propagate it
+    // further (since we do no outbound RPCs anyway).
+    strict_policy = bio_get_uint32(msg);
+    s = bio_get_string16(msg, &len);
+    if (s == NULL) {
+        return -1;
+    }
+
+    if ((len != (sizeof(svcmgr_id) / 2)) ||
+        memcmp(svcmgr_id, s, sizeof(svcmgr_id))) {
+        fprintf(stderr,"invalid id %s\n", str8(s, len));
+        return -1;
+    }
+
+    if (sehandle && selinux_status_updated() > 0) {
+        struct selabel_handle *tmp_sehandle = selinux_android_service_context_handle();
+        if (tmp_sehandle) {
+            selabel_close(sehandle);
+            sehandle = tmp_sehandle;
+        }
+    }
+
+    switch(txn->code) {
+    // 对应 IPCThreadState 中的 GET_SERVICE_TRANSACTION 命令号，处理前面的 getService 请求。
+    case SVC_MGR_GET_SERVICE:
+    // 对应 CHECK_SERVICE_TRANSACTION 命令号，处理 checkService 请求。
+    case SVC_MGR_CHECK_SERVICE:
+        s = bio_get_string16(msg, &len);
+        if (s == NULL) {
+            return -1;
+        }
+        
+        // 处理 getSerice 请求。
+        handle = do_find_service(bs, s, len, txn->sender_euid, txn->sender_pid);
+        if (!handle)
+            break;
+        bio_put_ref(reply, handle);
+        return 0;
+	// 对应 ADD_SERVICE_TRANSACTION 命令号，处理 addService 请求。
+    case SVC_MGR_ADD_SERVICE:
+        s = bio_get_string16(msg, &len);
+        if (s == NULL) {
+            return -1;
+        }
+        handle = bio_get_ref(msg);
+        allow_isolated = bio_get_uint32(msg) ? 1 : 0;
+        // 处理 addService 请求。
+        if (do_add_service(bs, s, len, handle, txn->sender_euid,
+            allow_isolated, txn->sender_pid))
+            return -1;
+        break;
+    // 对应 LIST_SERVICES_TRANSACTION 命令号，处理 listService 请求。
+    case SVC_MGR_LIST_SERVICES: {
+        uint32_t n = bio_get_uint32(msg);
+		// 检查是否有权限。
+        if (!svc_can_list(txn->sender_pid)) {
+            ALOGE("list_service() uid=%d - PERMISSION DENIED\n",
+                    txn->sender_euid);
+            return -1;
+        }
+        // 从已注册的 server 链表读取指定索引的 server。
+        si = svclist;
+        while ((n-- > 0) && si)
+            si = si->next;
+        if (si) {
+            // 将索引对应的 server 名字填入返回数据包。
+            bio_put_string16(reply, si->name);
+            return 0;
+        }
+        return -1;
+    }
+    default:
+        ALOGE("unknown code %d\n", txn->code);
+        return -1;
+    }
+
+    bio_put_uint32(reply, 0);
+    return 0;
+}
+```
+
+这里真正处理了前面所分析过的 Server Binder 的注册请求，下面分别看每个请求对应的处理方法。
+
+### addService
+
+addService 请求的由 `do_add_service` 函数处理，它负责处理服务端 Binder 的注册请求。
+
+```c
+// service_manager.c
+
+int do_add_service(struct binder_state *bs,
+                   const uint16_t *s, size_t len,
+                   uint32_t handle, uid_t uid, int allow_isolated,
+                   pid_t spid)
+{
+    struct svcinfo *si;
+
+    //ALOGI("add_service('%s',%x,%s) uid=%d\n", str8(s, len), handle,
+    //        allow_isolated ? "allow_isolated" : "!allow_isolated", uid);
+
+    if (!handle || (len == 0) || (len > 127))
+        return -1;
+
+    // 检查是否有权限注册，例如 root 用户进程或 system 用户进程拥有合法权限。
+    if (!svc_can_register(s, len, spid)) {
+        ALOGE("add_service('%s',%x) uid=%d - PERMISSION DENIED\n",
+             str8(s, len), handle, uid);
+        return -1;
+    }
+    
+    // 查找已经注册的 server。
+    si = find_svc(s, len);
+    if (si) {
+        if (si->handle) {
+            ALOGE("add_service('%s',%x) uid=%d - ALREADY REGISTERED, OVERRIDE\n",
+                 str8(s, len), handle, uid);
+            // 查找到同名的 server 释放它。
+            svcinfo_death(bs, si);
+        }
+        si->handle = handle;
+    } else {
+        si = malloc(sizeof(*si) + (len + 1) * sizeof(uint16_t));
+        if (!si) {
+            ALOGE("add_service('%s',%x) uid=%d - OUT OF MEMORY\n",
+                 str8(s, len), handle, uid);
+            return -1;
+        }
+        si->handle = handle;
+        si->len = len;
+        memcpy(si->name, s, (len + 1) * sizeof(uint16_t));
+        si->name[len] = '\0';
+        si->death.func = (void*) svcinfo_death;
+        si->death.ptr = si;
+        si->allow_isolated = allow_isolated;
+        // 加入已注册的 server 链表。
+        si->next = svclist;
+        svclist = si;
+    }
+
+    // 请求驱动增加 binder 实体。
+    binder_acquire(bs, handle);
+    // 通过 BC_REQUEST_DEATH_NOTIFICATION 命令请求驱动在 Binder 实体销毁时得到通知。
+    binder_link_to_death(bs, handle, &si->death);
+    return 0;
+}
+```
+
+```c
+// service_manager.c
+
+struct svcinfo *find_svc(const uint16_t *s16, size_t len)
+{
+    struct svcinfo *si;
+
+    for (si = svclist; si; si = si->next) {
+        if ((len == si->len) &&
+            !memcmp(s16, si->name, len * sizeof(uint16_t))) {
+            return si;
+        }
+    }
+    return NULL;
+}
+```
+
+```c
+// service_manager.c
+
+void svcinfo_death(struct binder_state *bs, void *ptr)
+{
+    struct svcinfo *si = (struct svcinfo* ) ptr;
+
+    ALOGI("service '%s' died\n", str8(si->name, si->len));
+    if (si->handle) {
+        binder_release(bs, si->handle);
+        si->handle = 0;
+    }
+}
+```
+
+```c
+// binder.c
+
+void binder_acquire(struct binder_state *bs, uint32_t target)
+{
+    uint32_t cmd[2];
+    cmd[0] = BC_ACQUIRE;
+    cmd[1] = target;
+    // 发送 BC_ACQUIRE 命令请求在驱动中增加 binder 实体的引用。
+    binder_write(bs, cmd, sizeof(cmd));
+}
+```
+
+```c
+// binder.c
+
+void binder_release(struct binder_state *bs, uint32_t target)
+{
+    uint32_t cmd[2];
+    cmd[0] = BC_RELEASE;
+    cmd[1] = target;
+    // 发送 BC_RELEASE 命令请求释放引用。
+    binder_write(bs, cmd, sizeof(cmd));
+}
+```
+
+```c
+// binder.c
+
+void binder_link_to_death(struct binder_state *bs, uint32_t target, struct binder_death *death)
+{
+    struct {
+        uint32_t cmd;
+        struct binder_handle_cookie payload;
+    } __attribute__((packed)) data;
+
+    data.cmd = BC_REQUEST_DEATH_NOTIFICATION;
+    data.payload.handle = target;
+    data.payload.cookie = (uintptr_t) death;
+    binder_write(bs, &data, sizeof(data));
+}
+```
+
+### getService
+
+getService 请求由 `do_find_service` 函数处理，它负责处理客户端请求获取服务端 Binder 的请求。
+
+```c
+// service_manager.c
+
+uint32_t do_find_service(struct binder_state *bs, const uint16_t *s, size_t len, uid_t uid, pid_t spid)
+{
+    // 从已注册的 server 链表中寻找目标。
+    struct svcinfo *si = find_svc(s, len);
+
+    if (!si || !si->handle) {
+        return 0;
+    }
+
+    // 检查是否允许从隔离独立进行访问服务。
+    if (!si->allow_isolated) {
+        // If this service doesn't allow access from isolated processes,
+        // then check the uid to see if it is isolated.
+        uid_t appid = uid % AID_USER;
+        if (appid >= AID_ISOLATED_START && appid <= AID_ISOLATED_END) {
+            return 0;
+        }
+    }
+
+    // 检查服务是否满足权限。
+    if (!svc_can_find(s, len, spid)) {
+        return 0;
+    }
+
+    return si->handle;
+}
+```
+
+## Server Binder
+
+分析进程向 ServiceManager 注册自身为服务端 Binder 的过程。
+
+这里选择 Android 系统中多媒体服务 `MediaPlayerService` 作为典型案例，理解服务端 Binder 的注册过程。
+
+`MediaPlayerService` 的初始化在 `main_mediaserver.cpp` 中，它是 Android 系统中的一个重要的可执行程序 MediaServer，它管理了多个媒体相关的多个运行在系统 frameowrk 层的核心服务，包括：AuditFlinger(音频核心服务)，AudiaPolicyService(音频系统策略相关服务)，MediaPlayerService(多媒体系统服务)，CameraService(相机相关服务)。
+
+MediaServer 的入口：
 
 ```c++
-// main_mediaserver.h
+// main_mediaserver.cpp
 
 int main(int argc __unuserd, char** argv)
 {
@@ -44,7 +598,7 @@ int main(int argc __unuserd, char** argv)
     ALOGI("ServiceManager: %p", sm.get());
     // 注册 AudioFlinger。
     AudioFlinger::instantiate();
-    // 内部注册 MediaPlayerService。
+    // 注册 MediaPlayerService。
     MediaPlayerService::instantiate();
     // 注册相关服务。
     ResourceManagerService::instantiate();
@@ -59,11 +613,52 @@ int main(int argc __unuserd, char** argv)
 }
 ```
 
-## 打开 binder 驱动
+其中 `MediaPlayerService::instantiate();` 为 `MediaPlayerService` 服务的初始化入口，下面开始分析其实现。
 
-### ProcessState
+`MediaPlayerService` 的实现在 `MediaPlayerService.cpp` 中，定义在 `MediaPlayerService.h` 中。
 
-首先分析第 2 句，通过 `ProcessState` 的 `self` 方法得到了 `ProcessState` 的一个对象。
+```c++
+void MediaPlayerService::instantiate() {
+    defaultServiceManager()->addService(
+            String16("media.player"), new MediaPlayerService());
+}
+```
+
+可以看到逻辑很简单，通过 `defaultServiceManager` 函数获得 ServiceManager 的引用，然后通过 `addService` 函数将自己注册为服务端 Binder，携带一个服务的唯一标识字符串。
+
+那么首先分析 `defaultServiceManager`  函数的实现。
+
+### ServiceManager 的获取
+
+`defaultServiceManager`  函数在 `IServiceManager.cpp` 中。
+
+#### defaultServiceManager
+
+```c++
+// IServiceManager.cpp
+
+sp<IServiceManager> defaultServiceManager()
+{
+    if (gDefaultServiceManager != NULL) return gDefaultServiceManager;
+    {
+        AutoMutex _l(gDefaultServiceManagerLock);
+        while (gDefaultServiceManager == NULL) {
+            gDefaultServiceManager = interface_cast<IServiceManager>(
+                ProcessState::self()->getContextObject(NULL));
+            if (gDefaultServiceManager == NULL)
+                sleep(1);
+        }
+    }
+    
+    return gDefaultServiceManager;
+}
+```
+
+这里也使用了单例模式，`gDefaultServiceManager` 通过一个 `interface_cast` 操作获得，内部传递了一个 `ProcessState` 的 `getContextObject(NULL)` 方法返回的对象。
+
+首先需要分析 `ProcessState::Self` 函数，它返回了一个 `ProcessState` 的对象实例。
+
+#### ProcessState
 
 ```c++
 // ProcessState.cpp
@@ -166,35 +761,7 @@ static int open_driver()
 
 至此 `ProcessState` 完成了它的构造任务。
 
-## 获取 ServiceManager
-
-回到 main 函数，下一句为 `sp<IServiceManager> sm = defaultServiceManager();`，此句为了获取 ServiceManger 组件，为后面注册 Service 做准备。
-
-`defaultServiceManager`  函数在 `IServiceManager.cpp` 中。
-
-### defaultServiceManager
-
-```c++
-// IServiceManager.cpp
-
-sp<IServiceManager> defaultServiceManager()
-{
-    if (gDefaultServiceManager != NULL) return gDefaultServiceManager;
-    {
-        AutoMutex _l(gDefaultServiceManagerLock);
-        while (gDefaultServiceManager == NULL) {
-            gDefaultServiceManager = interface_cast<IServiceManager>(
-                ProcessState::self()->getContextObject(NULL));
-            if (gDefaultServiceManager == NULL)
-                sleep(1);
-        }
-    }
-    
-    return gDefaultServiceManager;
-}
-```
-
-这里也使用了单例模式，`gDefaultServiceManager` 通过一个 `interface_cast` 操作获得，内部传递了一个 `ProcessState` 的 `getContextObject(NULL)` 方法返回的对象。
+继续向下看，分析 `ProcessState` 的 `getContextObject(NULL)`  函数返回了什么对象。
 
 ```c++
 // ProcessState.cpp
@@ -272,7 +839,9 @@ ProcessState::handle_entry* ProcessState::lookupHandleLocked(int32_t handle)
 
 由上可以看出 `ProcessState::self()->getContextObject(NULL)` 函数返回的是一个 `new BpBinder(0)` 对象。
 
-### BpBinder
+那么看 `BpBinder` 的实现。
+
+#### BpBinder
 
 查看 `BpBinder` 的构造器，在 `BpBinder.cpp` 中：
 
@@ -469,15 +1038,9 @@ gDefaultServiceManager = new BpServiceManager(new BpBinder(0));
 
 那么最终得到的 `gDefaultServiceManager` 对象实质上为 `new BpServiceManage(new BpBinder(0))`。
 
-### 时序图
+最后再看一下 `BpServiceManager` 的实现。
 
-整理上面的流程，用时序图表示如下：
-
-![getServiceManager](./image/android_binder_implement/getServiceManager.png)
-
-下面分析 `BpServiceManager` 的实现。
-
-### BpServiceManager
+#### BpServiceManager
 
 `BpServiceManager` 的实现在 `IServiceManager.cpp` 中。
 
@@ -575,93 +1138,17 @@ inline IBinder* BpInterface<INTERFACE>::onAsBinder()
 
 以上就是获取 ServiceManager 的整个过程，并追溯到了它的实现类型。
 
-回到 `main_mediaserver.cpp` 的 `main` 函数中，获取 ServiceManager 后下面是几个系统服务的初始化。
+#### 时序图
 
-```c++
-// main_mediaserver.cpp
+使用时序图表示 ServiceManager 的获取过程如下：
 
-int main(int argc __unuserd, char** argv)
-{
-    ...
-    sp<IServiceManager> sm = defaultServiceManager();
-    // 注册相关服务。
-    AudioFlinger::instantiate();
-    MediaPlayerService::instantiate();
-    ResourceManagerService::instantiate();
-    CameraService::instantiate();
-    AudioPolicyService::instantiate();
-    SoundTriggerHwService::instantiate();
-    RadioService::instantiate();
-    ...
-}
-```
+![getServiceManager](./image/android_binder_implement/getServiceManager.png)
 
-## 注册 Server 端
+### Server Binder 的注册
 
-在 `main_mediaserver.cpp` 的 `main` 函数中，在获取 `SeviceManager` 后，初始化了多个系统服务，它们的 `instantiate` 方法中都做了类似的工作，即向 `ServiceManager` 注册自身为 Binder Server 端。
+上面分析完 `defaultServiceManager` 的实现，下面看 `addService` 的实现，怎么把自己注册为 Server Binder。
 
-例如 `AudioFlinger` ，`CameraService`  和 `AudioPolicyService` 的都是 `BinderService` 的子类。
-
-```c++
-// AudioFlinger.h
-
-class AudioFlinger :
-    public BinderService<AudioFlinger>,
-    public BnAudioFlinger
-{    ...    }
-
-// CameraService.h
-
-class CameraService :
-    public BinderService<CameraService>,
-    public BnCameraService,
-    public IBinder::DeathRecipient,
-    public camera_module_callbacks_t
-{    ...    }
-
-// AudioPolicyService.h
-
-class AudioPolicyService :
-    public BinderService<AudioPolicyService>,
-    public BnAudioPolicyService,
-    public IBinder::DeathRecipient
-{    ...    }
-```
-
-它们都使用了父类 `BinderService` 的  `instantiate()` 函数，向 `ServiceManager` 注册自身，最终都调用了 `ServiceManager` 的 `addService()` 方法。
-
-```c++
-// BinderService.h
-
-template<typename SERVICE>
-class BinderService
-{
-public:
-    static status_t publish(bool allowIsolated = false) {
-        sp<IServiceManager> sm(defaultServiceManager());
-        return sm->addService(
-                String16(SERVICE::getServiceName()),
-                new SERVICE(), allowIsolated);
-    }
-    static void instantiate() { publish(); }
-    ...
-}
-```
-
-上面使用了模板的方式实现，但不够直接，这里可以直接参考 `MediaPlayerService` 的实现。
-
-```c++
-// MediaPlayerService.cpp
-
-void MediaPlayerService::instantiate() {
-    defaultServiceManager()->addService(
-            String16("media.player"), new MediaPlayerService());
-}
-```
-
-注册时传入一个服务的字符串标识和对象，下面分析 `addService` 的具体实现。
-
-### addService
+#### addService
 
 通过前面的分析获取到的 `defaultServiceManager` 对象是 `BpServiceManager` 的实例。
 
@@ -714,7 +1201,7 @@ status_t BpBinder::transact(
 
 这里使用了 `IPCThreadState` 的 `transact` 函数将数据包发数出去，下面看一下它的实现。
 
-### IPCThreadState
+#### IPCThreadState
 
 首先通过 `IPCThreadState::self` 函数获得对象实例，这里采用了线程本地存储来保存 `IPCThreadState` 对象，即每个线程有自己独立的 `IPCThreadState` 对象负责通信。
 
@@ -1226,804 +1713,20 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
 }
 ```
 
-上面需要注意的一点是 `BBinder` 类型，它表示服务端 binder 的引用，与 `BpBinder` 表示的客户端对应。
+上面需要注意的一点是 `BBinder` 类型，它表示服务端 Binder 的引用，与 `BpBinder` 表示的客户端对应。
 
-到这里就分析完了服务的 Binder `addService` 的实现过程，同时它也是一次与驱动的完整交互过程。
+那么到这里就分析完了服务端 Binder 注册的实现过程。
 
-### 时序图
+`addService` 的消息将最终会发送到上面分析过的 ServiceManager 的 addService 处理方法 `do_add_service` 函数中，它会向驱动请求添加一个 Binder 实体。
 
-以上过程使用时序图表示如下：
+#### 时序图
+
+通过以上分析过程可以绘制出服务端 Binder 的注册过程时序图如下：
 
 ![addService](./image/android_binder_implement/addService.png)
 
-## 数据包收发处理
+## Client Binder
 
-上面通过分析 `MediaPlayer` 服务初始化和注册过程了解了服务端 Binder 注册的一个典型过程，现在回到 MediaServer 的入口处继续分析：
+客户端在需要向服务端 Binder 请求时，首先也会通过  `defaultServiceManager` 函数获得 ServiceManager 的引用，然后通过它的 `getService` 函数，传入字符串标识获取目标服务端 Binder 的引用号后，使用它来向服务端 Binder 发起请求，Client Binder 与 Server Binder 的完整通信过程放在另一个单独的文档中分析。
 
-```c++
-// main_mediaserver.h
-
-int main(int argc __unuserd, char** argv)
-{
-  	...
-    MediaPlayerService::instantiate();
-    ...
-    // 目前是空的实现。
-    registerExtensions();
-    // 启用线程收发 Binder 数据包。
-    ProcessState::self()->startThreadPool();
-    IPCThreadState::self()->joinThreadPool();
-}
-```
-
-### startThreadPool
-
-下面执行了 `ProcessState` 的 `startThreadPool` 函数，看一下实现：
-
-```c++
-// ProcessState.cpp
-
-void ProcessState::startThreadPool()
-{
-    AutoMutex _l(mLock);
-    if (!mThreadPoolStarted) {
-        mThreadPoolStarted = true;
-        spawnPooledThread(true);
-    }
-}
-```
-
-```c++
-// ProcessState.cpp
-
-void ProcessState::spawnPooledThread(bool isMain)
-{
-    if (mThreadPoolStarted) {
-        String8 name = makeBinderThreadName();
-        ALOGV("Spawning new pooled thread, name=%s\n", name.string());
-        // 启用了一个线程。
-        sp<Thread> t = new PoolThread(isMain);
-        t->run(name.string());
-    }
-}
-```
-
-```c++
-// ProcessState.cpp
-
-String8 ProcessState::makeBinderThreadName() {
-    int32_t s = android_atomic_add(1, &mThreadPoolSeq);
-    String8 name;
-    name.appendFormat("Binder_%X", s);
-    return name;
-}
-```
-
-```c++
-// ProcessState.cpp
-
-class PoolThread : public Thread
-{
-public:
-    PoolThread(bool isMain)
-        : mIsMain(isMain) {}
-protected:
-    virtual bool threadLoop()
-    {
-        // 这里最终调用了 IPCThreadState 的 joinThreadPool 函数。
-        IPCThreadState::self()->joinThreadPool(mIsMain);
-        return false;
-    }
-    
-    const bool mIsMain;
-};
-```
-
-可以看到，`startThreadPool` 最终只是开启新线程并调用了 `IPCThreadState` 的 `joinThreadPool` 函数，那么去看其实现。
-
-### joinThreadPool
-
-```c++
-void IPCThreadState::joinThreadPool(bool isMain)
-{
-    LOG_THREADPOOL("**** THREAD %p (PID %d) IS JOINING THE THREAD POOL\n", (void*)pthread_self(), getpid());
-
-    // BC_ENTER_LOOPER 通知驱动该线程已经进入主循环，可以接受数据。
-    // BC_REGISTER_LOOPER 通知驱动线程池中的一个线程已经创建了。
-    mOut.writeInt32(isMain ? BC_ENTER_LOOPER : BC_REGISTER_LOOPER);
-    
-    // This thread may have been spawned by a thread that was in the background
-    // scheduling group, so first we will make sure it is in the foreground
-    // one to avoid performing an initial transaction in the background.
-    set_sched_policy(mMyThreadId, SP_FOREGROUND);
-        
-    status_t result;
-    do {
-        processPendingDerefs();
-        // now get the next command to be processed, waiting if necessary
-        result = getAndExecuteCommand();
-
-        if (result < NO_ERROR && result != TIMED_OUT && result != -ECONNREFUSED && result != -EBADF) {
-            ALOGE("getAndExecuteCommand(fd=%d) returned unexpected error %d, aborting",
-                  mProcess->mDriverFD, result);
-            abort();
-        }
-        
-        // Let this thread exit the thread pool if it is no longer
-        // needed and it is not the main process thread.
-        if(result == TIMED_OUT && !isMain) {
-            break;
-        }
-    } while (result != -ECONNREFUSED && result != -EBADF);
-
-    LOG_THREADPOOL("**** THREAD %p (PID %d) IS LEAVING THE THREAD POOL err=%p\n",
-        (void*)pthread_self(), getpid(), (void*)result);
-    
-    mOut.writeInt32(BC_EXIT_LOOPER);
-    talkWithDriver(false);
-}
-```
-
-```c++
-// 当清理到来的命令队列时，处理所有挂起的 Binder 引用。
-void IPCThreadState::processPendingDerefs()
-{
-    if (mIn.dataPosition() >= mIn.dataSize()) {
-        size_t numPending = mPendingWeakDerefs.size();
-        if (numPending > 0) {
-            for (size_t i = 0; i < numPending; i++) {
-                RefBase::weakref_type* refs = mPendingWeakDerefs[i];
-                refs->decWeak(mProcess.get());
-            }
-            mPendingWeakDerefs.clear();
-        }
-
-        numPending = mPendingStrongDerefs.size();
-        if (numPending > 0) {
-            for (size_t i = 0; i < numPending; i++) {
-                BBinder* obj = mPendingStrongDerefs[i];
-                obj->decStrong(mProcess.get());
-            }
-            mPendingStrongDerefs.clear();
-        }
-    }
-}
-```
-
-`processPendingDerefs` 用于清理 Binder 引用，其中 `mPendingWeakDerefs` 和 `mPendingStrongDerefs` 在后面的 `executeCommand` 里会收集引用。
-
-```c++ 
-// IPCThreadState.cpp
-
-status_t IPCThreadState::executeCommand(int32_t cmd)
-{
-    BBinder* obj;
-    RefBase::weakref_type* refs;
-    status_t result = NO_ERROR;
-    
-    switch ((uint32_t)cmd) {
-    ...
-    // 释放指针引用。
-    case BR_RELEASE:
-        refs = (RefBase::weakref_type*)mIn.readPointer();
-        obj = (BBinder*)mIn.readPointer();
-        ALOG_ASSERT(refs->refBase() == obj,
-                   "BR_RELEASE: object %p does not match cookie %p (expected %p)",
-                   refs, obj, refs->refBase());
-        mPendingStrongDerefs.push(obj);
-        break;
-    ...
-    // 减少引用计数。
-    case BR_DECREFS:
-        refs = (RefBase::weakref_type*)mIn.readPointer();
-        obj = (BBinder*)mIn.readPointer();
-        // NOTE: This assertion is not valid, because the object may no
-        // longer exist (thus the (BBinder*)cast above resulting in a different
-        // memory address).
-        //ALOG_ASSERT(refs->refBase() == obj,
-        //           "BR_DECREFS: object %p does not match cookie %p (expected %p)",
-        //           refs, obj, refs->refBase());
-        mPendingWeakDerefs.push(refs);
-        break;
-    ...
-    return result;
-}
-```
-
-`getAndExecuteCommand` 负责处理下一条命令。
-
-```c++
-status_t IPCThreadState::getAndExecuteCommand()
-{
-    status_t result;
-    int32_t cmd;
-    // 1. 和驱动进行交互。
-    result = talkWithDriver();
-    if (result >= NO_ERROR) {
-        size_t IN = mIn.dataAvail();
-        if (IN < sizeof(int32_t)) return result;
-        cmd = mIn.readInt32();
-        IF_LOG_COMMANDS() {
-            alog << "Processing top-level Command: "
-                 << getReturnString(cmd) << endl;
-        }
-
-        pthread_mutex_lock(&mProcess->mThreadCountLock);
-        mProcess->mExecutingThreadsCount++;
-        pthread_mutex_unlock(&mProcess->mThreadCountLock);
-        // 前面分析过，用于处理命令。
-        result = executeCommand(cmd);
-
-        pthread_mutex_lock(&mProcess->mThreadCountLock);
-        mProcess->mExecutingThreadsCount--;
-        pthread_cond_broadcast(&mProcess->mThreadCountDecrement);
-        pthread_mutex_unlock(&mProcess->mThreadCountLock);
-
-        // After executing the command, ensure that the thread is returned to the
-        // foreground cgroup before rejoining the pool.  The driver takes care of
-        // restoring the priority, but doesn't do anything with cgroups so we
-        // need to take care of that here in userspace.  Note that we do make
-        // sure to go in the foreground after executing a transaction, but
-        // there are other callbacks into user code that could have changed
-        // our group so we want to make absolutely sure it is put back.
-        set_sched_policy(mMyThreadId, SP_FOREGROUND);
-    }
-
-    return result;
-}
-```
-
-从以上分析可以知道，MediaServer 使用了开启了两个线程同时处理与 Binder 驱动的通信，具体通信细节还需要继续分析。
-
-## ServiceManager
-
-ServiceManager 作为 Server Binder 注册的管理者，必须首先实现自身的注册，然后才能接收 Server Binder 的注册信息，处理注册请求，下面分析其实现。
-
-### ServiceManager 的注册
-
-ServiceManager 的实现在 `service_manager.c` 中，入口点在 `main` 函数中。
-
- ```c
-// service_manager.c
-
-int main(int argc, char **argv)
-{
-    struct binder_state *bs;
-	// 1. 打开 binder 驱动。
-    bs = binder_open(128*1024);
-    if (!bs) {
-        ALOGE("failed to open binder driver\n");
-        return -1;
-    }
-    
-	// 2. 注册当前进程为 ServiceManager。
-    if (binder_become_context_manager(bs)) {
-        ALOGE("cannot become context manager (%s)\n", strerror(errno));
-        return -1;
-    }
-
-    // 安全系统相关的检查。
-    selinux_enabled = is_selinux_enabled();
-    sehandle = selinux_android_service_context_handle();
-    selinux_status_open(true);
-
-    if (selinux_enabled > 0) {
-        if (sehandle == NULL) {
-            ALOGE("SELinux: Failed to acquire sehandle. Aborting.\n");
-            abort();
-        }
-
-        if (getcon(&service_manager_context) != 0) {
-            ALOGE("SELinux: Failed to acquire service_manager context. Aborting.\n");
-            abort();
-        }
-    }
-
-    union selinux_callback cb;
-    cb.func_audit = audit_callback;
-    selinux_set_callback(SELINUX_CB_AUDIT, cb);
-    cb.func_log = selinux_log_callback;
-    selinux_set_callback(SELINUX_CB_LOG, cb);
-
-    // 3. 开启 binder 循环。
-    binder_loop(bs, svcmgr_handler);
-    return 0;
-}
- ```
-
-首先看第一步：
-
-```c
-// service_manager.c
-
-struct binder_state *binder_open(size_t mapsize)
-{
-    struct binder_state *bs;
-    struct binder_version vers;
-
-    bs = malloc(sizeof(*bs));
-    if (!bs) {
-        errno = ENOMEM;
-        return NULL;
-    }
-
-    // 通过系统调用打开 binder 驱动设备，得到 binder 文件描述符。
-    bs->fd = open("/dev/binder", O_RDWR);
-    if (bs->fd < 0) {
-        fprintf(stderr,"binder: cannot open device (%s)\n", strerror(errno));
-        goto fail_open;
-    }
-
-    // 通过 BINDER_VERSION 命令获取 binder 驱动版本并检查是否和内核版本相同。
-    if ((ioctl(bs->fd, BINDER_VERSION, &vers) == -1) ||
-        (vers.protocol_version != BINDER_CURRENT_PROTOCOL_VERSION)) {
-        fprintf(stderr,
-                "binder: kernel driver version (%d) differs from user space version (%d)\n",
-                vers.protocol_version, BINDER_CURRENT_PROTOCOL_VERSION);
-        goto fail_open;
-    }
-
-    bs->mapsize = mapsize;
-    // 分配一份映射内存。
-    bs->mapped = mmap(NULL, mapsize, PROT_READ, MAP_PRIVATE, bs->fd, 0);
-    // 映射出错。
-    if (bs->mapped == MAP_FAILED) {
-        fprintf(stderr,"binder: cannot map device (%s)\n", strerror(errno));
-        goto fail_map;
-    }
-
-    return bs;
-
-fail_map:
-    close(bs->fd);
-fail_open:
-    free(bs);
-    return NULL;
-}
-```
-
-它做了打开驱动并且分配了内存缓冲区，第二步：
-
-```c
-// service_manager.c
-
-int binder_become_context_manager(struct binder_state *bs)
-{
-    // 使用 BINDER_SET_CONTEXT_MGR 注册当前进程为 ServiceManager。
-    return ioctl(bs->fd, BINDER_SET_CONTEXT_MGR, 0);
-}
-```
-
-通过命令注册自身进程为 ServiceManager，这里就完成了 ServiceManager 的注册，注册后，前面分析过的相关服务将可以通过  0 号引用通过驱动向 ServiceManager 发送请求。
-
-第三步时，就进入了 ServiceManager 的请求处理部分。
-
-### 请求处理
-
-```c
-// service_manager.c
-
-void binder_loop(struct binder_state *bs, binder_handler func)
-{
-    int res;
-    struct binder_write_read bwr;
-    uint32_t readbuf[32];
-
-    bwr.write_size = 0;
-    bwr.write_consumed = 0;
-    bwr.write_buffer = 0;
-
-    readbuf[0] = BC_ENTER_LOOPER;
-    // 发送 BC_ENTER_LOOPER 命令通知驱动该线程已经进入主循环，可以接受数据。
-    binder_write(bs, readbuf, sizeof(uint32_t));
-
-    // 开启消息读取解析循环。
-    for (;;) {
-        bwr.read_size = sizeof(readbuf);
-        bwr.read_consumed = 0;
-        bwr.read_buffer = (uintptr_t) readbuf;
-
-        // 不断读取消息。
-        res = ioctl(bs->fd, BINDER_WRITE_READ, &bwr);
-
-        if (res < 0) {
-            ALOGE("binder_loop: ioctl failed (%s)\n", strerror(errno));
-            break;
-        }
-		
-        // 解析处理消息。
-        res = binder_parse(bs, 0, (uintptr_t) readbuf, bwr.read_consumed, func);
-        if (res == 0) {
-            ALOGE("binder_loop: unexpected reply?!\n");
-            break;
-        }
-        
-        if (res < 0) {
-            ALOGE("binder_loop: io error %d %s\n", res, strerror(errno));
-            break;
-        }
-    }
-}
-```
-
-追溯 `binder_parse` 的实现：
-
-```c
-// service_manager.c
-
-int binder_parse(struct binder_state *bs, struct binder_io *bio,
-                 uintptr_t ptr, size_t size, binder_handler func)
-{
-    int r = 1;
-    uintptr_t end = ptr + (uintptr_t) size;
-
-    while (ptr < end) {
-        uint32_t cmd = *(uint32_t *) ptr;
-        ptr += sizeof(uint32_t);
-        switch(cmd) {
-        case BR_NOOP:
-            break;
-        case BR_TRANSACTION_COMPLETE:
-            break;
-        case BR_INCREFS:
-        case BR_ACQUIRE:
-        case BR_RELEASE:
-        case BR_DECREFS:
-            ptr += sizeof(struct binder_ptr_cookie);
-            break;
-        case BR_TRANSACTION: {
-            struct binder_transaction_data *txn = (struct binder_transaction_data *) ptr;
-            if ((end - ptr) < sizeof(*txn)) {
-                ALOGE("parse: txn too small!\n");
-                return -1;
-            }
-            
-            binder_dump_txn(txn);
-            // 消息最终由 func 处理。
-            if (func) {
-                unsigned rdata[256/4];
-                struct binder_io msg;
-                struct binder_io reply;
-                int res;
-
-                bio_init(&reply, rdata, sizeof(rdata), 4);
-                bio_init_from_txn(&msg, txn);
-                res = func(bs, txn, &msg, &reply);
-                binder_send_reply(bs, &reply, txn->data.ptr.buffer, res);
-            }
-            ptr += sizeof(*txn);
-            break;
-        }
-        case BR_REPLY: {
-            struct binder_transaction_data *txn = (struct binder_transaction_data *) ptr;
-            if ((end - ptr) < sizeof(*txn)) {
-                ALOGE("parse: reply too small!\n");
-                return -1;
-            }
-            
-            binder_dump_txn(txn);
-            if (bio) {
-                bio_init_from_txn(bio, txn);
-                bio = 0;
-            } else {
-                /* todo FREE BUFFER */
-            }
-            
-            ptr += sizeof(*txn);
-            r = 0;
-            break;
-        }
-        case BR_DEAD_BINDER: {
-            struct binder_death *death = (struct binder_death *)(uintptr_t) *(binder_uintptr_t *)ptr;
-            ptr += sizeof(binder_uintptr_t);
-            death->func(bs, death->ptr);
-            break;
-        }
-        case BR_FAILED_REPLY:
-            r = -1;
-            break;
-        case BR_DEAD_REPLY:
-            r = -1;
-            break;
-        default:
-            ALOGE("parse: OOPS %d\n", cmd);
-            return -1;
-        }
-    }
-
-    return r;
-}
-```
-
-可以看到，最终消息还是由上面传入的 `func` 函数指针处理了。
-
-```c
-binder_loop(bs, svcmgr_handler);
-```
-
-即 `svcmgr_handler` 函数：
-
-```c
-// service_manager.c
-
-int svcmgr_handler(struct binder_state *bs,
-                   struct binder_transaction_data *txn,
-                   struct binder_io *msg,
-                   struct binder_io *reply)
-{
-    struct svcinfo *si;
-    uint16_t *s;
-    size_t len;
-    uint32_t handle;
-    uint32_t strict_policy;
-    int allow_isolated;
-
-    //ALOGI("target=%p code=%d pid=%d uid=%d\n",
-    //      (void*) txn->target.ptr, txn->code, txn->sender_pid, txn->sender_euid);
-
-    if (txn->target.ptr != BINDER_SERVICE_MANAGER)
-        return -1;
-
-    if (txn->code == PING_TRANSACTION)
-        return 0;
-
-    // Equivalent to Parcel::enforceInterface(), reading the RPC
-    // header with the strict mode policy mask and the interface name.
-    // Note that we ignore the strict_policy and don't propagate it
-    // further (since we do no outbound RPCs anyway).
-    strict_policy = bio_get_uint32(msg);
-    s = bio_get_string16(msg, &len);
-    if (s == NULL) {
-        return -1;
-    }
-
-    if ((len != (sizeof(svcmgr_id) / 2)) ||
-        memcmp(svcmgr_id, s, sizeof(svcmgr_id))) {
-        fprintf(stderr,"invalid id %s\n", str8(s, len));
-        return -1;
-    }
-
-    if (sehandle && selinux_status_updated() > 0) {
-        struct selabel_handle *tmp_sehandle = selinux_android_service_context_handle();
-        if (tmp_sehandle) {
-            selabel_close(sehandle);
-            sehandle = tmp_sehandle;
-        }
-    }
-
-    switch(txn->code) {
-    // 对应 IPCThreadState 中的 GET_SERVICE_TRANSACTION 命令号，处理前面的 getService 请求。
-    case SVC_MGR_GET_SERVICE:
-    // 对应 CHECK_SERVICE_TRANSACTION 命令号，处理 checkService 请求。
-    case SVC_MGR_CHECK_SERVICE:
-        s = bio_get_string16(msg, &len);
-        if (s == NULL) {
-            return -1;
-        }
-        
-        // 处理 getSerice 请求。
-        handle = do_find_service(bs, s, len, txn->sender_euid, txn->sender_pid);
-        if (!handle)
-            break;
-        bio_put_ref(reply, handle);
-        return 0;
-	// 对应 ADD_SERVICE_TRANSACTION 命令号，处理 addService 请求。
-    case SVC_MGR_ADD_SERVICE:
-        s = bio_get_string16(msg, &len);
-        if (s == NULL) {
-            return -1;
-        }
-        handle = bio_get_ref(msg);
-        allow_isolated = bio_get_uint32(msg) ? 1 : 0;
-        // 处理 addService 请求。
-        if (do_add_service(bs, s, len, handle, txn->sender_euid,
-            allow_isolated, txn->sender_pid))
-            return -1;
-        break;
-    // 对应 LIST_SERVICES_TRANSACTION 命令号，处理 listService 请求。
-    case SVC_MGR_LIST_SERVICES: {
-        uint32_t n = bio_get_uint32(msg);
-		// 检查是否有权限。
-        if (!svc_can_list(txn->sender_pid)) {
-            ALOGE("list_service() uid=%d - PERMISSION DENIED\n",
-                    txn->sender_euid);
-            return -1;
-        }
-        // 从已注册的 server 链表读取指定索引的 server。
-        si = svclist;
-        while ((n-- > 0) && si)
-            si = si->next;
-        if (si) {
-            // 将索引对应的 server 名字填入返回数据包。
-            bio_put_string16(reply, si->name);
-            return 0;
-        }
-        return -1;
-    }
-    default:
-        ALOGE("unknown code %d\n", txn->code);
-        return -1;
-    }
-
-    bio_put_uint32(reply, 0);
-    return 0;
-}
-```
-
-这里真正处理了前面所分析过的 Server Binder 的注册请求，下面分别看每个请求对应的处理方法。
-
-### addService
-
-addService 请求的由 `do_add_service` 函数处理。
-
-```c
-// service_manager.c
-
-int do_add_service(struct binder_state *bs,
-                   const uint16_t *s, size_t len,
-                   uint32_t handle, uid_t uid, int allow_isolated,
-                   pid_t spid)
-{
-    struct svcinfo *si;
-
-    //ALOGI("add_service('%s',%x,%s) uid=%d\n", str8(s, len), handle,
-    //        allow_isolated ? "allow_isolated" : "!allow_isolated", uid);
-
-    if (!handle || (len == 0) || (len > 127))
-        return -1;
-
-    // 检查是否有权限注册，例如 root 用户进程或 system 用户进程拥有合法权限。
-    if (!svc_can_register(s, len, spid)) {
-        ALOGE("add_service('%s',%x) uid=%d - PERMISSION DENIED\n",
-             str8(s, len), handle, uid);
-        return -1;
-    }
-    
-    // 查找已经注册的 server。
-    si = find_svc(s, len);
-    if (si) {
-        if (si->handle) {
-            ALOGE("add_service('%s',%x) uid=%d - ALREADY REGISTERED, OVERRIDE\n",
-                 str8(s, len), handle, uid);
-            // 查找到同名的 server 释放它。
-            svcinfo_death(bs, si);
-        }
-        si->handle = handle;
-    } else {
-        si = malloc(sizeof(*si) + (len + 1) * sizeof(uint16_t));
-        if (!si) {
-            ALOGE("add_service('%s',%x) uid=%d - OUT OF MEMORY\n",
-                 str8(s, len), handle, uid);
-            return -1;
-        }
-        si->handle = handle;
-        si->len = len;
-        memcpy(si->name, s, (len + 1) * sizeof(uint16_t));
-        si->name[len] = '\0';
-        si->death.func = (void*) svcinfo_death;
-        si->death.ptr = si;
-        si->allow_isolated = allow_isolated;
-        // 加入已注册的 server 链表。
-        si->next = svclist;
-        svclist = si;
-    }
-
-    // 请求驱动增加 binder 引用。
-    binder_acquire(bs, handle);
-    // 通过 BC_REQUEST_DEATH_NOTIFICATION 命令请求驱动在 Binder 实体销毁时得到通知。
-    binder_link_to_death(bs, handle, &si->death);
-    return 0;
-}
-```
-
-```c
-// service_manager.c
-
-struct svcinfo *find_svc(const uint16_t *s16, size_t len)
-{
-    struct svcinfo *si;
-
-    for (si = svclist; si; si = si->next) {
-        if ((len == si->len) &&
-            !memcmp(s16, si->name, len * sizeof(uint16_t))) {
-            return si;
-        }
-    }
-    return NULL;
-}
-```
-
-```c
-// service_manager.c
-
-void svcinfo_death(struct binder_state *bs, void *ptr)
-{
-    struct svcinfo *si = (struct svcinfo* ) ptr;
-
-    ALOGI("service '%s' died\n", str8(si->name, si->len));
-    if (si->handle) {
-        binder_release(bs, si->handle);
-        si->handle = 0;
-    }
-}
-```
-
-```c
-// binder.c
-
-void binder_acquire(struct binder_state *bs, uint32_t target)
-{
-    uint32_t cmd[2];
-    cmd[0] = BC_ACQUIRE;
-    cmd[1] = target;
-    // 发送 BC_ACQUIRE 命令请求在驱动中增加 binder 引用。
-    binder_write(bs, cmd, sizeof(cmd));
-}
-```
-
-```c
-// binder.c
-
-void binder_release(struct binder_state *bs, uint32_t target)
-{
-    uint32_t cmd[2];
-    cmd[0] = BC_RELEASE;
-    cmd[1] = target;
-    // 发送 BC_RELEASE 命令请求释放引用。
-    binder_write(bs, cmd, sizeof(cmd));
-}
-```
-
-```c
-// binder.c
-
-void binder_link_to_death(struct binder_state *bs, uint32_t target, struct binder_death *death)
-{
-    struct {
-        uint32_t cmd;
-        struct binder_handle_cookie payload;
-    } __attribute__((packed)) data;
-
-    data.cmd = BC_REQUEST_DEATH_NOTIFICATION;
-    data.payload.handle = target;
-    data.payload.cookie = (uintptr_t) death;
-    binder_write(bs, &data, sizeof(data));
-}
-```
-
-### getService
-
-getService 请求由 `do_find_service` 函数处理。
-
-```c
-// service_manager.c
-
-uint32_t do_find_service(struct binder_state *bs, const uint16_t *s, size_t len, uid_t uid, pid_t spid)
-{
-    // 从已注册的 server 链表中寻找目标。
-    struct svcinfo *si = find_svc(s, len);
-
-    if (!si || !si->handle) {
-        return 0;
-    }
-
-    // 检查是否允许从隔离独立进行访问服务。
-    if (!si->allow_isolated) {
-        // If this service doesn't allow access from isolated processes,
-        // then check the uid to see if it is isolated.
-        uid_t appid = uid % AID_USER;
-        if (appid >= AID_ISOLATED_START && appid <= AID_ISOLATED_END) {
-            return 0;
-        }
-    }
-
-    // 检查服务是否满足权限。
-    if (!svc_can_find(s, len, spid)) {
-        return 0;
-    }
-
-    return si->handle;
-}
-```
-
-
+[Android Binder 的设计、实现与应用 - Native 层 Client-Server 通信分析](./android_binder_implement_native_cs.md)
