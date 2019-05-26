@@ -1730,3 +1730,17 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
 客户端在需要向服务端 Binder 请求时，首先也会通过  `defaultServiceManager` 函数获得 ServiceManager 的引用，然后通过它的 `getService` 函数，传入字符串标识获取目标服务端 Binder 的引用号后，使用它来向服务端 Binder 发起请求，Client Binder 与 Server Binder 的完整通信过程放在另一个单独的文档中分析。
 
 [Android Binder 的设计、实现与应用 - Native 层 Client-Server 通信分析](./android_binder_implement_native_cs.md)
+
+## 源码列表
+
+```c++
+android-6.0.0_r1\frameworks\av\media\mediaserver\main_mediaserver.cpp
+android-6.0.0_r1\frameworks\native\libs\binder\ProcessState.cpp
+android-6.0.0_r1\frameworks\native\libs\binder\IServiceManager.cpp
+android-6.0.0_r1\frameworks\native\libs\binder\BpBinder.cpp
+android-6.0.0_r1\frameworks\native\include\binder\IInterface.h
+android-6.0.0_r1\frameworks\av\media\libmediaplayerservice\MediaPlayerService.cpp
+android-6.0.0_r1\frameworks\native\libs\binder\IPCThreadState.cpp
+
+android-6.0.0_r1\frameworks\native\cmds\servicemanager\service_manager.c
+```
