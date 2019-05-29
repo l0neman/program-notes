@@ -122,8 +122,7 @@ status_t MediaPlayer::setDataSource(const sp<IStreamSource> &source)
 ```c++
 // IMediaDeathNotifier.cpp
 
-/*static*/const sp<IMediaPlayerService>&
-IMediaDeathNotifier::getMediaPlayerService()
+/*static*/const sp<IMediaPlayerService>& IMediaDeathNotifier::getMediaPlayerService()
 {
     ALOGV("getMediaPlayerService");
     Mutex::Autolock _l(sServiceLock);
@@ -146,7 +145,7 @@ IMediaDeathNotifier::getMediaPlayerService()
             sDeathNotifier = new DeathNotifier();
         }
         binder->linkToDeath(sDeathNotifier);
-        // 注意这里又使用了 interface_cast 这个宏。
+        // 注意这里又使用了 interface_cast 这个模板函数。
         sMediaPlayerService = interface_cast<IMediaPlayerService>(binder);
     }
     ALOGE_IF(sMediaPlayerService == 0, "no media player service!?");
@@ -154,5 +153,111 @@ IMediaDeathNotifier::getMediaPlayerService()
 }
 ```
 
+使用 ServiceManager 的`getService` 函数将获得 `MediaPlayerService` 的 Binder 引用号，前面分析过 `interface_cast` 这个模板函数将有如下作用：
 
+```c++
+interface_cast<IMediaPlayerService>(binder);
+```
 
+最终可转化为：
+
+```c++
+new BpMediaPlayerService(new BpBinder(binder));
+```
+
+那么回到上面：
+
+```c++
+const sp<IMediaPlayerService>& service(getMediaPlayerService());
+```
+
+这里 `service` 换成 `BpMediaPlayerSevice` 的对象，继续看下一句：
+
+```c++
+sp<IMediaPlayer> player(service->create(this, mAudioSessionId));
+```
+
+追溯 `service` 的 `create` 函数，在 `BpMediaPlayerSevice` 类中，它在 `IServiceManager.cpp` 文件中。
+
+## BpMediaPlayerService
+
+ ```c++
+// BpMediaPlayerService.cpp
+
+class BpMediaPlayerService: public BpInterface<IMediaPlayerService>
+{
+public:
+    BpMediaPlayerService(const sp<IBinder>& impl)
+        : BpInterface<IMediaPlayerService>(impl) {}
+    ...
+    virtual sp<IMediaPlayer> create(
+            const sp<IMediaPlayerClient>& client, int audioSessionId) {
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaPlayerService::getInterfaceDescriptor());
+        data.writeStrongBinder(IInterface::asBinder(client));
+        data.writeInt32(audioSessionId);
+
+		// 通过 Binder 驱动向服务端发送消息。
+        remote()->transact(CREATE, data, &reply);
+        return interface_cast<IMediaPlayer>(reply.readStrongBinder());
+    }
+    ...
+};
+ ```
+
+通过前面 Service Binder 的注册过程了解到，`remote()` 是 `BpBinder` 对象，然后它内部会通过对 Binder 服务端的引用号通过驱动向服务端 Binder 发送消息，这里这个 `remote()` 含有 `MediaPlayerService` 服务的引用号，那么最终驱动将会把消息传递给 `MediaPlayerService` 服务，首先看它的类定义，在 `MediaPlayerService.h` 头文件中：
+
+```c++
+// MediaPlayerService.h
+
+class MediaPlayerService : public BnMediaPlayerService
+{
+    ...
+}
+```
+
+它实现了一个 `BnMediaPlayerService` 类型，`BnMediaPlayerService` 从名字上看起来和上面的 `BpMediaPlayerService` 有一个对应关系，它的定义在 `IMediaPlayerService,h` 文件中：
+
+## BnMediaPlayerService
+
+```c++
+class BnMediaPlayerService: public BnInterface<IMediaPlayerService>
+{
+public:
+    virtual status_t onTransact( uint32_t code,
+                                    const Parcel& data,
+                                    Parcel* reply,
+                                    uint32_t flags = 0);
+};
+```
+
+继续看它的父类 `BnInterface<IMediaPlayerService>`，在 `IInterface.h` 中。
+
+```c++
+template<typename INTERFACE>
+class BnInterface : public INTERFACE, public BBinder
+{
+public:
+    virtual sp<IInterface>      queryLocalInterface(const String16& _descriptor);
+    virtual const String16&     getInterfaceDescriptor() const;
+
+protected:
+    virtual IBinder*            onAsBinder();
+};
+```
+
+也是一个模板类，和 `BpInterface` 类似，替换 `IMediaPlayerService` 后得到。
+
+```c++
+class BnInterface : public IMediaPlayerService, public BBinder
+{
+public:
+    virtual sp<IInterface>      queryLocalInterface(const String16& _descriptor);
+    virtual const String16&     getInterfaceDescriptor() const;
+
+protected:
+    virtual IBinder*            onAsBinder();
+};
+```
+
+# todo 补充分析（哈哈哈😄）。

@@ -986,7 +986,6 @@ IMPLEMENT_META_INTERFACE(ServiceManager, "android.os.IServiceManager");
 
 将上面的使用替换得到：
 
-```c++
 // 标识符为 "android.os.IServiceManager"
 const android::String16 IServiceManager::descriptor("android.os.IServiceManager");
 const android::String16& IServiceManager::getInterfaceDescriptor() const {
@@ -1006,12 +1005,11 @@ android::sp<IServiceManager> IServiceManager::asInterface(
         }
     }
 
-    return intr;
+​    return intr;
 }
 
 IServiceManager::IServiceManager() { }
 IServiceManager::~IServiceManager() { }
-```
 
 其中的 `queryLocalInterface` 方法，`BpBinder` 并没有实现，所以是 `IBinder` 提供的默认实现：
 
@@ -1744,3 +1742,5 @@ android-6.0.0_r1\frameworks\native\libs\binder\IPCThreadState.cpp
 
 android-6.0.0_r1\frameworks\native\cmds\servicemanager\service_manager.c
 ```
+
+# todo 补充数据包收发分析。
