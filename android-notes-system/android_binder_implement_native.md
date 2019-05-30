@@ -986,6 +986,7 @@ IMPLEMENT_META_INTERFACE(ServiceManager, "android.os.IServiceManager");
 
 将上面的使用替换得到：
 
+```c++
 // 标识符为 "android.os.IServiceManager"
 const android::String16 IServiceManager::descriptor("android.os.IServiceManager");
 const android::String16& IServiceManager::getInterfaceDescriptor() const {
@@ -1005,11 +1006,12 @@ android::sp<IServiceManager> IServiceManager::asInterface(
         }
     }
 
-​    return intr;
+     return intr;
 }
 
 IServiceManager::IServiceManager() { }
 IServiceManager::~IServiceManager() { }
+```
 
 其中的 `queryLocalInterface` 方法，`BpBinder` 并没有实现，所以是 `IBinder` 提供的默认实现：
 
@@ -1723,6 +1725,153 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
 
 ![addService](./image/android_binder_implement/addService.png)
 
+### Server Binder 的消息处理
+
+一旦 Server Binder 注册成功了，那么它将会进入工作工作状态，成为一个真正的服务，`MediaPlayerService` 作为系统的一个重要服务，会在注册后不断接收客户端发送来的信息，下面看一下服务端是如何处理客户端小消息的。
+
+首先回到 MediaServer 的入口出，它作为多个系统服务的管理者，注册了多个重要的系统服务，例如 `AudioFlinger` ，`CameraService`  和 `AudioPolicyService` 等服务，它们和 `MediaPlayerService` 一样，都将通过 ServiceManger 注册到驱动中，如下：
+
+```c++
+// AudioFlinger.h
+
+class AudioFlinger :
+    public BinderService<AudioFlinger>,
+    public BnAudioFlinger
+{    ...    }
+
+// CameraService.h
+
+class CameraService :
+    public BinderService<CameraService>,
+    public BnCameraService,
+    public IBinder::DeathRecipient,
+    public camera_module_callbacks_t
+{    ...    }
+
+// AudioPolicyService.h
+
+class AudioPolicyService :
+    public BinderService<AudioPolicyService>,
+    public BnAudioPolicyService,
+    public IBinder::DeathRecipient
+{    ...    }
+```
+
+它们都使用了父类 `BinderService` 的  `instantiate()` 函数，向 `ServiceManager` 注册自身，最终都调用了 `ServiceManager` 的 `addService()` 方法。
+
+```c++
+// BinderService.h
+
+template<typename SERVICE>
+class BinderService
+{
+public:
+    static status_t publish(bool allowIsolated = false) {
+        sp<IServiceManager> sm(defaultServiceManager());
+        return sm->addService(
+                String16(SERVICE::getServiceName()),
+                new SERVICE(), allowIsolated);
+    }
+    static void instantiate() { publish(); }
+    ...
+}
+```
+
+前面也分析了 `MediaPlayerService` 的实现，发现它并没有包含处理客户端消息的部分，其他服务也没有看到，那么是在哪进行消息处理呢，发现在 MediaServer 的入口 `main` 的最后两行代码应该与此相关。
+
+```c++
+
+// main_mediaserver.cpp
+
+int main(int argc __unuserd, char** argv)
+{
+  	...
+    // 注册 AudioFlinger。
+    AudioFlinger::instantiate();
+    // 注册 MediaPlayerService。
+    MediaPlayerService::instantiate();
+    // 注册相关服务。
+    ResourceManagerService::instantiate();
+    CameraService::instantiate();
+    AudioPolicyService::instantiate();
+    SoundTriggerHwService::instantiate();
+    RadioService::instantiate();
+    registerExtensions();
+    // 启用线程收发 Binder 数据包。
+    ProcessState::self()->startThreadPool();
+    IPCThreadState::self()->joinThreadPool();
+}
+```
+
+首先分析 `ProcessState::self()->startThreadPool();`，直接看其实现代码：
+
+#### startThreadPool
+
+```c++
+// ProcessState.cpp
+
+void ProcessState::startThreadPool()
+{
+    AutoMutex _l(mLock);
+    if (!mThreadPoolStarted) {
+        mThreadPoolStarted = true;
+        spawnPooledThread(true);
+    }
+}
+```
+
+```c++
+// ProcessState.cpp
+
+void ProcessState::spawnPooledThread(bool isMain)
+{
+    if (mThreadPoolStarted) {
+        String8 name = makeBinderThreadName();
+        ALOGV("Spawning new pooled thread, name=%s\n", name.string());
+        // 启用了一个线程。
+        sp<Thread> t = new PoolThread(isMain);
+        t->run(name.string());
+    }
+}
+```
+
+```c++
+// ProcessState.cpp
+
+String8 ProcessState::makeBinderThreadName() {
+    int32_t s = android_atomic_add(1, &mThreadPoolSeq);
+    String8 name;
+    name.appendFormat("Binder_%X", s);
+    return name;
+}
+```
+
+```c++
+// ProcessState.cpp
+
+class PoolThread : public Thread
+{
+public:
+    PoolThread(bool isMain)
+        : mIsMain(isMain) {}
+protected:
+    virtual bool threadLoop()
+    {
+        // 这里最终调用了 IPCThreadState 的 joinThreadPool 函数。
+        IPCThreadState::self()->joinThreadPool(mIsMain);
+        return false;
+    }
+    
+    const bool mIsMain;
+};
+```
+
+可以看到，`startThreadPool` 最终只是开启新线程并调用了 `IPCThreadState` 的 `joinThreadPool` 函数，那么继续去看它的其实现。
+
+#### joinThreadPool
+
+# todo 继续
+
 ## Client Binder
 
 客户端在需要向服务端 Binder 请求时，首先也会通过  `defaultServiceManager` 函数获得 ServiceManager 的引用，然后通过它的 `getService` 函数，传入字符串标识获取目标服务端 Binder 的引用号后，使用它来向服务端 Binder 发起请求，Client Binder 与 Server Binder 的完整通信过程放在另一个单独的文档中分析。
@@ -1742,5 +1891,3 @@ android-6.0.0_r1\frameworks\native\libs\binder\IPCThreadState.cpp
 
 android-6.0.0_r1\frameworks\native\cmds\servicemanager\service_manager.c
 ```
-
-# todo 补充数据包收发分析。
