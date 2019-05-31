@@ -1600,7 +1600,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
             mOut.writeInt32((int32_t)success);
         }
         break;
-    // 发送数据包成功。
+    // 接收到数据包。
     case BR_TRANSACTION:
         {
             binder_transaction_data tr;
@@ -1681,7 +1681,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
             mOut.writeInt32(BC_DEAD_BINDER_DONE);
             mOut.writePointer((uintptr_t)proxy);
         } break;
-    // 对方收到 binder 死亡通知。
+    // 收到 binder 死亡通知。
     case BR_CLEAR_DEATH_NOTIFICATION_DONE:
         {
             BpBinder *proxy = (BpBinder*)mIn.readPointer();
@@ -1727,7 +1727,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
 
 ### Server Binder 的消息处理
 
-一旦 Server Binder 注册成功了，那么它将会进入工作工作状态，成为一个真正的服务，`MediaPlayerService` 作为系统的一个重要服务，会在注册后不断接收客户端发送来的信息，下面看一下服务端是如何处理客户端小消息的。
+一旦 Server Binder 注册成功了，那么它将会进入工作工作状态，成为一个真正的服务，`MediaPlayerService` 作为系统的一个重要服务，会在注册后不断接收客户端发送来的信息，下面看一下服务端是如何处理客户端消息的。
 
 首先回到 MediaServer 的入口出，它作为多个系统服务的管理者，注册了多个重要的系统服务，例如 `AudioFlinger` ，`CameraService`  和 `AudioPolicyService` 等服务，它们和 `MediaPlayerService` 一样，都将通过 ServiceManger 注册到驱动中，如下：
 
@@ -1777,10 +1777,22 @@ public:
 }
 ```
 
+还需要注意的是它们都继承了对应的 `BnXXXSerice`  的父类，这些父类都具有相同的父类就是 `BnInterface<IXXXService>`，同时它又继承了 `BBinder`，后面会分析到 `BBinder` 表示的就是服务端的 Binder 对象，对应的是 `BpBinder` 代表的客户端 Binder。
+
+```c++
+// IAudioFlinger.h
+class BnAudioFlinger : public BnInterface<IAudioFlinger>{ ... }
+
+// IBnCameraService.h
+class BnCameraService : public BnInterface<ICameraService>{ ... }
+
+// IBnAudioPolicyService.h
+class BnAudioPolicyService : public BnInterface<IAudioPolicyService>{ ... }
+```
+
 前面也分析了 `MediaPlayerService` 的实现，发现它并没有包含处理客户端消息的部分，其他服务也没有看到，那么是在哪进行消息处理呢，发现在 MediaServer 的入口 `main` 的最后两行代码应该与此相关。
 
 ```c++
-
 // main_mediaserver.cpp
 
 int main(int argc __unuserd, char** argv)
@@ -1870,7 +1882,249 @@ protected:
 
 #### joinThreadPool
 
-# todo 继续
+```c++
+// IPCThreadState.h
+
+void IPCThreadState::joinThreadPool(bool isMain)
+{
+    LOG_THREADPOOL("**** THREAD %p (PID %d) IS JOINING THE THREAD POOL\n", (void*)pthread_self(), getpid());
+
+    // BC_ENTER_LOOPER 通知驱动该线程已经进入主循环，可以接受数据。
+    // BC_REGISTER_LOOPER 通知驱动线程池中的一个线程已经创建了。
+    mOut.writeInt32(isMain ? BC_ENTER_LOOPER : BC_REGISTER_LOOPER);
+    
+    // This thread may have been spawned by a thread that was in the background
+    // scheduling group, so first we will make sure it is in the foreground
+    // one to avoid performing an initial transaction in the background.
+    set_sched_policy(mMyThreadId, SP_FOREGROUND);
+        
+    status_t result;
+    do {
+        processPendingDerefs();
+        // now get the next command to be processed, waiting if necessary
+        result = getAndExecuteCommand();
+
+        if (result < NO_ERROR && result != TIMED_OUT && result != -ECONNREFUSED && result != -EBADF) {
+            ALOGE("getAndExecuteCommand(fd=%d) returned unexpected error %d, aborting",
+                  mProcess->mDriverFD, result);
+            abort();
+        }
+        
+        // Let this thread exit the thread pool if it is no longer
+        // needed and it is not the main process thread.
+        if(result == TIMED_OUT && !isMain) {
+            break;
+        }
+    } while (result != -ECONNREFUSED && result != -EBADF);
+
+    LOG_THREADPOOL("**** THREAD %p (PID %d) IS LEAVING THE THREAD POOL err=%p\n",
+        (void*)pthread_self(), getpid(), (void*)result);
+    
+    mOut.writeInt32(BC_EXIT_LOOPER);
+    talkWithDriver(false);
+}
+```
+
+```c++
+// IPCThreadState.cpp
+// 当清理到来的命令队列时，处理所有挂起的 Binder 引用。
+void IPCThreadState::processPendingDerefs()
+{
+    if (mIn.dataPosition() >= mIn.dataSize()) {
+        size_t numPending = mPendingWeakDerefs.size();
+        if (numPending > 0) {
+            for (size_t i = 0; i < numPending; i++) {
+                RefBase::weakref_type* refs = mPendingWeakDerefs[i];
+                refs->decWeak(mProcess.get());
+            }
+            mPendingWeakDerefs.clear();
+        }
+
+        numPending = mPendingStrongDerefs.size();
+        if (numPending > 0) {
+            for (size_t i = 0; i < numPending; i++) {
+                BBinder* obj = mPendingStrongDerefs[i];
+                obj->decStrong(mProcess.get());
+            }
+            mPendingStrongDerefs.clear();
+        }
+    }
+}
+```
+
+`processPendingDerefs` 用于清理 Binder 引用，其中 `mPendingWeakDerefs` 和 `mPendingStrongDerefs` 在后面的 `executeCommand` 里会收集引用。
+
+```c++ 
+// IPCThreadState.cpp
+
+status_t IPCThreadState::executeCommand(int32_t cmd)
+{
+    BBinder* obj;
+    RefBase::weakref_type* refs;
+    status_t result = NO_ERROR;
+    
+    switch ((uint32_t)cmd) {
+    ...
+    // 释放指针引用。
+    case BR_RELEASE:
+        refs = (RefBase::weakref_type*)mIn.readPointer();
+        obj = (BBinder*)mIn.readPointer();
+        ALOG_ASSERT(refs->refBase() == obj,
+                   "BR_RELEASE: object %p does not match cookie %p (expected %p)",
+                   refs, obj, refs->refBase());
+        mPendingStrongDerefs.push(obj);
+        break;
+    ...
+    // 减少引用计数。
+    case BR_DECREFS:
+        refs = (RefBase::weakref_type*)mIn.readPointer();
+        obj = (BBinder*)mIn.readPointer();
+        // NOTE: This assertion is not valid, because the object may no
+        // longer exist (thus the (BBinder*)cast above resulting in a different
+        // memory address).
+        //ALOG_ASSERT(refs->refBase() == obj,
+        //           "BR_DECREFS: object %p does not match cookie %p (expected %p)",
+        //           refs, obj, refs->refBase());
+        mPendingWeakDerefs.push(refs);
+        break;
+    ...
+    return result;
+}
+```
+
+`getAndExecuteCommand` 负责处理下一条命令。
+
+```c++
+status_t IPCThreadState::getAndExecuteCommand()
+{
+    status_t result;
+    int32_t cmd;
+    // 1. 和驱动进行交互。
+    result = talkWithDriver();
+    if (result >= NO_ERROR) {
+        size_t IN = mIn.dataAvail();
+        if (IN < sizeof(int32_t)) return result;
+        cmd = mIn.readInt32();
+        IF_LOG_COMMANDS() {
+            alog << "Processing top-level Command: "
+                 << getReturnString(cmd) << endl;
+        }
+
+        pthread_mutex_lock(&mProcess->mThreadCountLock);
+        mProcess->mExecutingThreadsCount++;
+        pthread_mutex_unlock(&mProcess->mThreadCountLock);
+        // 前面分析过，用于处理命令。
+        result = executeCommand(cmd);
+
+        pthread_mutex_lock(&mProcess->mThreadCountLock);
+        mProcess->mExecutingThreadsCount--;
+        pthread_cond_broadcast(&mProcess->mThreadCountDecrement);
+        pthread_mutex_unlock(&mProcess->mThreadCountLock);
+
+        // After executing the command, ensure that the thread is returned to the
+        // foreground cgroup before rejoining the pool.  The driver takes care of
+        // restoring the priority, but doesn't do anything with cgroups so we
+        // need to take care of that here in userspace.  Note that we do make
+        // sure to go in the foreground after executing a transaction, but
+        // there are other callbacks into user code that could have changed
+        // our group so we want to make absolutely sure it is put back.
+        set_sched_policy(mMyThreadId, SP_FOREGROUND);
+    }
+
+    return result;
+}
+```
+
+分析了这么多，这两个线程是如何为上面那么多 Server Binder 服务的呢，其实就在 `IPCThreadState::executeCommand` 函数中，其中有一个将 `tr.cookie` 转化为 `BBinder` 的操作，`tr` 是 `binder_transaction_data` 类型，表示数据包，而 `cookie` 在这里携带了服务端 Binder 的引用，当客户端向 Binder 驱动发送服务端 Binder 的引用号时，驱动会将其自动转化为对应的 Binder 对象的指针，具体转化过程，还需要分析 Binder 驱动层的实现。
+
+这里通过 `BBinder` 的 `transact` 函数将会把客户端 Binder 发送的请求数据包转发到各个服务端 Binder 处理，
+
+```c++
+// IPCThreadState.cpp
+
+status_t IPCThreadState::executeCommand(int32_t cmd)
+{
+    BBinder* obj;
+    RefBase::weakref_type* refs;
+    status_t result = NO_ERROR;
+    
+    switch ((uint32_t)cmd) {
+    ...
+    // 接收到数据包。
+    case BR_TRANSACTION:
+        {
+            binder_transaction_data tr;
+            result = mIn.read(&tr, sizeof(tr));
+            ALOG_ASSERT(result == NO_ERROR,
+                "Not enough command data for brTRANSACTION");
+            if (result != NO_ERROR) break;
+            
+            ...
+            Parcel reply;
+            status_t error;
+            if (tr.target.ptr) {
+                // 需要注意这里的 BBinder，表示服务端 binder 引用。 
+                sp<BBinder> b((BBinder*)tr.cookie);
+                error = b->transact(tr.code, buffer, &reply, tr.flags);
+
+            } else {
+                error = the_context_object->transact(tr.code, buffer, &reply, tr.flags);
+            }
+            
+            if ((tr.flags & TF_ONE_WAY) == 0) {
+                LOG_ONEWAY("Sending reply to %d!", mCallingPid);
+                if (error < NO_ERROR) reply.setError(error);
+                sendReply(reply, 0);
+            } else {
+                LOG_ONEWAY("NOT sending reply to %d!", mCallingPid);
+            }
+            
+            mCallingPid = origPid;
+            mCallingUid = origUid;
+            mStrictModePolicy = origStrictModePolicy;
+            mLastTransactionBinderFlags = origTransactionBinderFlags;
+        }
+        break;
+    ...
+    }
+    
+    return result;
+}
+```
+
+查看 `BBinder` 的 `transact` 函数：
+
+```c++
+// Binder.cpp
+
+status_t BBinder::transact(
+    uint32_t code, const Parcel& data, Parcel* reply, uint32_t flags)
+{
+    data.setDataPosition(0);
+
+    status_t err = NO_ERROR;
+    switch (code) {
+        case PING_TRANSACTION:
+            reply->writeInt32(pingBinder());
+            break;
+        default:
+            // 交给 onTransact 函数处理。
+            err = onTransact(code, data, reply, flags);
+            break;
+    }
+
+    if (reply != NULL) {
+        reply->setDataPosition(0);
+    }
+
+    return err;
+}
+
+```
+
+最终 `transact` 函数将会把数据转发到 `onTransact` 函数进行处理，后面具体分析 `onTransact` 的处理过程。
+
+从以上分析可以知道，MediaServer 使用了开启了两个线程同时处理与 Binder 驱动的通信，并且将来自于客户端的请求转发给对应的服务端处理。
 
 ## Client Binder
 
