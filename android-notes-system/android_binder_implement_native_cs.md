@@ -205,7 +205,7 @@ public:
 };
  ```
 
-通过前面 Service Binder 的注册过程了解到，`remote()` 是 `BpBinder` 对象，然后它内部会通过对 Binder 服务端的引用号通过驱动向服务端 Binder 发送消息，这里这个 `remote()` 含有 `MediaPlayerService` 服务的引用号，那么最终驱动将会把消息传递给 `MediaPlayerService` 服务，首先看它的类定义，在 `MediaPlayerService.h` 头文件中：
+通过前面 Service Binder 的注册过程了解到，`remote()` 是 `BpBinder` 对象，然后它内部会通过对 Binder 服务端的引用号通过驱动向服务端 Binder 发送消息，这里这个 `remote()` 含有 `MediaPlayerService` 服务的引用号，前面的文档分析过最终接收者为 `BBinder` 类型，它表示服务端 Binder，这里就其实就是 `MediaPlayerService` 对象，那么最终驱动将会把消息传递给 `MediaPlayerService` 服务，首先看它的类定义，在 `MediaPlayerService.h` 头文件中：
 
 ```c++
 // MediaPlayerService.h
@@ -221,6 +221,8 @@ class MediaPlayerService : public BnMediaPlayerService
 ## BnMediaPlayerService
 
 ```c++
+// IMediaPlayerServic.h
+
 class BnMediaPlayerService: public BnInterface<IMediaPlayerService>
 {
 public:
@@ -234,6 +236,8 @@ public:
 继续看它的父类 `BnInterface<IMediaPlayerService>`，在 `IInterface.h` 中。
 
 ```c++
+// IInterface.h
+
 template<typename INTERFACE>
 class BnInterface : public INTERFACE, public BBinder
 {
@@ -259,5 +263,7 @@ protected:
     virtual IBinder*            onAsBinder();
 };
 ```
+
+ 
 
 # todo 补充分析（哈哈哈😄）。
