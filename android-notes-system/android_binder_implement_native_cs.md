@@ -368,7 +368,7 @@ IBinder* BnInterface<IMediaPlayerService>::onAsBinder()
 `BnMediaPlayerService` 的 `onTransact` 将会收到客户端请求的消息并处理：
 
 ```c++
-//IMediaPlayerService.cpp
+// IMediaPlayerService.cpp
 
 status_t BnMediaPlayerService::onTransact(
     uint32_t code, const Parcel& data, Parcel* reply, uint32_t flags)
@@ -399,4 +399,88 @@ status_t BnMediaPlayerService::onTransact(
 
 前面 `BpMediaPlayerService` 的 `create` 函数向服务端请求了 `CREATE` 编号，对应这里的 `CREATE` 编号。
 
-# todo 补充😭
+这里使用了 `create` 函数返回了一个 `IMediaPlayer` 的对象。
+
+`IMediaPlayer` 也是一个服务的进程间交互接口的定义。
+
+```c++
+class IMediaPlayer: public IInterface
+{
+    ...
+}
+```
+
+```c++
+sp<IMediaPlayer> MediaPlayerService::create(const sp<IMediaPlayerClient>& client,
+        int audioSessionId)
+{
+    pid_t pid = IPCThreadState::self()->getCallingPid();
+    int32_t connId = android_atomic_inc(&mNextConnId);
+
+    sp<Client> c = new Client(
+            this, pid, connId, client, audioSessionId,
+            IPCThreadState::self()->getCallingUid());
+
+    ALOGV("Create new client(%d) from pid %d, uid %d, ", connId, pid,
+         IPCThreadState::self()->getCallingUid());
+
+    wp<Client> w = c;
+    {
+        Mutex::Autolock lock(mLock);
+        mClients.add(w);
+    }
+    return c;
+}
+```
+
+可以看到上面创建了一个 `Client` 对象。
+
+```c++
+class Client : public BnMediaPlayer {
+    // IMediaPlayer interface
+    virtual void            disconnect();
+    virtual status_t        setVideoSurfaceTexture(
+        const sp<IGraphicBufferProducer>& bufferProducer);
+    virtual status_t        prepareAsync();
+    virtual status_t        start();
+    virtual status_t        stop();
+    virtual status_t        pause();
+    virtual status_t        isPlaying(bool* state);
+    ... 省略
+}; // Client
+```
+
+原来这个 `Client` 也是一个服务端 Binder 对象，从命名上可以看到，它就是 `MediaPlayer` 的最终服务实现类。
+
+回到上一级，使用 `writeStorngBinder` 向返回数据包写入了一个 `IInterface::asBinder(player)` 对象。
+
+```c++
+// IInterface.h
+
+sp<IBinder> IInterface::asBinder(const sp<IInterface>& iface)
+{
+    if (iface == NULL) return NULL;
+    return iface->onAsBinder();
+}
+```
+
+只要是实现了 `BnInterface` 的类，它们的 `onAsBinder` 函数都是相同的实现，返回自己：
+
+```
+// IInterface.h
+
+template<typename INTERFACE>
+IBinder* BnInterface<INTERFACE>::onAsBinder()
+{
+    return this;
+}
+```
+
+那么看 `writeStorngBinder` 做了什么，它在数据包的 `Parcel` 类型中。
+
+### Parcel
+
+# todo 😭
+
+
+
