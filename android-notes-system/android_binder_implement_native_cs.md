@@ -478,9 +478,84 @@ IBinder* BnInterface<INTERFACE>::onAsBinder()
 
 那么看 `writeStorngBinder` 做了什么，它在数据包的 `Parcel` 类型中。
 
-### Parcel
+## Parcel
+
+```c++
+// Parcel.cpp
+
+status_t Parcel::writeStrongBinder(const sp<IBinder>& val)
+{
+    return flatten_binder(ProcessState::self(), val, this);
+}
+```
+
+```c++
+// Parcel.cpp
+
+status_t flatten_binder(const sp<ProcessState>& /*proc*/,
+    const sp<IBinder>& binder, Parcel* out)
+{
+    flat_binder_object obj;
+
+    obj.flags = 0x7f | FLAT_BINDER_FLAG_ACCEPTS_FDS;
+    if (binder != NULL) {
+        IBinder *local = binder->localBinder();
+        if (!local) {
+            // 处理 BpBinder 类型，客户端 Binder。
+            BpBinder *proxy = binder->remoteBinder();
+            if (proxy == NULL) {
+                ALOGE("null proxy");
+            }
+            const int32_t handle = proxy ? proxy->handle() : 0;
+            obj.type = BINDER_TYPE_HANDLE;
+            obj.binder = 0; /* Don't pass uninitialized stack data to a remote process */
+            obj.handle = handle;
+            obj.cookie = 0;
+        } else {
+            // 处理 BBinder 类型，服务端 Binder。
+            obj.type = BINDER_TYPE_BINDER;
+            obj.binder = reinterpret_cast<uintptr_t>(local->getWeakRefs());
+            obj.cookie = reinterpret_cast<uintptr_t>(local);
+        }
+    } else {
+        obj.type = BINDER_TYPE_BINDER;
+        obj.binder = 0;
+        obj.cookie = 0;
+    }
+
+    return finish_flatten_binder(binder, obj, out);
+}
+```
+
+前门的 Binder 设计部分提到过，Binder 是通过 `flat_binder_object` 结构在进程间进程传输的，这里构造了一个 `flat_binder_object` 对象，上面通过 `localBinder` 判断构造不同的结构。
+
+前面写入的是一个 `BnMediaPlayer` 对象，即 `BBinder` 类型，它的实现如下：
+
+```c++
+// Parcel.cpp
+
+BBinder* BBinder::localBinder()
+{
+    return this;
+}
+```
+
+那么走下面的分支，将本地 Binder 对象 `local` 的指针保存在 `obj.cookie` 里，`obj.type` 设置为 `BINDER_TYPE_BINDER`，当驱动接收到此类型，将会去除对应的 Binder 引用号，返回给客户端，返回给客户端的 `obj.type` 将被自动转化为 `BINDER_TYPE_HANDLE` 或 `BINDER_TYPE_WEAK_HANDLE`。
+
+最后的 `finish_flat_binder` 将 `flat_binder_object` 结构保存至缓冲区：
+
+```c++
+// Parcel.cpp
+
+inline static status_t finish_flatten_binder(
+    const sp<IBinder>& /*binder*/, const flat_binder_object& flat, Parcel* out)
+{
+    return out->writeObject(flat, false);
+}
+```
+
+至此 `MediaPlayerService` 完成了它 `create` 一个 `MediaPlayerClient` 的工作，此时，一个 `Client` 对象，即 `BnMediaPlayer` 服务端 Binder 对象将通过 Binder 驱动被发送到客户端，客户端会收到服务端 Binder 的引用号，可以使用它来向服务端 Binder 发起请求。
 
 # todo 😭
-
 
 
