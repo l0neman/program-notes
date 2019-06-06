@@ -1144,7 +1144,7 @@ inline IBinder* BpInterface<INTERFACE>::onAsBinder()
 
 使用时序图表示 ServiceManager 的获取过程如下：
 
-![getServiceManager](./image/android_binder_implement/getServiceManager.png)
+![getServiceManager](./image/android_binder_implement_native/getServiceManager.png)
 
 ### Server Binder 的注册
 
@@ -1725,7 +1725,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
 
 通过以上分析过程可以绘制出服务端 Binder 的注册过程时序图如下：
 
-![addService](./image/android_binder_implement/addService.png)
+![addService](./image/android_binder_implement_native/addService.png)
 
 ### Server Binder 的消息处理
 

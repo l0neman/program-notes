@@ -12,7 +12,7 @@
 
 ### MediaPlayer-java
 
-MediaPalyer 是 Android 中的多媒体播放器，通过查看它的代码发现其可信功能都是由 native 层实现的，首先在起始代码处加载了对应的 c++ 库，调用了初始化方法。
+MediaPalyer 是 Android 中的多媒体播放器，通过查看它的代码发现其功能都是由 native 层实现的，首先在起始代码处加载了对应的 c++ 库，调用了初始化方法。
 
 ```java
 // MediaPlayer.java
@@ -336,7 +336,7 @@ IBinder* BnInterface<INTERFACE>::onAsBinder()
 }
 ```
 
-也是一个模板类，和 `BpInterface` 类似，替换 IMediaPlayerService 后得到：	
+也是一个模板类，和 `BpInterface` 类似，替换 `IMediaPlayerService` 后得到：	
 
 ```c++
 class BnInterface : public IMediaPlayerService, public BBinder
@@ -623,11 +623,13 @@ status_t MediaPlayer::setDataSource(const sp<IStreamSource> &source)
 
 以上分析过程用时序图表示为：
 
-
+![](./image/android_binder_implement_native_cs/mediaPlayerCS.png)
 
 ## Binder 通信架构
 
 从上面分析 MediaPlayer 的实现，以及前面分析 Native 层服务的注册和获取过程，总结出如下 Binder 框架。
+
+### 类描述
 
 
 
