@@ -93,7 +93,19 @@ android_media_MediaPlayer_setDataSourceCallback(JNIEnv *env, jobject thiz, jobje
 
 ### MediaPlayer-cpp
 
-分析的目标是搞清楚 Binder 通信规则，所以分析 mediaplayer.cpp 源码并不是主要目的，这里直接看函数的实现，继续上面的 `setDataSource` 函数。
+首先看 `MediaPlayer` 的类定义：
+
+```c++
+class MediaPlayer : public BnMediaPlayerClient,
+                    public virtual IMediaDeathNotifier
+{
+    ...                    
+}
+```
+
+它继承了一个 `BnMediaPlayerPlayerClient`，看起来是一个服务端 Binder 类型，但是命名中却有客户端的意思，这里先不管，继续往下看。
+
+分析的目标是搞清楚 Binder 通信规则，所以分析 mediaplayer.cpp 源码并不是主要目的，那么这里直接看 `setDataSource` 函数的实现，继续接着上面的 `setDataSource` 函数。
 
 ```c++
 // mediaplayer.cpp
@@ -155,7 +167,7 @@ status_t MediaPlayer::setDataSource(const sp<IStreamSource> &source)
 }
 ```
 
-使用 ServiceManager 的`getService` 函数将获得 `MediaPlayerService` 的 Binder 引用号，前面分析过 `interface_cast` 这个模板函数将有如下作用：
+前面分析过 ，使用 ServiceManager 的`getService` 函数将获得 `MediaPlayerService` 的 Binder 引用号，`interface_cast` 这个模板函数将有如下作用：
 
 ```c++
 interface_cast<IMediaPlayerService>(binder);
@@ -208,6 +220,30 @@ public:
  ```
 
 通过前面 Service Binder 的注册过程了解到，`remote()` 是 `BpBinder` 对象，然后它内部会通过对 Binder 服务端的引用号通过驱动向服务端 Binder 发送消息，这里这个 `remote()` 含有 `MediaPlayerService` 服务的引用号，前面的文档分析过最终接收者为 `BBinder` 类型，它表示服务端 Binder，这里就其实就是 `MediaPlayerService` 对象，那么最终驱动将会把消息传递给 `MediaPlayerService` 服务。
+
+上面还传递了一个 `IMediaPlayerClient`，就是 `MediaPlayer` 自己，通过 `writeStrongBinder` 函数写入了一个 `IInterface::asBinder(client)` 的对象，查看 `asBinder` 函数的实现：
+
+```c++
+// IInterface.h
+
+sp<IBinder> IInterface::asBinder(const sp<IInterface>& iface)
+{
+    if (iface == NULL) return NULL;
+    return iface->onAsBinder();
+}
+```
+
+```c++
+// IInterface.h
+
+template<typename INTERFACE>
+IBinder* BnInterface<INTERFACE>::onAsBinder()
+{
+    return this;
+}
+```
+
+发现只要是实现了 `BnInterface` 的类，它们的 `onAsBinder` 函数都是相同的实现，返回自己。
 
 ### IMediaPlayerService
 
@@ -401,9 +437,9 @@ status_t BnMediaPlayerService::onTransact(
 
 前面 `BpMediaPlayerService` 的 `create` 函数向服务端请求了 `CREATE` 编号，对应这里的 `CREATE` 编号。
 
-这里使用了 `create` 函数返回了一个 `IMediaPlayer` 的对象。
+这里读取了上面传递的 `IMediaPlayerClient` 对象，然后使用了 `create` 函数返回了一个 `IMediaPlayer` 的对象。
 
-`IMediaPlayer` 也是一个服务的进程间交互接口的定义。
+`IMediaPlayer` 同样是一个服务的进程间交互接口的定义。
 
 ```c++
 class IMediaPlayer: public IInterface
@@ -456,29 +492,7 @@ class Client : public BnMediaPlayer {
 
 回到上一级，使用 `writeStorngBinder` 向返回数据包写入了一个 `IInterface::asBinder(player)` 对象。
 
-```c++
-// IInterface.h
-
-sp<IBinder> IInterface::asBinder(const sp<IInterface>& iface)
-{
-    if (iface == NULL) return NULL;
-    return iface->onAsBinder();
-}
-```
-
-只要是实现了 `BnInterface` 的类，它们的 `onAsBinder` 函数都是相同的实现，返回自己：
-
-```
-// IInterface.h
-
-template<typename INTERFACE>
-IBinder* BnInterface<INTERFACE>::onAsBinder()
-{
-    return this;
-}
-```
-
-那么看 `writeStorngBinder` 做了什么，它在数据包的 `Parcel` 类型中。
+前面分析过，`asBinder` 将会返回 `this`，那么看 `writeStorngBinder` 做了什么，它在数据包的 `Parcel` 类型中。
 
 ### Parcel
 
@@ -556,11 +570,13 @@ inline static status_t finish_flatten_binder(
 }
 ```
 
+那么上面使用 `readStrongBinder` 读取到的 `IMediaPlayerClient` 对象也只是一个引用号。
+
 至此 `MediaPlayerService` 完成了它 `create` 一个 `MediaPlayerClient` 的工作，此时，一个 `Client` 对象，即 `BnMediaPlayer` 服务端 Binder 对象将通过 Binder 驱动被发送到客户端，客户端会收到服务端 Binder 的引用号，可以使用它来向服务端 Binder 发起请求。
 
 ### BpMediaPlayerService
 
-那么这时得到了结构，就又回到最初的 `BnMediaPlayerService` 里面了。
+那么这时得到了返回数据，回到最初的 `BnMediaPlayerService` 里面。
 
 ```c++
 // BpMediaPlayerService.cpp
@@ -619,20 +635,60 @@ status_t MediaPlayer::setDataSource(const sp<IStreamSource> &source)
 
 分析到这里可以看到，java 层的 `MediaPlayer` 只是为了给应用层提供接口，它在 c 层有一个负责通信的客户端的 `BpMediaPlayer` 的实现，通过它与真正的功能实现者，即服务端的 `BnMediaPlayer` 进行进程间通信，从而实现具体功能。
 
+### BnMediaPlayerClient
+
+其实从前面 `MediaPlayer` 是一个 `BnMediaPlayerClient` 对象，以及 `IMediaPlayerClient` 被发送给服务端 `BnMediaPlayer` 可以看出来，`MediaPlayer` 自己也是一个服务端， 查看 `IMediaPlayerClient`：
+
+```c++
+class IMediaPlayerClient: public IInterface
+{
+public:
+    DECLARE_META_INTERFACE(MediaPlayerClient);
+
+    virtual void notify(int msg, int ext1, int ext2, const Parcel *obj) = 0;
+};
+```
+
+里面只有一个 `notify` 函数，看来是需要主动得到服务端的通知而设计的。
+
+所以 `MediaPlayer` 和 `BnMediaPlayer` 是双向通信的客户端和服务端模型。
+
 ### 时序图
 
-以上分析过程用时序图表示为：
+以上调用 `setDataSource` 函数的过程用时序图表示为：
 
 ![](./image/android_binder_implement_native_cs/mediaPlayerCS.png)
 
+### UML 类图
+
+以上参与进程间通信的相关类图。
+
+- MediaPlayerService
+
+![](./image/android_binder_implement_native_cs/mediaPlayerService_uml.png)
+
+- MediaPlayer
+
+![](./image/android_binder_implement_native_cs/mediaPlayer_uml.png)
+
 ## Binder 通信架构
 
-从上面分析 MediaPlayer 的实现，以及前面分析 Native 层服务的注册和获取过程，总结出如下 Binder 框架。
+从上面分析 MediaPlayer 的实现，以及前面分析 Native 层服务的注册和获取过程，总结出如下 Binder 通信框架，其实很简单。
 
-### 类描述
+### 数据流图
 
+![](./image/android_binder_implement_native_cs/binderTransfer_dataflow.png)
 
+### 类图
+
+![](./image/android_binder_implement_native_cs/binderFrame.png)
+
+# 实现自定义服务
+
+前面分析了 Native 层 Binder 客户端与服务端的通信过程，为了加深理解，下面模拟一个使用 Binder 进行通信的 Native 服务的实现过程。
+
+### 定义服务端
+
+首先实现一个服务必须首先定义服务端。
 
 # todo 😭
-
-
