@@ -640,6 +640,8 @@ status_t MediaPlayer::setDataSource(const sp<IStreamSource> &source)
 其实从前面 `MediaPlayer` 是一个 `BnMediaPlayerClient` 对象，以及 `IMediaPlayerClient` 被发送给服务端 `BnMediaPlayer` 可以看出来，`MediaPlayer` 自己也是一个服务端， 查看 `IMediaPlayerClient`：
 
 ```c++
+// IMediaPlayerClient.cpp
+
 class IMediaPlayerClient: public IInterface
 {
 public:
@@ -671,9 +673,87 @@ public:
 
 ![](./image/android_binder_implement_native_cs/mediaPlayer_uml.png)
 
+## Binder 的死亡通知
+
+
+
 ## Binder 通信架构
 
 从上面分析 MediaPlayer 的实现，以及前面分析 Native 层服务的注册和获取过程，总结出如下 Binder 通信框架，其实很简单。
+
+前面分析了 MediaPlayer 服务中 Binder 的通信过程，还有一点没有分析到，就是 Binder 的死亡通。
+
+在 Client-Server 通信场景中，通常会见到这种情况，当服务端由于异常情况退出时，客户端应该有权得到通知。
+
+当一个服务端 Binder 死亡时（可能由于进程异常导致），客户端可以得到其死亡的通知，在服务端死亡时做一些善后工作，Binder 框架提供了注册服务端 Binder 的死亡通知监听的服务。
+
+在分析 `MediaPlayer-cpp` 的过程中，发现它的父类有一个是 `IMediaDeathNotifier` ，它有一个内部类 `DeathNotifier` 继承了 `IBinder::DeathRecipient`，这个 `DeathRecipient` 就表示死亡通知。
+
+```c++
+// IBinder.h
+
+class DeathRecipient : public virtual RefBase
+{
+public:
+    virtual void binderDied(const wp<IBinder>& who) = 0;
+};
+```
+
+里面只有一个方法，就是得到 Binder 的死亡通知，在 `IMediaDeathNotifier` 的实现如下，即 `MediaPlayer-cpp` 这个 `MediaPlayerService` 客户端的处理情况。
+
+```c++
+// IMediaDeathNotifier.cpp
+
+void IMediaDeathNotifier::DeathNotifier::binderDied(const wp<IBinder>& who __unused) {
+    ALOGW("media server died");
+
+    // Need to do this with the lock held
+    SortedVector< wp<IMediaDeathNotifier> > list;
+    {
+        Mutex::Autolock _l(sServiceLock);
+        // 清除服务端引用。
+        sMediaPlayerService.clear();
+        list = sObitRecipients;
+    }
+
+    // Notify application when media server dies.
+    // Don't hold the static lock during callback in case app
+    // makes a call that needs the lock.
+    size_t count = list.size();
+    
+    for (size_t iter = 0; iter < count; ++iter) {
+        sp<IMediaDeathNotifier> notifier = list[iter].promote();
+        if (notifier != 0) {
+            // 通知注册了死亡通知的用户（IMediaDeathNotifier）。
+            notifier->died();
+        }
+    }
+}
+```
+
+其中的 `list` 即 `sObitRecipients` 在 `addObitRecipient` 函数中进行了注册。
+
+```c++
+IMediaDeathNotifier.cpp
+
+/*static*/ void IMediaDeathNotifier::addObitRecipient(const wp<IMediaDeathNotifier>& recipient)
+{
+    ALOGV("addObitRecipient");
+    Mutex::Autolock _l(sServiceLock);
+    sObitRecipients.add(recipient);
+}
+```
+
+还有对应的 remove 方法，分别存在于构造函数中和析构函数中：
+
+```c++
+// IMediaDeathNotifier.h
+
+IMediaDeathNotifier() { addObitRecipient(this); }
+virtual ~IMediaDeathNotifier() { removeObitRecipient(this); }
+```
+
+
 
 ### 数据流图
 
