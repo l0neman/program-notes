@@ -105,7 +105,7 @@ class MediaPlayer : public BnMediaPlayerClient,
 
 它继承了一个 `BnMediaPlayerPlayerClient`，看起来是一个服务端 Binder 类型，但是命名中却有客户端的意思，这里先不管，继续往下看。
 
-分析的目标是搞清楚 Binder 通信规则，所以分析 mediaplayer.cpp 源码并不是主要目的，那么这里直接看 `setDataSource` 函数的实现，继续接着上面的 `setDataSource` 函数。
+分析的目标是搞清楚 Binder 通信规则，所以分析 `mediaplayer.cpp` 源码并不是主要目的，那么这里直接看 `setDataSource` 函数的实现，继续接着上面的 `setDataSource` 函数。
 
 ```c++
 // mediaplayer.cpp
@@ -167,7 +167,7 @@ status_t MediaPlayer::setDataSource(const sp<IStreamSource> &source)
 }
 ```
 
-前面分析过 ，使用 ServiceManager 的`getService` 函数将获得 `MediaPlayerService` 的 Binder 引用号，`interface_cast` 这个模板函数将有如下作用：
+前面分析过 ，使用 `ServiceManager` 的 `getService` 函数将获得 `MediaPlayerService` 的 Binder 代理对象，即 `BpBinder`, 它的内部包含服务的引用号，`interface_cast` 这个模板函数将有如下作用：
 
 ```c++
 interface_cast<IMediaPlayerService>(binder);
@@ -176,7 +176,7 @@ interface_cast<IMediaPlayerService>(binder);
 最终可转化为：
 
 ```c++
-new BpMediaPlayerService(new BpBinder(binder));
+new BpMediaPlayerService(new BpBinder());
 ```
 
 那么回到上面：
@@ -675,17 +675,13 @@ public:
 
 ## Binder 的死亡通知
 
-
-
-## Binder 通信架构
-
-从上面分析 MediaPlayer 的实现，以及前面分析 Native 层服务的注册和获取过程，总结出如下 Binder 通信框架，其实很简单。
-
-前面分析了 MediaPlayer 服务中 Binder 的通信过程，还有一点没有分析到，就是 Binder 的死亡通。
+前面分析了 MediaPlayer 服务中 Binder 的通信过程，还有一点没有分析到，就是 Binder 的死亡通知。
 
 在 Client-Server 通信场景中，通常会见到这种情况，当服务端由于异常情况退出时，客户端应该有权得到通知。
 
 当一个服务端 Binder 死亡时（可能由于进程异常导致），客户端可以得到其死亡的通知，在服务端死亡时做一些善后工作，Binder 框架提供了注册服务端 Binder 的死亡通知监听的服务。
+
+### 死亡通知的定义
 
 在分析 `MediaPlayer-cpp` 的过程中，发现它的父类有一个是 `IMediaDeathNotifier` ，它有一个内部类 `DeathNotifier` 继承了 `IBinder::DeathRecipient`，这个 `DeathRecipient` 就表示死亡通知。
 
@@ -734,7 +730,7 @@ void IMediaDeathNotifier::DeathNotifier::binderDied(const wp<IBinder>& who __unu
 其中的 `list` 即 `sObitRecipients` 在 `addObitRecipient` 函数中进行了注册。
 
 ```c++
-IMediaDeathNotifier.cpp
+// IMediaDeathNotifier.cpp
 
 /*static*/ void IMediaDeathNotifier::addObitRecipient(const wp<IMediaDeathNotifier>& recipient)
 {
@@ -753,7 +749,204 @@ IMediaDeathNotifier() { addObitRecipient(this); }
 virtual ~IMediaDeathNotifier() { removeObitRecipient(this); }
 ```
 
+### 死亡通知的注册
 
+在之前分析过的 `getMediaPlayerService` 函数中体现了死亡通知的注册：
+
+```c++
+// IMediaDeathNotifier.cpp
+
+/*static*/const sp<IMediaPlayerService>&
+IMediaDeathNotifier::getMediaPlayerService()
+{
+    ALOGV("getMediaPlayerService");
+    Mutex::Autolock _l(sServiceLock);
+    if (sMediaPlayerService == 0) {
+        sp<IServiceManager> sm = defaultServiceManager();
+        sp<IBinder> binder;
+        do {
+            binder = sm->getService(String16("media.player"));
+            if (binder != 0) {
+                break;
+            }
+            ALOGW("Media player service not published, waiting...");
+            usleep(500000); // 0.5 s
+        } while (true);
+
+        if (sDeathNotifier == NULL) {
+            sDeathNotifier = new DeathNotifier();
+        }
+        // 注册死亡通知（IBinder 为 BpBinder）。
+        binder->linkToDeath(sDeathNotifier);
+        sMediaPlayerService = interface_cast<IMediaPlayerService>(binder);
+    }
+    ALOGE_IF(sMediaPlayerService == 0, "no media player service!?");
+    return sMediaPlayerService;
+}
+```
+
+上面创建了一个 `DeathNotifiter` 的对象，并使用 `IBinder` 的 `linkToDeath` 函数进行了注册。
+
+```c++
+// BpBinder.cpp
+
+status_t BpBinder::linkToDeath(
+    const sp<DeathRecipient>& recipient, void* cookie, uint32_t flags)
+{
+    Obituary ob;
+    ob.recipient = recipient;
+    ob.cookie = cookie;
+    ob.flags = flags;
+    LOG_ALWAYS_FATAL_IF(recipient == NULL,
+                        "linkToDeath(): recipient must be non-NULL");
+    {
+        AutoMutex _l(mLock);
+
+        if (!mObitsSent) {
+            if (!mObituaries) {
+                mObituaries = new Vector<Obituary>;
+                if (!mObituaries) {
+                    return NO_MEMORY;
+                }
+                ALOGV("Requesting death notification: %p handle %d\n", this, mHandle);
+                getWeakRefs()->incWeak(this);
+                IPCThreadState* self = IPCThreadState::self();
+                // 向驱动写入监听死亡通知的命令。
+                self->requestDeathNotification(mHandle, this);
+                // 发送命令 (talkWithDriver)。
+                self->flushCommands();
+            }
+            // 添加到通知执行队列。
+            ssize_t res = mObituaries->add(ob);
+            return res >= (ssize_t)NO_ERROR ? (status_t)NO_ERROR : res;
+        }
+    }
+
+    return DEAD_OBJECT;
+}
+```
+
+```c++
+// IPCThreadState.cpp
+
+status_t IPCThreadState::requestDeathNotification(int32_t handle, BpBinder* proxy)
+{
+    // 请求驱动在 Binder 实体销毁时得到通知。
+    mOut.writeInt32(BC_REQUEST_DEATH_NOTIFICATION);
+    mOut.writeInt32((int32_t)handle);
+    mOut.writePointer((uintptr_t)proxy);
+    return NO_ERROR;
+}
+```
+
+客户端在不需要关心服务端状态时，比如退出自己时，可选择主动取消对死亡通知的注册，在 `IMediaDeathNotifier` 的析构函数中包含取消注册的方法。
+
+```c++
+// IMediaDeathNotifier.cpp
+
+IMediaDeathNotifier::DeathNotifier::~DeathNotifier()
+{
+    ALOGV("DeathNotifier::~DeathNotifier");
+    Mutex::Autolock _l(sServiceLock);
+    sObitRecipients.clear();
+    if (sMediaPlayerService != 0) {
+        // unlinkToDeath 内部发送 BC_CLEAR_DEATH_NOTIFICATION 命令，取消监听。
+        IInterface::asBinder(sMediaPlayerService)->unlinkToDeath(this);
+    }
+}
+```
+
+### 死亡通知的分发
+
+死亡通知将在客户端的代理 `BpBinder` 与驱动沟通时分发，在 `IPCThreadState.cpp` 的 `executeCommant` 函数中：
+
+```c++
+// IPCThreadState.cpp
+
+status_t IPCThreadState::executeCommand(int32_t cmd)
+{
+    BBinder* obj;
+    RefBase::weakref_type* refs;
+    status_t result = NO_ERROR;
+    
+    switch ((uint32_t)cmd) {
+    ...
+    // 收到驱动发送的 Binder 死亡消息。
+    case BR_DEAD_BINDER:
+        {
+            BpBinder *proxy = (BpBinder*)mIn.readPointer();
+            // 分发死亡通知。 
+            proxy->sendObituary();
+            // 发送确认指令回执。
+            mOut.writeInt32(BC_DEAD_BINDER_DONE);
+            mOut.writePointer((uintptr_t)proxy);
+        } break;
+    // 收到确认指令的回复。
+    case BR_CLEAR_DEATH_NOTIFICATION_DONE:
+        {
+            BpBinder *proxy = (BpBinder*)mIn.readPointer();
+            proxy->getWeakRefs()->decWeak(proxy);
+        } break;
+     ...
+    }
+
+    if (result != NO_ERROR) {
+        mLastError = result;
+    }
+    return result;
+}
+```
+
+```c++
+
+void BpBinder::sendObituary()
+{
+    ALOGV("Sending obituary for proxy %p handle %d, mObitsSent=%s\n",
+        this, mHandle, mObitsSent ? "true" : "false");
+
+    mAlive = 0;
+    if (mObitsSent) return;
+
+    mLock.lock();
+    Vector<Obituary>* obits = mObituaries;
+    if(obits != NULL) {
+        ALOGV("Clearing sent death notification: %p handle %d\n", this, mHandle);
+        IPCThreadState* self = IPCThreadState::self();
+        self->clearDeathNotification(mHandle, this);
+        self->flushCommands();
+        mObituaries = NULL;
+    }
+    mObitsSent = 1;
+    mLock.unlock();
+
+    ALOGV("Reporting death of proxy %p for %zu recipients\n",
+        this, obits ? obits->size() : 0U);
+
+    if (obits != NULL) {
+        const size_t N = obits->size();
+        for (size_t i=0; i<N; i++) {
+            reportOneDeath(obits->itemAt(i));
+        }
+
+        delete obits;
+    }
+}
+
+void BpBinder::reportOneDeath(const Obituary& obit)
+{
+    sp<DeathRecipient> recipient = obit.recipient.promote();
+    ALOGV("Reporting death to recipient: %p\n", recipient.get());
+    if (recipient == NULL) return;
+	// 调用 binderDied 函数发出通知。
+    recipient->binderDied(this);
+}
+```
+
+对于驱动何时发出 Binder 实体的死亡通知，还需要进一步分析 Binder 驱动的具体实现。
+
+## Binder 通信框架
+
+从上面分析 MediaPlayer 的实现，以及前面分析 Native 层服务的注册和获取过程，总结出如下 Binder 通信框架，看起来并不复杂。
 
 ### 数据流图
 
@@ -769,6 +962,31 @@ virtual ~IMediaDeathNotifier() { removeObitRecipient(this); }
 
 ### 定义服务端
 
-首先实现一个服务必须首先定义服务端。
+这里假设要提供一个计算两数之和服务的一个 `CalculationService` 服务，那么首先需要定义服务端和客户端的通用接口函数，首先实现 `ICalculationService` 类，然后使用 `DECLEAR_METH_INTERFACE` 宏声明服务的字符串描述函数 `getInterfaceDescriptor` 和接口获取函数 `asInterface`。
+
+```c++
+// ICalculationService.h
+
+class ICalculationService : public IInterface
+{
+    DECLEAR_METH_INTERFACE(CalculationService);
+	
+    int add(int a, int b);
+}
+```
+
+然后需要定义服务端的代理 `BnCalculationService` 类型，它负责接收客户端发送的消息并处理。
+
+```c++
+// ICalculationService.h
+
+class BnCalculationService : public BnInterface<ICalculationService>
+{
+	virtual status_t onTransact(uint32_t code,
+                                const Parcel& data,
+                                Parcel* reply,
+                                uint32_t flags = 0);
+}
+```
 
 # todo 😭

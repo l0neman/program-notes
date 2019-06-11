@@ -931,7 +931,7 @@ DECLARE_META_INTERFACE(ServiceManager);
     virtual ~I##INTERFACE();                                            \
 ```
 
-替换 `INTERFACE` 为 `ServiceManager` 得到如下定义：
+替换 `INTERFACE` 为 `ServiceManager` 得到如下声明：
 
 ```c++
 // 描述字符串。
