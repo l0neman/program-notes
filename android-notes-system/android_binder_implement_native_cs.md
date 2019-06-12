@@ -1,10 +1,38 @@
 # Android Binder 的设计、实现与应用 - Native 层 Client-Server 通信分析
 
+- [前言](#前言)
+- [MediaPlayer 实现分析](#mediaplayer-实现分析)
+  - [MediaPlayer-java](#mediaplayer-java)
+  - [MediaPlayer-cpp](#mediaplayer-cpp)
+  - [BpMediaPlayerService](#bpmediaplayerservice)
+  - [IMediaPlayerService](#imediaplayerservice)
+  - [MediaPlayerService](#mediaplayerservice)
+  - [BnMediaPlayerService](#bnmediaplayerservice)
+  - [Parcel](#parcel)
+  - [BpMediaPlayerService](#bpmediaplayerservice)
+  - [MediaPlayer-cpp](#mediaplayer-cpp)
+  - [BnMediaPlayerClient](#bnmediaplayerclient)
+  - [时序图](#时序图)
+  - [UML 类图](#uml-类图)
+- [Binder 的死亡通知](#binder-的死亡通知)
+  - [死亡通知的定义](#死亡通知的定义)
+  - [死亡通知的注册](#死亡通知的注册)
+  - [死亡通知的分发](#死亡通知的分发)
+- [Binder 通信框架](#binder-通信框架)
+  - [数据流图](#数据流图)
+  - [类图](#类图)
+- [实现自定义服务](#实现自定义服务)
+  - [定义服务端](#定义服务端)
+  - [实现服务端](#实现服务端)
+  - [注册服务端](#注册服务端)
+  - [提供服务端接口](#提供服务端接口)
+  - [开启服务线程](#开启服务线程)
+
 ## 前言
 
 通过分析客户端进程与服务端进程的完整通信过程了解 Android Binder 框架结构，接着上篇文档，继续分析 native 层服务，上篇文档中通过分析 `MediaPlayerService` 服务了解了服务端 Binder 的注册过程和 ServiceManager 的注册过程，但是并没有对 Binder 的 Native 层框架有一个概要认识，对于里面出现的 BpServceManager 和 BpBinder 类型也并不知道它们具体表示什么，所以还需要分析 Client-Server 通信过程，结合前面的分析之后得出结论。
 
-那么就从 `MediaPlayerService` 开始，既然他作为服务端 Binder 而存在，那么必定有一个客户端在同它进行通信，这里选择 Android 中常用的 `MediaPlayer` 开始分析，看起来似乎与 `MediaPlayer` 有联系。
+那么就从 `MediaPlayerService` 开始，既然他作为服务端 Binder 而存在，那么必定有一个客户端在同它进行通信，这里选择 Android 中常用的 `MediaPlayer` 开始分析，看起来似乎与 `MediaPlayerService` 有联系。
 
 以下源码基于 Android 6.0.1 系统。
 
@@ -952,6 +980,12 @@ void BpBinder::reportOneDeath(const Obituary& obit)
 
 ![](./image/android_binder_implement_native_cs/binderTransfer_dataflow.png)
 
+- BpXXService 是客户端的代理类型，负责与服务的交互，隐藏数据包的收发细节，使客户端专注于自身的客户端逻辑。
+- BpBinder 表示客户端 Binder 对象，内部封装了服务端 Binder 引用号和向驱动发送数据的交互细节。
+- Binder Driver 驱动实现进程间通信的核心功能（利用共享内存），管理 Binder 实体和对应的 Binder 引用。
+- BBinder 表示服务端 Binder 对象，抽象了 `onTransact` 函数。
+- BnXXService 使服务端的代理类型，服务处理客户端的数据包，它隐藏了数据包的收发细节，使服务端专注于自身的业务逻辑。
+
 ### 类图
 
 ![](./image/android_binder_implement_native_cs/binderFrame.png)
@@ -989,4 +1023,111 @@ class BnCalculationService : public BnInterface<ICalculationService>
 }
 ```
 
-# todo 😭
+### 实现服务端
+
+实现服务端分两部分，首先实现 `BnCalculationService` 的命令接收函数 `onTransact`。
+
+```c++
+// ICalculationService.cpp
+
+// ICalculationService.h
+enum {
+    ADD = IBinder::FIRST_CALL_TRANSACTION,
+}
+// ICalculationService.h
+
+status_t BnCalculationService::onTransact(uint32_t code, const Parcel &data, Parcel* replay, uint32_t flags)
+{
+	  switch (code) {
+        case ADD: {
+            CHECK_INTERFACE(ICalculationService, data, reply);
+            int32_t a = data.readInt32();
+            int32_t b = data.readInt32();
+            int32_t result = add(a, b);
+            replay.writeInt32(result);
+            return NO_ERROR;
+        } break;
+	  default:
+        return BBinder::onTransact(code, data, reply, flags);		
+	  }
+}
+```
+
+这里首先需要定义双方约定的通信码 `ADD`，然后实现了 `ADD` 服务，从数据包读取客户端待求和的两个数，然后通过自己的 `add` 函数求出结果，最后写入返回数据包。
+
+下面实现具体服务端类型，首先是头文件中的定义： 
+
+```c++
+// CalculationService.h
+
+class CalculationService : public BnCalculationService
+{
+    virtual int32_t add(int32_t a, int32_t b);
+}
+```
+
+实现：
+
+```c++
+// CalculationService.cpp
+
+int32_t CalculationService::add(int32_t a, int32_t b) {
+    return a + b;
+}
+```
+
+至此服务端工作完成，接下来需要将服务端注册到 ServiceManager，才能成为真正的服务端 Binder 进程。
+
+### 注册服务端
+
+一行代码实现：
+
+```c++
+void CalculationService::instantiate() {
+    defaultServiceManager()->addService(
+            String16("calculation"), new CalculationService());
+}
+```
+
+### 提供服务端接口
+
+接下来需要为服务端提供接口访问服务端，首先提供服务端的代理，即 `BpCalculationService`。
+
+```c++
+// ICalculationService.cpp
+
+class BpCalculationService : public BpInterface<ICalculationService>
+{
+public:
+    BpCalculationService(const sp<IBinder>& impl)
+      : BpInterface<ICalculationService>(impl)
+    {
+    }
+
+    virtual int32_t add(int32_t a, int32_t b) {
+        Parcel data, reply;
+        data.writeInterfacefaceToken(ICalculationService::getInterfaceDescription());
+        data.writeInt32(a);
+        data.writeInt32(b);
+        remote()->transact(ADD, data, &reply);
+        return reply.readInt32();
+    }
+}
+
+IMPLEMENT_META_INTERFACE(CalculationService, "example.ICalculationService");
+```
+
+上面为调用服务端 `add` 函数实现了代理，将数据通过写入数据包发送至远程服务端，读取服务端返回数据包中的结果并返回。
+
+最后还需要使用 `IMPLEMENT_META_INTERFACE` 宏，补充前面定义的服务端字符串描述和实现 `asInterface` 函数。 
+
+现在客户端只要实现 `BpCalculationService` 类型，就能使用自己的 `add` 函数进行计算了，使用起来就像调用本地函数一样。
+
+### 开启服务线程
+
+最后开启服务线程，使服务端可以正常接收客户端信息，数据包可以得到驱动的处理。
+
+```c++
+ProcessState::self()->startThreadPool();
+IPCThreadState::self()->joinThreadPool();
+```
