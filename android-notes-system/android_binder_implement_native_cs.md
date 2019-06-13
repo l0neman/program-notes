@@ -124,6 +124,8 @@ android_media_MediaPlayer_setDataSourceCallback(JNIEnv *env, jobject thiz, jobje
 首先看 `MediaPlayer` 的类定义：
 
 ```c++
+// mediaplayer.cpp
+
 class MediaPlayer : public BnMediaPlayerClient,
                     public virtual IMediaDeathNotifier
 {
@@ -470,6 +472,8 @@ status_t BnMediaPlayerService::onTransact(
 `IMediaPlayer` 同样是一个服务的进程间交互接口的定义。
 
 ```c++
+// IMediaPlayer.h
+
 class IMediaPlayer: public IInterface
 {
     ...
@@ -477,6 +481,8 @@ class IMediaPlayer: public IInterface
 ```
 
 ```c++
+// MediaPlayerService.cpp
+
 sp<IMediaPlayer> MediaPlayerService::create(const sp<IMediaPlayerClient>& client,
         int audioSessionId)
 {
@@ -502,6 +508,8 @@ sp<IMediaPlayer> MediaPlayerService::create(const sp<IMediaPlayerClient>& client
 可以看到上面创建了一个 `Client` 对象。
 
 ```c++
+// MediaPlayerService.h
+
 class Client : public BnMediaPlayer {
     // IMediaPlayer interface
     virtual void            disconnect();
