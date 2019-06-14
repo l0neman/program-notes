@@ -8,7 +8,7 @@ Binder 是 Android 系统中的进程间通信方式之一，Binder 定义的整
 
 - 应用层，为应用程序提供进程间通信服务，可使用 aidl 描述语言定义远程服务之间的 Binder 通信接口，并实现面向对象的进程间通信。
 - java 层，为 Framework java 层服务提供进程间通信服务，例如 AMS，PMS 等服务。
-- native 层，为 Framework native 层的服务提供进程间通信，例如 MediaPlayerService 服务；以及实现了 Binder 服务注册统一管理者 ServiceManager。
+- native 层，为 Framework native 层的服务提供进程间通信，例如 MediaPlayerService 服务；管理 native 层服务的注册获取，native 层实现了 Binder 服务注册统一管理者 ServiceManager。
 
 - driver 层，为 Binder 核心通信方法的实现，以驱动的形式存在于 Android 系统中。
 
