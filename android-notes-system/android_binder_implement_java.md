@@ -446,7 +446,7 @@ static public IServiceManager asInterface(IBinder obj)
 
 public void addService(String name, IBinder service, boolean allowIsolated)
     throws RemoteException {
-    // Parcel 为 native 层 Parcel 映射类，方法全部为 native 层 Pracel 对应方法。
+    // Parcel 为 native 层 Parcel 映射类。
     Parcel data = Parcel.obtain();
     Parcel reply = Parcel.obtain();
     data.writeInterfaceToken(IServiceManager.descriptor);
@@ -538,5 +538,11 @@ static jboolean android_os_BinderProxy_transact(JNIEnv* env, jobject obj,
 
 下面用时序图表示上述 `addService` 过程。
 
-## 时序图
+### 时序图
+
+![](./image/android_binder_implement_java/java_binder_addService.png)
+
+## Binder 通信框架
+
+上面分析了实现 java 层 ServiceManager 的几个重要类型，接下来完成 java 层 Binder 具体通信的实现方式，两者结合起来就能准确表达出 java 层 Binder 框架的设计了。
 
