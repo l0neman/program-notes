@@ -640,6 +640,10 @@ static jboolean android_os_BinderProxy_transact(JNIEnv* env, jobject obj,
 
 这里选择 android 系统中的 `ActivityManagerService(AMS)` 服务作为典型案例，分析它的注册以及如何处理客户端的请求。
 
+## Binder 服务端
+
+首先分析 Binder 服务端是如何注册自己以及如何处理客户端请求的。
+
 ### ActivityManagerService
 
 ActivityManagerService 在它的 `setSystemProcess` 方法中注册自己为系统服务，这个方法是由 java 层的 `SystemServer` 类调用。
@@ -906,7 +910,49 @@ private boolean execTransact(int code, long dataObj, long replyObj,
 }
 ```
 
+### ActivityManagetNative
 
+最后 `ActivityManagerService` 的父类 `ActivityManagerNative` 类将会重写 `onTransact` 方法，处理服务端的请求，并将请求交由 `ActivityManagerService` 处理，它的身份类似于 native 层的 `BnXXService`，作为服务端的代理类型，使服务对象专注于处理业务逻辑，而不是信息的交互。
 
+下面是 `ActivityManagerNative` 的 `onTransact` 处理单个请求的示例：
 
+```java
+ @Override
+public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
+    throws RemoteException {
+    switch (code) {
+        // 处理 startActivity 请求。
+        case START_ACTIVITY_TRANSACTION:
+        {
+            data.enforceInterface(IActivityManager.descriptor);
+            IBinder b = data.readStrongBinder();
+            IApplicationThread app = ApplicationThreadNative.asInterface(b);
+            String callingPackage = data.readString();
+            Intent intent = Intent.CREATOR.createFromParcel(data);
+            String resolvedType = data.readString();
+            IBinder resultTo = data.readStrongBinder();
+            String resultWho = data.readString();
+            int requestCode = data.readInt();
+            int startFlags = data.readInt();
+            ProfilerInfo profilerInfo = data.readInt() != 0
+               ? ProfilerInfo.CREATOR.createFromParcel(data) : null;
+            Bundle options = data.readInt() != 0
+               ? Bundle.CREATOR.createFromParcel(data) : null;
+            // 让 ActivityManagerService 处理实际业务。
+            int result = startActivity(app, callingPackage, intent, resolvedType,
+                                       resultTo, resultWho, requestCode, startFlags, profilerInfo, options);
+            reply.writeNoException();
+            reply.writeInt(result);
+            return true;
+        }
+    }  
+    ...
+    return super.onTransact(code, data, reply, flags);
+}
+```
 
+好了，到这里就了解了服务端的注册，和如何处理消息了，下面需要分析客户端是如何请求的。
+
+### Binder 客户端
+
+# todo 😭😭
