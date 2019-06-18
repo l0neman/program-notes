@@ -144,7 +144,7 @@ static int int_register_android_os_Binder(JNIEnv* env)
     jclass clazz = FindClassOrDie(env, kBinderPathName);
 
     gBinderOffsets.mClass = MakeGlobalRefOrDie(env, clazz);
-    // 保存 Bindre 类型的 execTransact 方法和 mObject 指针。
+    // 保存 Binder 类型的 execTransact 方法和 mObject 指针。
     gBinderOffsets.mExecTransact = GetMethodIDOrDie(env, clazz, "execTransact", "(IJJI)Z");
     gBinderOffsets.mObject = GetFieldIDOrDie(env, clazz, "mObject", "J");
 
@@ -451,6 +451,7 @@ public void addService(String name, IBinder service, boolean allowIsolated)
     Parcel reply = Parcel.obtain();
     data.writeInterfaceToken(IServiceManager.descriptor);
     data.writeString(name);
+	// 写入服务端 Binder 对象。
     data.writeStrongBinder(service);
     data.writeInt(allowIsolated ? 1 : 0);
     // mRemote 为传入的 BinderProxy 对象。
@@ -460,7 +461,98 @@ public void addService(String name, IBinder service, boolean allowIsolated)
 }
 ```
 
-最终调用了 `BinderProxy` 的 `transact` 方法发送注册消息。
+### Parcel
+
+首先使用 `Parcel` 数据包对象的 `writeStrongBinder` 方法将服务端 Binder 对象写入了数据包中：
+
+```java
+// Parcel.java
+
+public final void writeStrongBinder(IBinder val) {
+    nativeWriteStrongBinder(mNativePtr, val);
+}
+```
+
+调用了 jni 层的方法：
+
+```c++
+// android_os_Parcel.cpp
+
+static void android_os_Parcel_writeStrongBinder(JNIEnv* env, jclass clazz, jlong nativePtr, jobject object)
+{
+    Parcel* parcel = reinterpret_cast<Parcel*>(nativePtr);
+    if (parcel != NULL) {
+        const status_t err = parcel->writeStrongBinder(ibinderForJavaObject(env, object));
+        if (err != NO_ERROR) {
+            signalExceptionForError(env, clazz, err);
+        }
+    }
+}
+```
+
+ 可以看到使用了 native 层 `Pracel` 对象的 `writeStrongBinder` 函数写入的 Binder 对象，不过首先使用了 `ibinderForJavaObject` 函数从 java 层对象中获取 Binder：
+
+```c++
+// android_os_Parcel.cpp
+
+sp<IBinder> ibinderForJavaObject(JNIEnv* env, jobject obj)
+{
+    if (obj == NULL) return NULL;
+
+    if (env->IsInstanceOf(obj, gBinderOffsets.mClass)) {
+        // 从 java 层服务对象的 mObject 指针值中获取 JavaBBinderHolder 对象。
+        JavaBBinderHolder* jbh = (JavaBBinderHolder*)
+            env->GetLongField(obj, gBinderOffsets.mObject);
+        return jbh != NULL ? jbh->get(env, obj) : NULL;
+    }
+
+    if (env->IsInstanceOf(obj, gBinderProxyOffsets.mClass)) {
+        return (IBinder*)
+            env->GetLongField(obj, gBinderProxyOffsets.mObject);
+    }
+
+    ALOGW("ibinderForJavaObject: %p is not a Binder object", obj);
+    return NULL;
+}
+```
+
+### JavaBBinderHolder
+
+最终是返回了一个 `JavaBBinderHolder` 对象的 `get` 函数返回的值。
+
+```c++
+// android_util_Parcel.cpp
+
+class JavaBBinderHolder : public RefBase
+{
+public:
+    sp<JavaBBinder> get(JNIEnv* env, jobject obj)
+    {
+        AutoMutex _l(mLock);
+        sp<JavaBBinder> b = mBinder.promote();
+        if (b == NULL) {
+            b = new JavaBBinder(env, obj);
+            mBinder = b;
+            ALOGV("Creating JavaBinder %p (refs %p) for Object %p, weakCount=%" PRId32 "\n", 
+                 b.get(), b->getWeakRefs(), obj, b->getWeakRefs()->getWeakCount());
+        }
+        return b;
+    }
+
+    sp<JavaBBinder> getExisting()
+    {
+        AutoMutex _l(mLock);
+        return mBinder.promote();
+    }
+private:
+    Mutex           mLock;
+    wp<JavaBBinder> mBinder;
+};
+```
+
+原来是一个 `JavaBBinder` 类型，它就是 native 层的服务端表示对象 `BBinder` 的子类型，看来 java 层服务最终的表示对象是 `JavaBBinder` 。
+
+回到上面，最终调用了 `BinderProxy` 的 `transact` 方法发送注册消息。
 
 ### BinderProxy
 
@@ -544,5 +636,277 @@ static jboolean android_os_BinderProxy_transact(JNIEnv* env, jobject obj,
 
 ## Binder 通信框架
 
-上面分析了实现 java 层 ServiceManager 的几个重要类型，接下来完成 java 层 Binder 具体通信的实现方式，两者结合起来就能准确表达出 java 层 Binder 框架的设计了。
+上面分析了实现 java 层 ServiceManager 的几个重要类型，接下来分析 java 层 Binder 具体通信的实现方式，两者结合起来就能准确表达出 java 层 Binder 框架的设计了。
+
+这里选择 android 系统中的 `ActivityManagerService(AMS)` 服务作为典型案例，分析它的注册以及如何处理客户端的请求。
+
+### ActivityManagerService
+
+ActivityManagerService 在它的 `setSystemProcess` 方法中注册自己为系统服务，这个方法是由 java 层的 `SystemServer` 类调用。
+
+```java
+// ActivityManagerService.java
+
+public void setSystemProcess() {
+    try {
+        //  这里注册了自身。
+        ServiceManager.addService(Context.ACTIVITY_SERVICE, this, true);
+        // 注册其它相关服务。
+        ServiceManager.addService(ProcessStats.SERVICE_NAME, mProcessStats);
+        ServiceManager.addService("meminfo", new MemBinder(this));
+        ServiceManager.addService("gfxinfo", new GraphicsBinder(this));
+        ServiceManager.addService("dbinfo", new DbBinder(this));
+        if (MONITOR_CPU_USAGE) {
+            ServiceManager.addService("cpuinfo", new CpuBinder(this));
+        }
+        ServiceManager.addService("permission", new PermissionController(this));
+        ServiceManager.addService("processinfo", new ProcessInfoService(this));
+
+        ApplicationInfo info = mContext.getPackageManager().getApplicationInfo(
+            "android", STOCK_PM_FLAGS);
+        mSystemThread.installSystemApplicationInfo(info, getClass().getClassLoader());
+
+        synchronized (this) {
+            ...
+        }
+    } catch (PackageManager.NameNotFoundException e) {
+        throw new RuntimeException(
+            "Unable to find android system package", e);
+    }
+}
+```
+
+上面分析过，服务注册时，最终 jni 层会从 java 层对象中获取出一个 `JavaBBinder` 对象表示服务端 Binder，那么这个 `JavaBBinder` 对象是何时和 java 层的 `ActivityManagerService` 关联的呢。
+
+在 `ActivityManagerService` 的顶级父类 `Binder` 中，`ActivityManagerService` 继承了 `ActivityManagerNative` 类型，它的父类是 `Binder`，在 `Binder` 的构造器中有一个 `init` 方法：
+
+```java
+// Binder.java
+
+public Binder() {
+    init();
+
+    if (FIND_POTENTIAL_LEAKS) {
+        final Class<? extends Binder> klass = getClass();
+        if ((klass.isAnonymousClass() || klass.isMemberClass() || klass.isLocalClass()) &&
+            (klass.getModifiers() & Modifier.STATIC) == 0) {
+            Log.w(TAG, "The following Binder class should be static or leaks might occur: " +
+                  klass.getCanonicalName());
+        }
+    }
+}
+...
+
+private native final void init();
+```
+
+它的实现在 native 层中：
+
+```java
+// android_utl_Binder.cpp
+
+static void android_os_Binder_init(JNIEnv* env, jobject obj)
+{
+    JavaBBinderHolder* jbh = new JavaBBinderHolder();
+    if (jbh == NULL) {
+        jniThrowException(env, "java/lang/OutOfMemoryError", NULL);
+        return;
+    }
+    ALOGV("Java Binder %p: acquiring first ref on holder %p", obj, jbh);
+    jbh->incStrong((void*)android_os_Binder_init);
+    // 这里将 JavaBBinderHolder 的指针关联到 AMS 的 mObject 成员上。
+    env->SetLongField(obj, gBinderOffsets.mObject, (jlong)jbh);
+}
+```
+
+在 jni 层的 `init` 函数中，`JavaBBinderHolder` 对象和 `ActivityManagerSerivce` 对象进行了绑定。这里仅仅创建了一个 `JavaBBinderHolder` 对象，那么前面分析的 `JavaBBinder` 对象又如何代表 java 层的 `ActivityManagerService` 服务端对象呢，在前面的 `JavaBBinderHolder` 的 `get` 函数中创建了 `JavaBBinder` 的对象：
+
+```cpp
+// android_util_Binder.cpp - class JavaBBinderHolder
+
+sp<JavaBBinder> get(JNIEnv* env, jobject obj)
+ {
+     AutoMutex _l(mLock);
+     sp<JavaBBinder> b = mBinder.promote();
+     if (b == NULL) {
+         // 这里创建了 JavaBBinder。
+         b = new JavaBBinder(env, obj);
+         mBinder = b;
+         ALOGV("Creating JavaBinder %p (refs %p) for Object %p, weakCount=%" PRId32 "\n",
+               b.get(), b->getWeakRefs(), obj, b->getWeakRefs()->getWeakCount());
+     }
+
+     return b;
+ }
+```
+
+创建 `JavaBBinder` 时传递了 `ActivityManagerService` 的 `obj` 对象。
+
+### JavaBBinder
+
+那么分析 `JavaBBinder` 的实现：
+
+```c++
+// android_utl_Binder.cpp - class JavaBBinder
+
+class JavaBBinder : public BBinder
+{
+public:
+    JavaBBinder(JNIEnv* env, jobject object)
+        : mVM(jnienv_to_javavm(env)), mObject(env->NewGlobalRef(object))
+    {
+        ALOGV("Creating JavaBBinder %p\n", this);
+        android_atomic_inc(&gNumLocalRefs);
+        incRefsCreated(env);
+    }
+
+    bool    checkSubclass(const void* subclassID) const
+    {
+        return subclassID == &gBinderOffsets;
+    }
+
+    jobject object() const
+    {
+        return mObject;
+    }
+
+protected:
+    virtual ~JavaBBinder()
+    {
+        ALOGV("Destroying JavaBBinder %p\n", this);
+        android_atomic_dec(&gNumLocalRefs);
+        JNIEnv* env = javavm_to_jnienv(mVM);
+        env->DeleteGlobalRef(mObject);
+    }
+
+    virtual status_t onTransact(
+        uint32_t code, const Parcel& data, Parcel* reply, uint32_t flags = 0)
+    {
+        JNIEnv* env = javavm_to_jnienv(mVM);
+
+        ALOGV("onTransact() on %p calling object %p in env %p vm %p\n", this, mObject, env, mVM);
+
+        IPCThreadState* thread_state = IPCThreadState::self();
+        const int32_t strict_policy_before = thread_state->getStrictModePolicy();
+
+        //printf("Transact from %p to Java code sending: ", this);
+        //data.print();
+        //printf("\n");
+        // 注意这里将 data 和 reply 数据包转发给了 java 层 Binder 对象的 execTransact 方法。
+        // gBinderOffsets.mExecTransact 在 Binder 框架准备工作时存放了 execTransact 的 ID。
+        jboolean res = env->CallBooleanMethod(mObject, gBinderOffsets.mExecTransact,
+            code, reinterpret_cast<jlong>(&data), reinterpret_cast<jlong>(reply), flags);
+
+        if (env->ExceptionCheck()) {
+            jthrowable excep = env->ExceptionOccurred();
+            report_exception(env, excep,
+                "*** Uncaught remote exception!  "
+                "(Exceptions are not yet supported across processes.)");
+            res = JNI_FALSE;
+
+            /* clean up JNI local ref -- we don't return to Java code */
+            env->DeleteLocalRef(excep);
+        }
+
+        // Check if the strict mode state changed while processing the
+        // call.  The Binder state will be restored by the underlying
+        // Binder system in IPCThreadState, however we need to take care
+        // of the parallel Java state as well.
+        if (thread_state->getStrictModePolicy() != strict_policy_before) {
+            set_dalvik_blockguard_policy(env, strict_policy_before);
+        }
+
+        if (env->ExceptionCheck()) {
+            jthrowable excep = env->ExceptionOccurred();
+            report_exception(env, excep,
+                "*** Uncaught exception in onBinderStrictModePolicyChange");
+            /* clean up JNI local ref -- we don't return to Java code */
+            env->DeleteLocalRef(excep);
+        }
+
+        // Need to always call through the native implementation of
+        // SYSPROPS_TRANSACTION.
+        if (code == SYSPROPS_TRANSACTION) {
+            BBinder::onTransact(code, data, reply, flags);
+        }
+
+        //aout << "onTransact to Java code; result=" << res << endl
+        //    << "Transact from " << this << " to Java code returning "
+        //    << reply << ": " << *reply << endl;
+        return res != JNI_FALSE ? NO_ERROR : UNKNOWN_TRANSACTION;
+    }
+
+    virtual status_t dump(int fd, const Vector<String16>& args)
+    {
+        return 0;
+    }
+private:
+    JavaVM* const   mVM;
+    jobject const   mObject;
+};
+```
+
+可以看到在服务端 Binder 的消息处理函数 `onTransact` 中将数据包转发给了 java 层的 Binder 对象。
+
+### Binder
+
+```java
+// Binder.java
+
+// Entry point from android_util_Binder.cpp's onTransact
+private boolean execTransact(int code, long dataObj, long replyObj,
+                             int flags) {
+    Parcel data = Parcel.obtain(dataObj);
+    Parcel reply = Parcel.obtain(replyObj);
+    // theoretically, we should call transact, which will call onTransact,
+    // but all that does is rewind it, and we just got these from an IPC,
+    // so we'll just call it directly.
+    boolean res;
+    // Log any exceptions as warnings, don't silently suppress them.
+    // If the call was FLAG_ONEWAY then these exceptions disappear into the ether.
+    try {
+        // 调用自身的 `onTransact` 方法处理消息，子类会重写这个方法。
+        res = onTransact(code, data, reply, flags);
+    } catch (RemoteException e) {
+        if ((flags & FLAG_ONEWAY) != 0) {
+            Log.w(TAG, "Binder call failed.", e);
+        } else {
+            reply.setDataPosition(0);
+            reply.writeException(e);
+        }
+        res = true;
+    } catch (RuntimeException e) {
+        if ((flags & FLAG_ONEWAY) != 0) {
+            Log.w(TAG, "Caught a RuntimeException from the binder stub implementation.", e);
+        } else {
+            reply.setDataPosition(0);
+            reply.writeException(e);
+        }
+        res = true;
+    } catch (OutOfMemoryError e) {
+        // Unconditionally log this, since this is generally unrecoverable.
+        Log.e(TAG, "Caught an OutOfMemoryError from the binder stub implementation.", e);
+        RuntimeException re = new RuntimeException("Out of memory", e);
+        reply.setDataPosition(0);
+        reply.writeException(re);
+        res = true;
+    }
+    checkParcel(this, code, reply, "Unreasonably large binder reply buffer");
+    reply.recycle();
+    data.recycle();
+
+    // Just in case -- we are done with the IPC, so there should be no more strict
+    // mode violations that have gathered for this thread.  Either they have been
+    // parceled and are now in transport off to the caller, or we are returning back
+    // to the main transaction loop to wait for another incoming transaction.  Either
+    // way, strict mode begone!
+    StrictMode.clearGatheredViolations();
+
+    return res;
+}
+```
+
+
+
+
 
