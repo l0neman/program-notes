@@ -399,6 +399,7 @@ jobject javaObjectForIBinder(JNIEnv* env, const sp<IBinder>& val)
         // Also remember the death recipients registered on this proxy
         sp<DeathRecipientList> drl = new DeathRecipientList;
         drl->incStrong((void*)javaObjectForIBinder);
+        // 绑定了一个 DeathRecipientList 对象到 BinderProxy 的 mOrgue 对象。
         env->SetLongField(object, gBinderProxyOffsets.mOrgue, reinterpret_cast<jlong>(drl.get()));
 
         // Note that a new object reference has been created.
@@ -1125,40 +1126,14 @@ static jobject android_os_Parcel_readStrongBinder(JNIEnv* env, jclass clazz, jlo
 
 从之前的 native 层中分析可以知道 `parcel->readStrongBinder()` 返回的是一个 `BpBinder` 对象，它表示客户端 Binder，内部有服务端 Binder 的引用号，并可向 Binder 驱动发送消息，这里就是对应 `ActivityManagerService` 服务端了。
 
-那么看 `javaObjectForIBinder`：
+这个 `javaObjectForIBinder` 在前面分析 `ServiceManager` 的时候，已经知道返回的是 `BpBinder` 对象。
 
 ```c++
 // android_os_Pracel.cpp
 
 jobject javaObjectForIBinder(JNIEnv* env, const sp<IBinder>& val)
 {
-    if (val == NULL) return NULL;
-
-    if (val->checkSubclass(&gBinderOffsets)) {
-        // One of our own!
-        jobject object = static_cast<JavaBBinder*>(val.get())->object();
-        LOGDEATH("objectForBinder %p: it's our own %p!\n", val.get(), object);
-        return object;
-    }
-
-    // For the rest of the function we will hold this lock, to serialize
-    // looking/creation of Java proxies for native Binder proxies.
-    AutoMutex _l(mProxyLock);
-
-    // Someone else's...  do we know about it?
-    jobject object = (jobject)val->findObject(&gBinderProxyOffsets);
-    if (object != NULL) {
-        jobject res = jniGetReferent(env, object);
-        if (res != NULL) {
-            ALOGV("objectForBinder %p: found existing %p!\n", val.get(), res);
-            return res;
-        }
-        LOGDEATH("Proxy object %p of IBinder %p no longer in working set!!!", object, val.get());
-        android_atomic_dec(&gNumProxyRefs);
-        val->detachObject(&gBinderProxyOffsets);
-        env->DeleteGlobalRef(object);
-    }
-
+    ...
     // 创建了一个 java 层的 BinderProxy 对象。
     object = env->NewObject(gBinderProxyOffsets.mClass, gBinderProxyOffsets.mConstructor);
     if (object != NULL) {
@@ -1190,7 +1165,7 @@ jobject javaObjectForIBinder(JNIEnv* env, const sp<IBinder>& val)
 }
 ```
 
-从这里可以看出，java 层客户端 Binder 的表示类型为 `BinderProxy`。
+从这里可以看出，java 层客户端 Binder 的表示类型即为 `BinderProxy`。
 
 那么继续看上面的 `IBinder b`，这个 `b` 就是 `BinderProxy`  的对象。
 
@@ -1236,4 +1211,92 @@ public List<ActivityManager.RunningAppProcessInfo> getRunningAppProcesses()
     return list;
 }
 ```
+
+又看到了熟悉的代码，和前面 `ServiceManagerProxy` 的形式一致，那么最终 `getRunningAppProcesses` 方法将通过 `mRemote` 即 `BinderProxy` 的 `transact` 方法，通过 native 层的 `BpBinder` 的 `transact` 函数将 `GET_RUNNING_APP_PROCESSES_TRANSACTION` 的请求辗转发送到 java 层服务端的代表类型 `JavaBBinder` 对象中。这个 `JavaBBinder` 绑定了 java 层的 `Binder` 对象，并回调它的 `onTransact` 方法，最终将消息发送到 `ActivityManagerNative` 的 `onTransact` 方法中：
+
+### ActivityManagerNative
+
+```java
+// ActivityManagerNative.java
+
+@Override
+public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
+        throws RemoteException {
+    switch (code) {
+    case GET_RUNNING_APP_PROCESSES_TRANSACTION: {
+        data.enforceInterface(IActivityManager.descriptor);
+        List<ActivityManager.RunningAppProcessInfo> list = getRunningAppProcesses();
+        reply.writeNoException();
+        reply.writeTypedList(list);
+        return true;
+    }
+    ...
+    return super.onTransact(code, data, reply, flags);
+}
+```
+
+最终由 `getRunningAppProcesses` 实现，它在 `ActivityManagerService` 中，是服务端的真正功能的实现：
+
+```java
+// ActivityManagerService.java
+
+public List<ActivityManager.RunningAppProcessInfo> getRunningAppProcesses() {
+    enforceNotIsolatedCaller("getRunningAppProcesses");
+
+    final int callingUid = Binder.getCallingUid();
+
+    // Lazy instantiation of list
+    List<ActivityManager.RunningAppProcessInfo> runList = null;
+    final boolean allUsers = ActivityManager.checkUidPermission(INTERACT_ACROSS_USERS_FULL,
+            callingUid) == PackageManager.PERMISSION_GRANTED;
+    final int userId = UserHandle.getUserId(callingUid);
+    final boolean allUids = isGetTasksAllowed(
+            "getRunningAppProcesses", Binder.getCallingPid(), callingUid);
+
+    synchronized (this) {
+        // Iterate across all processes
+        for (int i = mLruProcesses.size() - 1; i >= 0; i--) {
+            ProcessRecord app = mLruProcesses.get(i);
+            if ((!allUsers && app.userId != userId)
+                    || (!allUids && app.uid != callingUid)) {
+                continue;
+            }
+            if ((app.thread != null) && (!app.crashing && !app.notResponding)) {
+                // Generate process state info for running application
+                ActivityManager.RunningAppProcessInfo currApp =
+                    new ActivityManager.RunningAppProcessInfo(app.processName,
+                            app.pid, app.getPackageList());
+                fillInProcMemInfo(app, currApp);
+                if (app.adjSource instanceof ProcessRecord) {
+                    currApp.importanceReasonPid = ((ProcessRecord)app.adjSource).pid;
+                    currApp.importanceReasonImportance =
+                            ActivityManager.RunningAppProcessInfo.procStateToImportance(
+                                    app.adjSourceProcState);
+                } else if (app.adjSource instanceof ActivityRecord) {
+                    ActivityRecord r = (ActivityRecord)app.adjSource;
+                    if (r.app != null) currApp.importanceReasonPid = r.app.pid;
+                }
+                if (app.adjTarget instanceof ComponentName) {
+                    currApp.importanceReasonComponent = (ComponentName)app.adjTarget;
+                }
+                //Slog.v(TAG, "Proc " + app.processName + ": imp=" + currApp.importance
+                //        + " lru=" + currApp.lru);
+                if (runList == null) {
+                    runList = new ArrayList<>();
+                }
+                runList.add(currApp);
+            }
+        }
+    }
+    return runList;
+}
+```
+
+至于具体实现逻辑，在这里并不重要，重要的是，分析到这里，终于打通了客户端到服务端的通信流程。
+
+下面用时序图表示客户端请求到服务端接收的完整 `getRunningAppProcesses` 请求的实现。
+
+#  todo 时序图 😭😭
+
+## java 层 Binder 框架总结
 
