@@ -442,7 +442,7 @@ static public IServiceManager asInterface(IBinder obj)
 追溯 `addService` 方法的实现：
 
 ```java
-// ServiceManagerProxy.java
+// ServiceManagerNative.java - class ServiceManagerProxy
 
 public void addService(String name, IBinder service, boolean allowIsolated)
     throws RemoteException {
@@ -953,6 +953,287 @@ public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
 
 好了，到这里就了解了服务端的注册，和如何处理消息了，下面需要分析客户端是如何请求的。
 
-### Binder 客户端
+## Binder 客户端
 
-# todo 😭😭
+在平时的应用开发工作中使用系统服务的时，通常使用 `Context` 的 `getSystemService` 方法获取系统服务，然后使用，那么就从这里开始分析，看如何使用系统的服务。
+
+这里假设需要获取系统中正在运行的应用列表，那么需要获取 `ActivityManager` 服务，并使用它的 `getRunningAppProcesses` 方法，代码如下：
+
+```java
+// Context.ACTIVITY_SERVICE = "activity".
+ActivityManager am = (ActivityManager)context.getSystemService(Context.ACTIVITY_SERVICE);
+List<ActivityManager.RunningAppProcessInfo> appProcesses = am.getRunningAppProcesses();
+```
+
+那么就看 `getSystemService` 方法的实现，它在 `Context` 的实现类 `ContextImple` 中：
+
+### ContextImpl
+
+```java
+// ContextImpl.java
+
+@Override
+public Object getSystemService(String name) {
+    return SystemServiceRegistry.getSystemService(this, name);
+}
+```
+
+### SystemServiceRegistry
+
+使用了 `SystemServiceRegistry` 这个类，从名字上看是负责服务注册的工作：
+
+```java
+// SystemServiceRegistry.java
+
+public static Object getSystemService(ContextImpl ctx, String name) {
+	// 从 map 中取出了一个 fetcher.
+    ServiceFetcher<?> fetcher = SYSTEM_SERVICE_FETCHERS.get(name);
+    return fetcher != null ? fetcher.getService(ctx) : null;
+}
+```
+
+发现是从一个 map 中取出来一个 `ServiceFercher` 对象，然后再用它的 `getService` 方法返回的。
+
+跟踪这个 `SYSTEM_SERVICE_FETCHERS`，看它是在哪里放入对象的。
+
+```java
+// SystemServiceRegistry.java
+
+static {
+    ...
+    registerService(Context.ACTIVITY_SERVICE, ActivityManager.class,
+        new CachedServiceFetcher<ActivityManager>() {
+    @Override
+    public ActivityManager createService(ContextImpl ctx) {
+        return new ActivityManager(ctx.getOuterContext(), ctx.mMainThread.getHandler());
+    }});
+
+    registerService(Context.ALARM_SERVICE, AlarmManager.class,
+        new CachedServiceFetcher<AlarmManager>() {
+    @Override
+    public AlarmManager createService(ContextImpl ctx) {
+        IBinder b = ServiceManager.getService(Context.ALARM_SERVICE);
+        IAlarmManager service = IAlarmManager.Stub.asInterface(b);
+        return new AlarmManager(service, ctx);
+    }});
+    ...
+}
+```
+
+发现在类的静态块中注册了很多的服务，其中就包括 `Context.Activity_Service` 服务。
+
+查看 `registerService` 注册方法：
+
+```java
+// SystemServiceRegistry.java
+
+private static <T> void registerService(String serviceName, Class<T> serviceClass,
+        ServiceFetcher<T> serviceFetcher) {
+    SYSTEM_SERVICE_NAMES.put(serviceClass, serviceName);
+    SYSTEM_SERVICE_FETCHERS.put(serviceName, serviceFetcher);
+}
+```
+
+原来注册就是将名字和对应服务的 `ServiceFetcher` 对象放入 map 缓存起来。
+
+那么看这个 `ServiceFetcher` 里面是什么，上面的 `ACTIVITY_SERVICE` 对应了一个 `CachedServiceFetcher` 对象，它的 `createService` 返回了一个 `new ActivityManager` 的对象，`createService` 对应前面的 `getService` 方法，这里不关心它的实现细节，那么看到这里就了解到  `context.getSystemService(Context.ACTIVITY_SERVICE)` 返回的就是一个 `ActivtyManager` 对象。
+
+### ActivityManager
+
+下面就重点关注 `ActivityManager` 的实现了，直接看 `getRunningAppProcesses` 方法的实现：
+
+```java
+// ActivityManager.java
+
+public List<RunningAppProcessInfo> getRunningAppProcesses() {
+    try {
+        return ActivityManagerNative.getDefault().getRunningAppProcesses();
+    } catch (RemoteException e) {
+        return null;
+    }
+}
+```
+
+使用到了 `ActivityManagerNative` 这个类，它是 `ActivityManagerService` 的父类。
+
+### ActivityManagerNative
+
+看它的 `getDefault` 方法：
+
+```java
+// ActivityManagerNative.java
+
+static public IActivityManager getDefault() {
+    return gDefault.get();
+}
+```
+
+```java
+// ActivityManagerNative.java
+
+private static final Singleton<IActivityManager> gDefault = new Singleton<IActivityManager>() {
+    protected IActivityManager create() {
+        IBinder b = ServiceManager.getService("activity");
+        if (false) {
+            Log.v("ActivityManager", "default service binder = " + b);
+        }
+        IActivityManager am = asInterface(b);
+        if (false) {
+            Log.v("ActivityManager", "default service = " + am);
+        }
+        return am;
+    }
+};
+```
+
+它是一个单例，看来 `create` 方法返回的就是 `ActivtyManager` 的实现类了。
+
+首先它的第一行通过 `ServiceManager` 的 `getService` 方法获取了一个 `IBinder` 对象，注意这里通过 `"activity"`   这个名字想要获取的服务就对应前面分析过的 `ActivityManagerService` 服务，它注册了 `"activity"` 这个名字。
+
+前面分析了 `ServiceManager` 的 `addService` 方法，这里就直接看 `ServiceManagerProxy` 的 `getService` 方法吧：
+
+```java
+// ServiceManagerNative.java - class ServiceManagerProxy
+
+public IBinder getService(String name) throws RemoteException {
+    Parcel data = Parcel.obtain();
+    Parcel reply = Parcel.obtain();
+    data.writeInterfaceToken(IServiceManager.descriptor);
+    data.writeString(name);
+    mRemote.transact(GET_SERVICE_TRANSACTION, data, reply, 0);
+    IBinder binder = reply.readStrongBinder();
+    reply.recycle();
+    data.recycle();
+    return binder;
+}
+```
+
+最终返回了 `replay.readStrongBinder` 对象，在 jni 层实现：
+
+```c++
+// android_os_Pracel.cpp
+
+static jobject android_os_Parcel_readStrongBinder(JNIEnv* env, jclass clazz, jlong nativePtr)
+{
+    Parcel* parcel = reinterpret_cast<Parcel*>(nativePtr);
+    if (parcel != NULL) {
+        return javaObjectForIBinder(env, parcel->readStrongBinder());
+    }
+    return NULL;
+}
+```
+
+从之前的 native 层中分析可以知道 `parcel->readStrongBinder()` 返回的是一个 `BpBinder` 对象，它表示客户端 Binder，内部有服务端 Binder 的引用号，并可向 Binder 驱动发送消息，这里就是对应 `ActivityManagerService` 服务端了。
+
+那么看 `javaObjectForIBinder`：
+
+```c++
+// android_os_Pracel.cpp
+
+jobject javaObjectForIBinder(JNIEnv* env, const sp<IBinder>& val)
+{
+    if (val == NULL) return NULL;
+
+    if (val->checkSubclass(&gBinderOffsets)) {
+        // One of our own!
+        jobject object = static_cast<JavaBBinder*>(val.get())->object();
+        LOGDEATH("objectForBinder %p: it's our own %p!\n", val.get(), object);
+        return object;
+    }
+
+    // For the rest of the function we will hold this lock, to serialize
+    // looking/creation of Java proxies for native Binder proxies.
+    AutoMutex _l(mProxyLock);
+
+    // Someone else's...  do we know about it?
+    jobject object = (jobject)val->findObject(&gBinderProxyOffsets);
+    if (object != NULL) {
+        jobject res = jniGetReferent(env, object);
+        if (res != NULL) {
+            ALOGV("objectForBinder %p: found existing %p!\n", val.get(), res);
+            return res;
+        }
+        LOGDEATH("Proxy object %p of IBinder %p no longer in working set!!!", object, val.get());
+        android_atomic_dec(&gNumProxyRefs);
+        val->detachObject(&gBinderProxyOffsets);
+        env->DeleteGlobalRef(object);
+    }
+
+    // 创建了一个 java 层的 BinderProxy 对象。
+    object = env->NewObject(gBinderProxyOffsets.mClass, gBinderProxyOffsets.mConstructor);
+    if (object != NULL) {
+        LOGDEATH("objectForBinder %p: created new proxy %p !\n", val.get(), object);
+        // The proxy holds a reference to the native object.
+        env->SetLongField(object, gBinderProxyOffsets.mObject, (jlong)val.get());
+        val->incStrong((void*)javaObjectForIBinder);
+
+        // The native object needs to hold a weak reference back to the
+        // proxy, so we can retrieve the same proxy if it is still active.
+        jobject refObject = env->NewGlobalRef(
+                env->GetObjectField(object, gBinderProxyOffsets.mSelf));
+        // 将 java 层 BinderProxy 对象绑带到了 BpBinder 对象中。
+        val->attachObject(&gBinderProxyOffsets, refObject,
+                jnienv_to_javavm(env), proxy_cleanup);
+
+        // Also remember the death recipients registered on this proxy
+        sp<DeathRecipientList> drl = new DeathRecipientList;
+        drl->incStrong((void*)javaObjectForIBinder);
+        // 绑定了一个 DeathRecipientList 对象到 BinderProxy 的 mOrgue 对象。
+        env->SetLongField(object, gBinderProxyOffsets.mOrgue, reinterpret_cast<jlong>(drl.get()));
+
+        // Note that a new object reference has been created.
+        android_atomic_inc(&gNumProxyRefs);
+        incRefsCreated(env);
+    }
+
+    return object;
+}
+```
+
+从这里可以看出，java 层客户端 Binder 的表示类型为 `BinderProxy`。
+
+那么继续看上面的 `IBinder b`，这个 `b` 就是 `BinderProxy`  的对象。
+
+下面一行从 `asInterface` 方法返回了一个 `IActivityManager` 对象。
+
+```java
+static public IActivityManager asInterface(IBinder obj) {
+    if (obj == null) {
+        return null;
+    }
+    
+    // 前面分析过 BinderProxy 会返回 null。
+    IActivityManager in =
+        (IActivityManager)obj.queryLocalInterface(descriptor);
+    if (in != null) {
+        return in;
+    }
+
+    return new ActivityManagerProxy(obj);
+}
+```
+
+返回的是一个 `ActivityManagerProxy` 对象，内部包含了 `BinderProxy` 客户端 Binder 表示对象。
+
+### ActivityManagerProxy
+
+辗转到这里，终于找到了 `ActivityManager` 的实现类 `ActivityManagerProxy` 就看它的 `getRunningAppProcesses` 方法的实现吧：
+
+```java
+// ActivityManagerNative.java - class ActivityManagerProxy
+
+public List<ActivityManager.RunningAppProcessInfo> getRunningAppProcesses()
+    throws RemoteException {
+    Parcel data = Parcel.obtain();
+    Parcel reply = Parcel.obtain();
+    data.writeInterfaceToken(IActivityManager.descriptor);
+    mRemote.transact(GET_RUNNING_APP_PROCESSES_TRANSACTION, data, reply, 0);
+    reply.readException();
+    ArrayList<ActivityManager.RunningAppProcessInfo> list
+        = reply.createTypedArrayList(ActivityManager.RunningAppProcessInfo.CREATOR);
+    data.recycle();
+    reply.recycle();
+    return list;
+}
+```
+
