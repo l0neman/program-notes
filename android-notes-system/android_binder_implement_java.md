@@ -560,7 +560,7 @@ private:
 `BinderProxy` 是 `Binder` 的内部类型，查看它的 `transact` 方法实现：
 
 ```java
-// BinderProxy.java
+// Binder.java - class BinderProxy
 
 public boolean transact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
     Binder.checkParcel(this, code, data, "Unreasonably large binder buffer");
@@ -1304,7 +1304,12 @@ public List<ActivityManager.RunningAppProcessInfo> getRunningAppProcesses() {
 
 ### 数据流图
 
+![](./image/android_binder_implement_java/java_binder_transfer.png)
 
+java 层 Binder 框架与 native 框架很类似，客户端和服务端都有其对应的代理对象。
+
+# todo 补充 😭😭
 
 ### 框架类图
 
+![](./image/android_binder_implement_java/java_binder_frame.png)

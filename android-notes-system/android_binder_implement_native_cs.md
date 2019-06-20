@@ -988,11 +988,11 @@ void BpBinder::reportOneDeath(const Obituary& obit)
 
 ![](./image/android_binder_implement_native_cs/binderTransfer_dataflow.png)
 
-- BpXXService 是客户端的代理类型，负责与服务的交互，隐藏数据包的收发细节，使客户端专注于自身的客户端逻辑。
-- BpBinder 表示客户端 Binder 对象，内部封装了服务端 Binder 引用号和向驱动发送数据的交互细节。
-- Binder Driver 驱动实现进程间通信的核心功能（利用共享内存），管理 Binder 实体和对应的 Binder 引用。
-- BBinder 表示服务端 Binder 对象，抽象了 `onTransact` 函数。
-- BnXXService 使服务端的代理类型，服务处理客户端的数据包，它隐藏了数据包的收发细节，使服务端专注于自身的业务逻辑。
+- `BpXXService` 是客户端的代理类型，负责与服务的交互，隐藏数据包的收发细节，使客户端专注于自身的客户端逻辑。
+- `BpBinder` 表示客户端 Binder 对象，内部封装了服务端 Binder 引用号和向驱动发送数据的交互细节。
+- `Binder Driver` 驱动实现进程间通信的核心功能（利用共享内存），管理 Binder 实体和对应的 Binder 引用。
+- `BBinder` 表示服务端 Binder 对象，抽象了 `onTransact` 函数。
+- `BnXXService` 使服务端的代理类型，服务处理客户端的数据包，它隐藏了数据包的收发细节，使服务端专注于自身的业务逻辑。
 
 ### 类图
 
