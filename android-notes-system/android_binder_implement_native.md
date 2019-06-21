@@ -17,7 +17,7 @@
 
 通过分析 Native 层的 Binder 框架，了解 Binder 的进程间通信原理，以及 Android 系统服务与 Binder 的关系。
 
-从 Binder 的设计了解到，Binder 的目标是为进程间通信服务，Binder 基于 Client/Server 架构，进程间通信发生时，参与通信的角色包括客户端和服务端，客户端请求服务端处理请求，客户端收到请求，然后两者持续进行交互，那么交互过程如下：
+从 Binder 的设计部分了解到，Binder 的目标是为进程间通信提供服务，Binder 基于 Client/Server 架构，进程间通信发生时，参与通信的角色包括客户端和服务端，客户端请求服务端处理请求，客户端收到请求，然后两者持续进行交互，那么交互过程如下：
 
 首先一个进程需要成为一个 Server Binder，即服务端的角色，那么它需要首先向服务注册的管理者 ServiceManager 请求注册自身为 Server 端，ServiceManager 需要在所有进程注册之前将自己初始化，并向 Binder 驱动注册自身成为服务管理器，然后，当 Server BInder 向 ServiceManager 注册完毕，客户端即可向服务端发出请求，它会首先向 ServiceManager 请求获取对应的服务端 Binder，获取到服务端 Binder 的引用后即可向服务端发出请求，执行完整的进程间通信。
 
@@ -580,7 +580,7 @@ uint32_t do_find_service(struct binder_state *bs, const uint16_t *s, size_t len,
 
 这里选择 Android 系统中多媒体服务 `MediaPlayerService` 作为典型案例，理解服务端 Binder 的注册过程。
 
-`MediaPlayerService` 的初始化在 `main_mediaserver.cpp` 中，它是 Android 系统中的一个重要的可执行程序 MediaServer，它管理了多个媒体相关的多个运行在系统 frameowrk 层的核心服务，包括：AuditFlinger(音频核心服务)，AudiaPolicyService(音频系统策略相关服务)，MediaPlayerService(多媒体系统服务)，CameraService(相机相关服务)。
+`MediaPlayerService` 的初始化在 `main_mediaserver.cpp` 中，它是 Android 系统中的一个重要的可执行程序 MediaServer，它管理了多个媒体相关的运行在 frameowrk 层的核心服务，包括：AuditFlinger(音频核心服务)，AudiaPolicyService(音频系统策略相关服务)，MediaPlayerService(多媒体系统服务)，CameraService(相机相关服务)。
 
 MediaServer 的入口：
 
@@ -2126,11 +2126,11 @@ status_t BBinder::transact(
 
 最终 `transact` 函数将会把数据转发到 `onTransact` 函数进行处理，后面具体分析 `onTransact` 的处理过程。
 
-从以上分析可以知道，MediaServer 使用了开启了两个线程同时处理与 Binder 驱动的通信，并且将来自于客户端的请求转发给对应的服务端处理。
+从以上分析可以知道，MediaServer 开启了两个线程同时处理与 Binder 驱动的通信，并且将来自于客户端的请求转发给对应的服务端处理。
 
 ## Client Binder
 
-客户端在需要向服务端 Binder 请求时，首先也会通过  `defaultServiceManager` 函数获得 ServiceManager 的引用，然后通过它的 `getService` 函数，传入字符串标识获取目标服务端 Binder 的引用号后，使用它来向服务端 Binder 发起请求，Client Binder 与 Server Binder 的完整通信过程放在另一个单独的文档中分析。
+客户端在需要向服务端 Binder 发出请求时，首先也会通过  `defaultServiceManager` 函数获得 ServiceManager 的引用，然后通过它的 `getService` 函数，传入字符串标识获取目标服务端 Binder 的引用号后，使用它来向服务端 Binder 发起请求，Client Binder 与 Server Binder 的完整通信过程放在另一个单独的文档中分析。
 
 [Android Binder 的设计、实现与应用 - Native 层 Client-Server 通信分析](./android_binder_implement_native_cs.md)
 
