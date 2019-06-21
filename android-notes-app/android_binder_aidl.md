@@ -12,7 +12,7 @@ Binder在android中一般负责与远程service进行进程间通信，在Linux�
 
 - Binder框架
 
-Binder用于完成进程间通信(IPC)，使用了由三种结构组和而成的架构。
+Binder用于完成进程间通信(IPC)，使用了由三种结构组合而成的架构。
 
 1. Binder服务端
 
