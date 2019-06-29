@@ -8,7 +8,11 @@ AMS 服务在 Android 系统中持续运行，动态管理四大组件之间的�
 
 下面基于 Android6.0 的源码分析 AMS 的初始化过程中做了哪些工作。
 
-## SystemServer
+## startBootstrapServices
+
+负责初始化 AMS 的重要方法有三个，下面分三部分分析，首先分析 `startBootstrapServices` 方法。
+
+### SystemServer
 
 AMS 的初始化起始点位于 `SystemServer` 类中的 `startBootstrapServices` 方法中。`SystemServer` 的入口为 `public static void main(String[] args)` 方法。
 
@@ -107,7 +111,7 @@ private void startBootstrapServices() {
 }
 ```
 
-## SystemServiceManager
+### SystemServiceManager
 
 首先看 `mSystemServiceManager.startService`。
 
@@ -182,7 +186,7 @@ public <T extends SystemService> T startService(Class<T> serviceClass) {
 
 上面做了两件事，创建 `service` 对象并调用它的 `onStart` 方法，`service` 是一个 `ActivityManagerService.Lifecycle` 类型，看一下它的实现。
 
-## AMS.Lifecycle
+### AMS.Lifecycle
 
 ```java
 // ActivityManagerService.Lifecycle
@@ -208,7 +212,7 @@ public static final class Lifecycle extends SystemService {
 
 它是对 `ActivityManagerService` 的包装，所以上面的工作即，创建了 AMS 服务的对象，以及调用了 AMS 的 `start` 方法。
 
-回到上面的 `startBootstrapServices` 方法，在 `getService` 之后，又调用了如下与 AMS 相关方法：
+回到上面的 `startBootstrapServices` 方法，在 `getService` 之后，又调用了如下与 AMS 相关方法，精简上面的代码如下：
 
 ```java
 // startBootstrapServices
@@ -229,7 +233,7 @@ mActivityManagerService.setSystemProcess();
 
 那么开始逐一分析，首先是  AMS 的构造器
 
-## ActivityManagerService
+### ActivityManagerService
 
 ```java
 // ActivityManagerService.java
@@ -311,11 +315,9 @@ public ActivityManagerService(Context systemContext) {
     mCompatModePackages = new CompatModePackages(this, systemDir, mHandler);
     // 网络防火墙。
     mIntentFirewall = new IntentFirewall(new IntentFirewallInterface(), mHandler);
-    // 最近任务管理。
-    mRecentTasks = new RecentTasks(this);
     // Activity 栈管理。
+    mRecentTasks = new RecentTasks(this);
     mStackSupervisor = new ActivityStackSupervisor(this, mRecentTasks);
-    // 
     mTaskPersister = new TaskPersister(systemDir, mStackSupervisor, mRecentTasks);
 
     // 创建了 CpuTracker 线程用于跟踪 Cpu 状态。
@@ -358,7 +360,7 @@ public ActivityManagerService(Context systemContext) {
 到这就了解到 AMS 的构造器中做了如下工作:
 
 1. 启动了 `ActivtityManager`，`android.ui`，`CpuTracker` 三个线程。
-2. 创建第一个用户，了电源，权限，进程管理相关服务对象，activity 任务管理相关。
+2. 创建第一个用户，以及电池，权限，进程管理相关服务对象，activity 任务管理相关。
 3. 启动广播处理队列，CPU 监控以及负责进程错误管理的看门狗服务。
 
 现在回到上面的 `startBootstrapServices` 方法中，下一句代码是：
@@ -382,11 +384,116 @@ public void setSystemServiceManager(SystemServiceManager mgr) {
 
 `setSystemServiceManager` 只是保存了对象到 AMS 中。
 
+继续下一句是：
+
+```java
+mActivityManagerService.setInstaller(installer);
+```
+
+其中的 `installer`，在上面进行了初始化：
+
+```java
+Installer installer = mSystemServiceManager.startService(Installer.class);
+```
+
+它是系统负责安装的服务。
+
 ```java
 public void setInstaller(Installer installer) {
     mInstaller = installer;
 }
 ```
 
-`setInstaller` 也是保存了 `installer` 的对象，那么先继续往下看。
+`setInstaller` 也是保存了 `installer` 的对象，那么先继续往下看，至于这些类的具体作用，需要等到用到他们时再做具体分析。
+
+```java
+// 初始化电源管理。
+mActivityManagerService.initPowerManagement();
+```
+
+```java
+// ActivityManagerService.java
+
+public void initPowerManagement() {
+    mStackSupervisor.initPowerManagement();
+    mBatteryStatsService.initPowerManagement();
+    mLocalPowerManager = LocalServices.getService(PowerManagerInternal.class);
+    PowerManager pm = (PowerManager)mContext.getSystemService(Context.POWER_SERVICE);
+    mVoiceWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "*voice*");
+    mVoiceWakeLock.setReferenceCounted(false);
+}
+```
+
+最后看一下：
+
+```java
+mActivityManagerService.setSystemProcess();
+```
+
+```java
+// ActivityManagerService.java
+
+public void setSystemProcess() {
+    try {
+        // 注册自身和若干服务。
+        ServiceManager.addService(Context.ACTIVITY_SERVICE, this, true);
+        ServiceManager.addService(ProcessStats.SERVICE_NAME, mProcessStats);
+        ServiceManager.addService("meminfo", new MemBinder(this));
+        ServiceManager.addService("gfxinfo", new GraphicsBinder(this));
+        ServiceManager.addService("dbinfo", new DbBinder(this));
+        if (MONITOR_CPU_USAGE) {
+            ServiceManager.addService("cpuinfo", new CpuBinder(this));
+        }
+        ServiceManager.addService("permission", new PermissionController(this));
+        ServiceManager.addService("processinfo", new ProcessInfoService(this));
+
+        ApplicationInfo info = mContext.getPackageManager().getApplicationInfo(
+                "android", STOCK_PM_FLAGS);
+        mSystemThread.installSystemApplicationInfo(info, getClass().getClassLoader());
+
+        synchronized (this) {
+            ProcessRecord app = newProcessRecordLocked(info, info.processName, false, 0);
+            app.persistent = true;
+            app.pid = MY_PID;
+            app.maxAdj = ProcessList.SYSTEM_ADJ;
+            app.makeActive(mSystemThread.getApplicationThread(), mProcessStats);
+            synchronized (mPidsSelfLocked) {
+                mPidsSelfLocked.put(app.pid, app);
+            }
+            updateLruProcessLocked(app, false, null);
+            updateOomAdjLocked();
+        }
+    } catch (PackageManager.NameNotFoundException e) {
+        throw new RuntimeException(
+                "Unable to find android system package", e);
+    }
+}
+```
+
+前面向 `ServiceManager` 注册了若干系统服务，直接看下面的逻辑：
+
+```java
+mSystemThread.installSystemApplicationInfo(info, getClass().getClassLoader());
+```
+
+其中 `mSystemThread` 在前面初始化如下，为当前主线程类型。
+
+```java
+mSystemThread = ActivityThread.currentActivityThread();
+```
+
+### ActivityThread
+
+```java
+// ActivityThread.java
+
+public void installSystemApplicationInfo(ApplicationInfo info, ClassLoader classLoader) {
+    synchronized (this) {
+        getSystemContext().installSystemApplicationInfo(info, classLoader);
+
+        // give ourselves a default profiler
+        mProfiler = new Profiler();
+    }
+}
+```
 
