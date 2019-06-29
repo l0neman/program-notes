@@ -39,7 +39,7 @@ private void run() {
 }
 ```
 
-AMS 的主要初始化工作都在 `startBootstrapServices` 方法中：
+AMS 的主要初始化工作都在 `try..catch` 所包含的 3 个方法中，首先看第一个方法：
 
 ```java
 // SystemServer.java - class SystemServer
@@ -252,7 +252,7 @@ public ActivityManagerService(Context systemContext) {
     // 创建一个运行在 "ActivityManager" 线程的 Handler。
     mHandler = new MainHandler(mHandlerThread.getLooper());
     
-    // 创建 UI Handler。
+    // 创建 UI Handler，内部创建 UiThread（HandlerThread）线程，名称为 "android.ui"。
     mUiHandler = new UiHandler();
 
     // 创建名为前台的广播处理队列，设置 10 秒的超时时间。
@@ -355,7 +355,17 @@ public ActivityManagerService(Context systemContext) {
 }
 ```
 
-# todo 😭
+到这就了解到 AMS 的构造器中做了如下工作:
+
+1. 启动了 `ActivtityManager`，`android.ui`，`CpuTracker` 三个线程。
+2. 创建第一个用户，了电源，权限，进程管理相关服务对象，activity 任务管理相关。
+3. 启动广播处理队列，CPU 监控以及负责进程错误管理的看门狗服务。
+
+现在回到上面的 `startBootstrapServices` 方法中，下一句代码是：
+
+```java
+mActivityManagerService.setSystemServiceManager(mSystemServiceManager).
+```
 
 首先，`mSystemServiceManager` 是一个 `SystemServiceManager` 对象，它是在 `startBootstrapServices` 方法之前被创建的，它负责创建服务，并管理服务的生命周期事件，例如前面 `startService` 方法做的工作。
 
