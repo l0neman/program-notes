@@ -452,6 +452,7 @@ public void setSystemProcess() {
         mSystemThread.installSystemApplicationInfo(info, getClass().getClassLoader());
 
         synchronized (this) {
+            // 创建正在运行的进程状态信息存储对象。
             ProcessRecord app = newProcessRecordLocked(info, info.processName, false, 0);
             app.persistent = true;
             app.pid = MY_PID;
@@ -471,6 +472,8 @@ public void setSystemProcess() {
 ```
 
 前面向 `ServiceManager` 注册了若干系统服务，直接看下面的逻辑：
+
+`info` 为系统包 `"android"` 的应用包信息。
 
 ```java
 mSystemThread.installSystemApplicationInfo(info, getClass().getClassLoader());
@@ -496,4 +499,205 @@ public void installSystemApplicationInfo(ApplicationInfo info, ClassLoader class
     }
 }
 ```
+
+其中 `getSystemContext` 是一个 `ContextImpl` 对象：
+
+```java
+// ActivityThread.java
+
+public ContextImpl getSystemContext() {
+    synchronized (this) {
+        if (mSystemContext == null) {
+            mSystemContext = ContextImpl.createSystemContext(this);
+        }
+        return mSystemContext;
+    }
+}
+```
+
+### ContextImpl
+
+```java
+// ContextImpl.java
+
+static ContextImpl createSystemContext(ActivityThread mainThread) {
+    LoadedApk packageInfo = new LoadedApk(mainThread);
+    ContextImpl context = new ContextImpl(null, mainThread, packageInfo, null, null, false, null, null, Display.INVALID_DISPLAY);
+    context.mResources.updateConfiguration(context.mResourcesManager.getConfiguration(), context.mResourcesManager.getDisplayMetricsLocked());
+    return context;
+}
+```
+
+看它的 `installSystemApplicationInfo` 方法实现：
+
+```java
+// ContextImpl.java
+
+void installSystemApplicationInfo(ApplicationInfo info, ClassLoader classLoader) {
+    mPackageInfo.installSystemApplicationInfo(info, classLoader);
+}
+```
+
+### LoadedApk
+
+```java
+// LoadedApk.java 
+
+void installSystemApplicationInfo(ApplicationInfo info, ClassLoader classLoader) {
+    assert info.packageName.equals("android");
+    mApplicationInfo = info;
+    mClassLoader = classLoader;
+}
+```
+
+其中的 `mPackageInfo` 对象是一个 `LoadedApk` 类型，它在 `ContextImpl` 的构造器中被初始化。
+
+```java
+private ContextImpl(ContextImpl container, ActivityThread mainThread,
+                    LoadedApk packageInfo, IBinder activityToken, UserHandle user, boolean restricted,
+                    Display display, Configuration overrideConfiguration, int createDisplayWithId) {
+    ...
+    mPackageInfo = packageInfo;
+    ...
+}
+```
+
+在上面的 `ContextImple` 的 `createSystemContext` 方法被创建：
+
+```java
+LoadedApk packageInfo = new LoadedApk(mainThread);
+```
+
+`installSystemApplicationInfo` 方法是为了将系统包（名称为 "android"）的信息库保持起来，
+
+```java
+void installSystemApplicationInfo(ApplicationInfo info, ClassLoader classLoader) {
+    assert info.packageName.equals("android");
+    mApplicationInfo = info;
+    mClassLoader = classLoader;
+}
+```
+
+总结 AMS 的 `setSystemProcess` 方法，做了如下工作：
+
+1. 注册相关系统服务；2. 保存系统包信息；3. 设置进程状态。
+
+## startCoreServices
+
+下面看 `startCoreServices` 方法。
+
+```java
+// 启动一些在系统启动过程中非必要的服务。
+private void startCoreServices() {
+    // 电池电量服务。
+    mSystemServiceManager.startService(BatteryService.class);
+
+    // 应用使用信息统计服务。
+    mSystemServiceManager.startService(UsageStatsService.class);
+    mActivityManagerService.setUsageStatsManager(
+        LocalServices.getService(UsageStatsManagerInternal.class));
+    mPackageManagerService.getUsageStatsIfNoPackageUsageInfo();
+
+    // 监控系统 WebView 状态。
+    mSystemServiceManager.startService(WebViewUpdateService.class);
+}
+
+```
+
+`startCoreSerices` 方法很简单。
+
+## startOtherServices
+
+看第 3 个方法，这个方法代码行数较较多，800 行准油，大部分都是为了注册其他系统服务，这里省略部分逻辑，凸显出 AMS 所做的初始化工作。
+
+```java
+// SystemServer.java
+
+startOtherServices() {
+    // 声明相关服务对象。
+    AccountManagerService accountManager = null;
+    ContentService contentService = null;
+    VibratorService vibrator = null;
+    IAlarmManager alarm = null;
+    ...
+    // 获取相关配置。
+    boolean disableStorage = SystemProperties.getBoolean("config.disable_storage", false);
+    boolean disableBluetooth = SystemProperties.getBoolean("config.disable_bluetooth", false);
+    ...
+    // 注册系统服务。
+    Slog.i(TAG, "Reading configuration...");
+    SystemConfig.getInstance();
+
+    Slog.i(TAG, "Scheduling Policy");
+    ServiceManager.addService("scheduling_policy", new SchedulingPolicyService());
+
+    mSystemServiceManager.startService(TelecomLoaderService.class);
+
+    Slog.i(TAG, "Telephony Registry");
+    telephonyRegistry = new TelephonyRegistry(context);
+    ServiceManager.addService("telephony.registry", telephonyRegistry);
+
+    Slog.i(TAG, "Entropy Mixer");
+    entropyMixer = new EntropyMixer(context);
+
+    mContentResolver = context.getContentResolver();
+
+    Slog.i(TAG, "Camera Service");
+    mSystemServiceManager.startService(CameraService.class);
+ 	...
+    mActivityManagerService.installSystemProviders();
+    ...
+    // Before things start rolling, be sure we have decided whether
+    // we are in safe mode.
+    final boolean safeMode = wm.detectSafeMode();
+    if (safeMode) {
+        mActivityManagerService.enterSafeMode();
+        // Disable the JIT for the system_server process
+        VMRuntime.getRuntime().disableJitCompilation();
+    } else {
+        // Enable the JIT for the system_server process
+        VMRuntime.getRuntime().startJitCompilation();
+    }
+    ...
+    // Needed by DevicePolicyManager for initialization
+    mSystemServiceManager.startBootPhase(SystemService.PHASE_LOCK_SETTINGS_READY);
+    mSystemServiceManager.startBootPhase(SystemService.PHASE_SYSTEM_SERVICES_READY);
+    mActivityManagerService.systemReady(new Runnable() {
+        @Override
+        public void run() {
+            Slog.i(TAG, "Making services ready");
+            mSystemServiceManager.startBootPhase(
+                SystemService.PHASE_ACTIVITY_MANAGER_READY);
+
+            try {
+                mActivityManagerService.startObservingNativeCrashes();
+            } catch (Throwable e) {
+                reportWtf("observing native crashes", e);
+            }
+            ...
+            Watchdog.getInstance().start();
+
+            // It is now okay to let the various system services start their
+            // third party code...
+            mSystemServiceManager.startBootPhase(
+                SystemService.PHASE_THIRD_PARTY_APPS_CAN_START);
+
+            try {
+                if (wallpaperF != null) wallpaperF.systemRunning();
+            } catch (Throwable e) {
+                reportWtf("Notifying WallpaperService running", e);
+            }
+            ...
+
+            try {
+                if (mmsServiceF != null) mmsServiceF.systemRunning();
+            } catch (Throwable e) {
+                reportWtf("Notifying MmsService running", e);
+            }
+        }
+    });
+}
+```
+
+
 
