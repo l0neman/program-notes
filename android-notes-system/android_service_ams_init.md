@@ -1,5 +1,17 @@
 # ActivityManagerService 初始化分析
 
+- [前言](#前言)
+- [startBootstrapServices](#startbootstrapservices)
+  - [SystemServer](#systemserver)
+  - [SystemServiceManager](#systemservicemanager)
+  - [AMS.Lifecycle](#ams.lifecycle)
+  - [ActivityManagerService](#activitymanagerservice)
+  - [ActivityThread](#activitythread)
+  - [ContextImpl](#contextimpl)
+  - [LoadedApk](#loadedapk)
+- [startCoreServices](#startcoreservices)
+- [startOtherServices](#startotherservices)
+
 ## 前言
 
 ActivityManagerService(AMS) 服务是 Android 系统核心服务之一，它负责管理四大组件。如果需要深入了解四大组件的初始化以及启动过程，那么首先需要了解 AMS 的工作原理。
@@ -315,8 +327,9 @@ public ActivityManagerService(Context systemContext) {
     mCompatModePackages = new CompatModePackages(this, systemDir, mHandler);
     // 网络防火墙。
     mIntentFirewall = new IntentFirewall(new IntentFirewallInterface(), mHandler);
-    // Activity 栈管理。
+    // 通知栏任务管理。
     mRecentTasks = new RecentTasks(this);
+    // Activity 栈管理。
     mStackSupervisor = new ActivityStackSupervisor(this, mRecentTasks);
     mTaskPersister = new TaskPersister(systemDir, mStackSupervisor, mRecentTasks);
 
@@ -608,12 +621,12 @@ private void startCoreServices() {
 
 ## startOtherServices
 
-看第 3 个方法，这个方法代码行数较较多，800 行准油，大部分都是为了注册其他系统服务，这里省略部分逻辑，凸显出 AMS 所做的初始化工作。
+看第 3 个方法，这个方法代码行数较较多，800 行左右，大部分都是为了注册其他系统服务，这里省略部分逻辑，凸显出 AMS 所做的初始化工作。
 
 ```java
 // SystemServer.java
 
-startOtherServices() {
+private void startOtherServices() {
     // 声明相关服务对象。
     AccountManagerService accountManager = null;
     ContentService contentService = null;
@@ -645,6 +658,7 @@ startOtherServices() {
     Slog.i(TAG, "Camera Service");
     mSystemServiceManager.startService(CameraService.class);
  	...
+    // 1. 安装系统 provider。
     mActivityManagerService.installSystemProviders();
     ...
     // Before things start rolling, be sure we have decided whether
@@ -660,6 +674,7 @@ startOtherServices() {
     }
     ...
     // Needed by DevicePolicyManager for initialization
+    // 设置系统启动引导阶段。
     mSystemServiceManager.startBootPhase(SystemService.PHASE_LOCK_SETTINGS_READY);
     mSystemServiceManager.startBootPhase(SystemService.PHASE_SYSTEM_SERVICES_READY);
     mActivityManagerService.systemReady(new Runnable() {
@@ -669,6 +684,7 @@ startOtherServices() {
             mSystemServiceManager.startBootPhase(
                 SystemService.PHASE_ACTIVITY_MANAGER_READY);
 
+            // 监控 native 异常。
             try {
                 mActivityManagerService.startObservingNativeCrashes();
             } catch (Throwable e) {
@@ -682,6 +698,7 @@ startOtherServices() {
             mSystemServiceManager.startBootPhase(
                 SystemService.PHASE_THIRD_PARTY_APPS_CAN_START);
 
+            // 调用各个服务的 systemRunning 方法。
             try {
                 if (wallpaperF != null) wallpaperF.systemRunning();
             } catch (Throwable e) {
@@ -699,5 +716,368 @@ startOtherServices() {
 }
 ```
 
+这个方法内注册化了大量的服务，这里重点看一下几个方法的调用，首先在 1 处：
 
+```java
+mActivityManagerService.installSystemProviders();
+```
+
+```java
+public final void installSystemProviders() {
+    List<ProviderInfo> providers;
+    synchronized (this) {
+        ProcessRecord app = mProcessNames.get("system", Process.SYSTEM_UID);
+        providers = generateApplicationProvidersLocked(app);
+        if (providers != null) {
+            for (int i=providers.size()-1; i>=0; i--) {
+                ProviderInfo pi = (ProviderInfo)providers.get(i);
+                // 移除非系统的 provider
+                if ((pi.applicationInfo.flags&ApplicationInfo.FLAG_SYSTEM) == 0) {
+                    Slog.w(TAG, "Not installing system proc provider " + pi.name
+                            + ": not system .apk");
+                    providers.remove(i);
+                }
+            }
+        }
+    }
+    // 安装系统 provider。
+    if (providers != null) {
+        mSystemThread.installSystemProviders(providers);
+    }
+
+    mCoreSettingsObserver = new CoreSettingsObserver(this);
+
+    //mUsageStatsService.monitorPackages();
+}
+```
+
+大概看一下 `installSystemProviders` 方法
+
+```java
+// ActivityThread.java
+
+public final void installSystemProviders(List<ProviderInfo> providers) {
+    if (providers != null) {
+        installContentProviders(mInitialApplication, providers);
+    }
+}
+```
+
+```java
+// ActivityThread.java
+
+private void installContentProviders(
+    Context context, List<ProviderInfo> providers) {
+    final ArrayList<IActivityManager.ContentProviderHolder> results =
+        new ArrayList<IActivityManager.ContentProviderHolder>();
+
+    for (ProviderInfo cpi : providers) {
+        if (DEBUG_PROVIDER) {
+            StringBuilder buf = new StringBuilder(128);
+            buf.append("Pub ");
+            buf.append(cpi.authority);
+            buf.append(": ");
+            buf.append(cpi.name);
+            Log.i(TAG, buf.toString());
+        }
+        IActivityManager.ContentProviderHolder cph = installProvider(context, null, cpi,
+                                                                     false /*noisy*/, true /*noReleaseNeeded*/, true /*stable*/);
+        if (cph != null) {
+            cph.noReleaseNeeded = true;
+            results.add(cph);
+        }
+    }
+
+    try {
+        ActivityManagerNative.getDefault().publishContentProviders(
+            getApplicationThread(), results);
+    } catch (RemoteException ex) {
+    }
+}
+```
+
+安装 provider 后，即可在应用程序中访问系统 provider。
+
+下面再看一下 `mActivityManagerService.systemReady` 这个方法：
+
+```java
+// SystemServer.java
+
+public void systemReady(final Runnable goingCallback) {
+    synchronized(this) {
+        if (mSystemReady) {
+            // If we're done calling all the receivers, run the next "boot phase" passed in
+            // by the SystemServer
+            // 第一次调用不会进入此分支。
+            if (goingCallback != null) {
+                goingCallback.run();
+            }
+            return;
+        }
+
+        mLocalDeviceIdleController
+                = LocalServices.getService(DeviceIdleController.LocalService.class);
+
+        // Make sure we have the current profile info, since it is needed for
+        // security checks.
+        updateCurrentProfileIdsLocked();
+
+        // 清理然后恢复最近任务。
+        mRecentTasks.clear();
+        mRecentTasks.addAll(mTaskPersister.restoreTasksLocked());
+        mRecentTasks.cleanupLocked(UserHandle.USER_ALL);
+        mTaskPersister.startPersisting();
+
+        // Check to see if there are any update receivers to run.
+        if (!mDidUpdate) {
+            if (mWaitingUpdate) {
+                return;
+            }
+            final ArrayList<ComponentName> doneReceivers = new ArrayList<ComponentName>();
+            // 是否正在等待升级。
+            mWaitingUpdate = deliverPreBootCompleted(new Runnable() {
+                public void run() {
+                    synchronized (ActivityManagerService.this) {
+                        mDidUpdate = true;
+                    }
+                    showBootMessage(mContext.getText(
+                            R.string.android_upgrading_complete),
+                            false);
+                    writeLastDonePreBootReceivers(doneReceivers);
+                    systemReady(goingCallback);
+                }
+            }, doneReceivers, UserHandle.USER_OWNER);
+
+            if (mWaitingUpdate) {
+                return;
+            }
+            mDidUpdate = true;
+        }
+
+        mAppOpsService.systemReady();
+        mSystemReady = true;
+    }
+
+    ArrayList<ProcessRecord> procsToKill = null;
+    synchronized(mPidsSelfLocked) {
+        // 非 persistent 进程，加入待杀进程列表。
+        for (int i=mPidsSelfLocked.size()-1; i>=0; i--) {
+            ProcessRecord proc = mPidsSelfLocked.valueAt(i);
+            if (!isAllowedWhileBooting(proc.info)){
+                if (procsToKill == null) {
+                    procsToKill = new ArrayList<ProcessRecord>();
+                }
+                procsToKill.add(proc);
+            }
+        }
+    }
+
+    synchronized(this) {
+        if (procsToKill != null) {
+            // 杀死列表中的进程。
+            for (int i=procsToKill.size()-1; i>=0; i--) {
+                ProcessRecord proc = procsToKill.get(i);
+                Slog.i(TAG, "Removing system update proc: " + proc);
+                removeProcessLocked(proc, true, false, "system update done");
+            }
+        }
+
+        // Now that we have cleaned up any update processes, we
+        // are ready to start launching real processes and know that
+        // we won't trample on them any more.
+        mProcessesReady = true;
+    }
+
+    Slog.i(TAG, "System now ready");
+    EventLog.writeEvent(EventLogTags.BOOT_PROGRESS_AMS_READY,
+        SystemClock.uptimeMillis());
+
+    synchronized(this) {
+        // Make sure we have no pre-ready processes sitting around.
+
+        if (mFactoryTest == FactoryTest.FACTORY_TEST_LOW_LEVEL) {
+            ResolveInfo ri = mContext.getPackageManager()
+                    .resolveActivity(new Intent(Intent.ACTION_FACTORY_TEST),
+                            STOCK_PM_FLAGS);
+            CharSequence errorMsg = null;
+            if (ri != null) {
+                ActivityInfo ai = ri.activityInfo;
+                ApplicationInfo app = ai.applicationInfo;
+                if ((app.flags&ApplicationInfo.FLAG_SYSTEM) != 0) {
+                    mTopAction = Intent.ACTION_FACTORY_TEST;
+                    mTopData = null;
+                    mTopComponent = new ComponentName(app.packageName,
+                            ai.name);
+                } else {
+                    errorMsg = mContext.getResources().getText(
+                            com.android.internal.R.string.factorytest_not_system);
+                }
+            } else {
+                errorMsg = mContext.getResources().getText(
+                        com.android.internal.R.string.factorytest_no_action);
+            }
+            if (errorMsg != null) {
+                mTopAction = null;
+                mTopData = null;
+                mTopComponent = null;
+                Message msg = Message.obtain();
+                msg.what = SHOW_FACTORY_ERROR_MSG;
+                msg.getData().putCharSequence("msg", errorMsg);
+                mUiHandler.sendMessage(msg);
+            }
+        }
+    }
+
+    retrieveSettings();
+    loadResourcesOnSystemReady();
+
+    synchronized (this) {
+        readGrantedUriPermissionsLocked();
+    }
+
+    if (goingCallback != null) goingCallback.run();
+
+    mBatteryStatsService.noteEvent(BatteryStats.HistoryItem.EVENT_USER_RUNNING_START,
+            Integer.toString(mCurrentUserId), mCurrentUserId);
+    mBatteryStatsService.noteEvent(BatteryStats.HistoryItem.EVENT_USER_FOREGROUND_START,
+            Integer.toString(mCurrentUserId), mCurrentUserId);
+    mSystemServiceManager.startUser(mCurrentUserId);
+
+    synchronized (this) {
+        if (mFactoryTest != FactoryTest.FACTORY_TEST_LOW_LEVEL) {
+            try {
+                // 获取所有 persistent 进程并启动。
+                List apps = AppGlobals.getPackageManager().
+                    getPersistentApplications(STOCK_PM_FLAGS);
+                if (apps != null) {
+                    int N = apps.size();
+                    int i;
+                    for (i=0; i<N; i++) {
+                        ApplicationInfo info
+                            = (ApplicationInfo)apps.get(i);
+                        if (info != null &&
+                                !info.packageName.equals("android")) {
+                            // 启动 persistent 进程。
+                            addAppLocked(info, false, null /* ABI override */);
+                        }
+                    }
+                }
+            } catch (RemoteException ex) {
+                // pm is in same process, this will never happen.
+            }
+        }
+
+        // Start up initial activity.
+        // 启动桌面启动器。
+        mBooting = true;
+        startHomeActivityLocked(mCurrentUserId, "systemReady");
+
+        try {
+            if (AppGlobals.getPackageManager().hasSystemUidErrors()) {
+                Slog.e(TAG, "UIDs on the system are inconsistent, you need to wipe your"
+                        + " data partition or your device will be unstable.");
+                mUiHandler.obtainMessage(SHOW_UID_ERROR_MSG).sendToTarget();
+            }
+        } catch (RemoteException e) {
+        }
+
+        if (!Build.isBuildConsistent()) {
+            Slog.e(TAG, "Build fingerprint is not consistent, warning user");
+            mUiHandler.obtainMessage(SHOW_FINGERPRINT_ERROR_MSG).sendToTarget();
+        }
+
+        long ident = Binder.clearCallingIdentity();
+        try {
+            // 发送 USER_STARTED 广播。
+            Intent intent = new Intent(Intent.ACTION_USER_STARTED);
+            intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY
+                    | Intent.FLAG_RECEIVER_FOREGROUND);
+            intent.putExtra(Intent.EXTRA_USER_HANDLE, mCurrentUserId);
+            broadcastIntentLocked(null, null, intent,
+                    null, null, 0, null, null, null, AppOpsManager.OP_NONE,
+                    null, false, false, MY_PID, Process.SYSTEM_UID, mCurrentUserId);
+            // 发送 USER_STARTING 广播。
+            intent = new Intent(Intent.ACTION_USER_STARTING);
+            intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY);
+            intent.putExtra(Intent.EXTRA_USER_HANDLE, mCurrentUserId);
+            broadcastIntentLocked(null, null, intent,
+                    null, new IIntentReceiver.Stub() {
+                        @Override
+                        public void performReceive(Intent intent, int resultCode, String data,
+                                Bundle extras, boolean ordered, boolean sticky, int sendingUser)
+                                throws RemoteException {
+                        }
+                    }, 0, null, null,
+                    new String[] {INTERACT_ACROSS_USERS}, AppOpsManager.OP_NONE,
+                    null, true, false, MY_PID, Process.SYSTEM_UID, UserHandle.USER_ALL);
+        } catch (Throwable t) {
+            Slog.wtf(TAG, "Failed sending first user broadcasts", t);
+        } finally {
+            Binder.restoreCallingIdentity(ident);
+        }
+        mStackSupervisor.resumeTopActivitiesLocked();
+        sendUserSwitchBroadcastsLocked(-1, mCurrentUserId);
+    }
+}
+```
+
+回到前面的 `goingCallback`：
+
+```java
+Slog.i(TAG, "WebViewFactory preparation");
+// 初始化 webView。
+WebViewFactory.prepareWebViewInSystemServer();
+
+try {
+    // 启动系统 ui。
+    startSystemUi(context);
+} catch (Throwable e) {
+    reportWtf("starting System UI", e);
+}
+
+// 一系列服务的 systemReady。
+try {
+    if (networkScoreF != null) networkScoreF.systemReady();
+} catch (Throwable e) {
+    reportWtf("making Network Score Service ready", e);
+}
+try {
+    if (networkManagementF != null) networkManagementF.systemReady();
+} catch (Throwable e) {
+    reportWtf("making Network Managment Service ready", e);
+}
+...
+// 启动看门狗。
+Watchdog.getInstance().start();
+// It is now okay to let the various system services start their
+// third party code...
+mSystemServiceManager.startBootPhase(
+    SystemService.PHASE_THIRD_PARTY_APPS_CAN_START);
+```
+
+其中启动启动 ui 实现如下：
+
+```java
+// SystemServer.java
+
+static final void startSystemUi(Context context) {
+    // 启动了 SystemUIService 服务。
+    Intent intent = new Intent();
+    intent.setComponent(new ComponentName("com.android.systemui",
+                                          "com.android.systemui.SystemUIService"));
+    //Slog.d(TAG, "Starting service: " + intent);
+    context.startServiceAsUser(intent, UserHandle.OWNER);
+}
+```
+
+总结 `startOtherService` 方法所做的工作：
+
+```java
+1. 注册大量系统服务；
+2. 安装系统 provider；
+3. 清理进程；
+4. 通知系统处于 ready 状态；
+5. 启动系统 WebView，启动系统 UI；
+6. 发送用户启动广播。
+```
 
