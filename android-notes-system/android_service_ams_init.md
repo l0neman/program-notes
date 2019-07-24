@@ -20,13 +20,17 @@ AMS 服务在 Android 系统中持续运行，动态管理四大组件之间的�
 
 下面基于 Android6.0 的源码分析 AMS 的初始化过程中做了哪些工作。
 
-## startBootstrapServices
+## startBootstrapServices 
 
-负责初始化 AMS 的重要方法有三个，下面分三部分分析，首先分析 `startBootstrapServices` 方法。
+负责初始化 AMS 的重要方法有三个，下面分三部分分析。
+
+首先是 `startBootstrapServices` 方法
 
 ### SystemServer
 
-AMS 的初始化起始点位于 `SystemServer` 类中的 `startBootstrapServices` 方法中。`SystemServer` 的入口为 `public static void main(String[] args)` 方法。
+SystemServer 进程由 Zygote fork 而来，它承载了 android framework 的核心服务，AMS 将在它的 `main` 方法中进行初始化。
+
+AMS 的初始化起始点位于 `SystemServer` 类中的 `startBootstrapServices` 方法中。`SystemServer` 进程被创建后，最后会进入它的入口 `public static void main(String[] args)` 方法。
 
 ```java
 // SystemServer.java - class SystemServer
@@ -271,10 +275,10 @@ public ActivityManagerService(Context systemContext) {
     // 创建 UI Handler，内部创建 UiThread（HandlerThread）线程，名称为 "android.ui"。
     mUiHandler = new UiHandler();
 
-    // 创建名为前台的广播处理队列，设置 10 秒的超时时间。
+    // 创建名前台广播处理队列，设置 10 秒的超时时间。
     mFgBroadcastQueue = new BroadcastQueue(this, mHandler,
             "foreground", BROADCAST_FG_TIMEOUT, false);
-    // 创建名为后台的广播处理队列，设置 60 秒的超时时间。
+    // 创建名后台广播处理队列，设置 60 秒的超时时间。
     mBgBroadcastQueue = new BroadcastQueue(this, mHandler,
             "background", BROADCAST_BG_TIMEOUT, true);
     // 保存两个广播处理队列。
@@ -327,7 +331,7 @@ public ActivityManagerService(Context systemContext) {
     mCompatModePackages = new CompatModePackages(this, systemDir, mHandler);
     // 网络防火墙。
     mIntentFirewall = new IntentFirewall(new IntentFirewallInterface(), mHandler);
-    // 通知栏任务管理。
+    // 最近任务任务列表管理。
     mRecentTasks = new RecentTasks(this);
     // Activity 栈管理。
     mStackSupervisor = new ActivityStackSupervisor(this, mRecentTasks);
@@ -370,11 +374,11 @@ public ActivityManagerService(Context systemContext) {
 }
 ```
 
-到这就了解到 AMS 的构造器中做了如下工作:
+了解到 AMS 的构造器中做了如下工作:
 
 1. 启动了 `ActivtityManager`，`android.ui`，`CpuTracker` 三个线程。
 2. 创建第一个用户，以及电池，权限，进程管理相关服务对象，activity 任务管理相关。
-3. 启动广播处理队列，CPU 监控以及负责进程错误管理的看门狗服务。
+3. 创建前台和后台广播处理队列，CPU 监控以及负责进程错误管理的看门狗服务。
 
 现在回到上面的 `startBootstrapServices` 方法中，下一句代码是：
 
@@ -460,20 +464,25 @@ public void setSystemProcess() {
         ServiceManager.addService("permission", new PermissionController(this));
         ServiceManager.addService("processinfo", new ProcessInfoService(this));
 
+        // 获取系统应用包信息。
         ApplicationInfo info = mContext.getPackageManager().getApplicationInfo(
                 "android", STOCK_PM_FLAGS);
+        // 安装系统应用信息。
         mSystemThread.installSystemApplicationInfo(info, getClass().getClassLoader());
 
         synchronized (this) {
             // 创建正在运行的进程状态信息存储对象。
             ProcessRecord app = newProcessRecordLocked(info, info.processName, false, 0);
+            // 设置进程信息。
             app.persistent = true;
             app.pid = MY_PID;
             app.maxAdj = ProcessList.SYSTEM_ADJ;
             app.makeActive(mSystemThread.getApplicationThread(), mProcessStats);
             synchronized (mPidsSelfLocked) {
+                // 保存 ProcessRecord 进程记录对象。
                 mPidsSelfLocked.put(app.pid, app);
             }
+            // 更新进程 Lru 列表。
             updateLruProcessLocked(app, false, null);
             updateOomAdjLocked();
         }
@@ -513,7 +522,7 @@ public void installSystemApplicationInfo(ApplicationInfo info, ClassLoader class
 }
 ```
 
-其中 `getSystemContext` 是一个 `ContextImpl` 对象：
+其中 `getSystemContext` 是一个 `ContextImpl` 对象，使用了单例模式进行创建：
 
 ```java
 // ActivityThread.java
@@ -541,7 +550,7 @@ static ContextImpl createSystemContext(ActivityThread mainThread) {
 }
 ```
 
-看它的 `installSystemApplicationInfo` 方法实现：
+继续看它的 `installSystemApplicationInfo` 方法实现：
 
 ```java
 // ContextImpl.java
@@ -575,13 +584,13 @@ private ContextImpl(ContextImpl container, ActivityThread mainThread,
 }
 ```
 
-在上面的 `ContextImple` 的 `createSystemContext` 方法被创建：
+在上面的 `ContextImpl` 的 `createSystemContext` 方法被创建：
 
 ```java
 LoadedApk packageInfo = new LoadedApk(mainThread);
 ```
 
-`installSystemApplicationInfo` 方法是为了将系统包（名称为 "android"）的信息库保持起来，
+`installSystemApplicationInfo` 方法是为了将系统包（名称为 "android"）的信息保存起来，
 
 ```java
 void installSystemApplicationInfo(ApplicationInfo info, ClassLoader classLoader) {
@@ -617,11 +626,11 @@ private void startCoreServices() {
 
 ```
 
-`startCoreSerices` 方法很简单。
+`startCoreSerices` 方法 AMS 相关的不多。
 
 ## startOtherServices
 
-看第 3 个方法，这个方法代码行数较较多，800 行左右，大部分都是为了注册其他系统服务，这里省略部分逻辑，凸显出 AMS 所做的初始化工作。
+看第 3 个方法，这个方法代码行数较较多，800 行左右，大部分都是为了注册其他系统服务，这里省略部分逻辑，凸出 AMS 所做的初始化工作。
 
 ```java
 // SystemServer.java
@@ -691,6 +700,7 @@ private void startOtherServices() {
                 reportWtf("observing native crashes", e);
             }
             ...
+            // 启动 Watchdog
             Watchdog.getInstance().start();
 
             // It is now okay to let the various system services start their
@@ -789,6 +799,7 @@ private void installContentProviders(
     }
 
     try {
+        // 发布 ContentProvider。
         ActivityManagerNative.getDefault().publishContentProviders(
             getApplicationThread(), results);
     } catch (RemoteException ex) {
@@ -801,7 +812,7 @@ private void installContentProviders(
 下面再看一下 `mActivityManagerService.systemReady` 这个方法：
 
 ```java
-// SystemServer.java
+// ActivityManagerService.java
 
 public void systemReady(final Runnable goingCallback) {
     synchronized(this) {
@@ -953,10 +964,8 @@ public void systemReady(final Runnable goingCallback) {
                     int N = apps.size();
                     int i;
                     for (i=0; i<N; i++) {
-                        ApplicationInfo info
-                            = (ApplicationInfo)apps.get(i);
-                        if (info != null &&
-                                !info.packageName.equals("android")) {
+                        ApplicationInfo info = (ApplicationInfo)apps.get(i);
+                        if (info != null && !info.packageName.equals("android")) {
                             // 启动 persistent 进程。
                             addAppLocked(info, false, null /* ABI override */);
                         }
@@ -968,8 +977,8 @@ public void systemReady(final Runnable goingCallback) {
         }
 
         // Start up initial activity.
-        // 启动桌面启动器。
         mBooting = true;
+        // 启动桌面启动器。
         startHomeActivityLocked(mCurrentUserId, "systemReady");
 
         try {
@@ -1021,9 +1030,11 @@ public void systemReady(final Runnable goingCallback) {
 }
 ```
 
-回到前面的 `goingCallback`：
+回到前面的 `goingCallback` 的执行内容：
 
 ```java
+// SystemServer
+
 Slog.i(TAG, "WebViewFactory preparation");
 // 初始化 webView。
 WebViewFactory.prepareWebViewInSystemServer();
