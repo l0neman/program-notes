@@ -11,6 +11,8 @@
   - [LoadedApk](#loadedapk)
 - [startCoreServices](#startcoreservices)
 - [startOtherServices](#startotherservices)
+- [总结](#总结)
+- [参考](#参考)
 
 ## 前言
 
@@ -816,10 +818,10 @@ private void installContentProviders(
 
 public void systemReady(final Runnable goingCallback) {
     synchronized(this) {
+        // 第一次调用（false）不会进入此分支。
         if (mSystemReady) {
             // If we're done calling all the receivers, run the next "boot phase" passed in
             // by the SystemServer
-            // 第一次调用不会进入此分支。
             if (goingCallback != null) {
                 goingCallback.run();
             }
@@ -946,6 +948,7 @@ public void systemReady(final Runnable goingCallback) {
         readGrantedUriPermissionsLocked();
     }
 
+    // 执行 goingCallback。
     if (goingCallback != null) goingCallback.run();
 
     mBatteryStatsService.noteEvent(BatteryStats.HistoryItem.EVENT_USER_RUNNING_START,
@@ -1086,9 +1089,16 @@ static final void startSystemUi(Context context) {
 ```java
 1. 注册大量系统服务；
 2. 安装系统 provider；
-3. 清理进程；
+3. 清理进程，启动 persistent 进程；
 4. 通知系统处于 ready 状态；
-5. 启动系统 WebView，启动系统 UI；
+5. 初始化系统 WebView，启动系统 UI；
 6. 发送用户启动广播。
 ```
 
+## 总结
+
+首先分析 `ActivityManagerService` 服务的初始化过程，有助于后面分析 Android 四大组件的运行原理，不至于再分析时突然出现一个不知道在何时初始化的工具或服务对象而不知所措。
+
+## 参考
+
+- [Gityuan - ActivityManagerService 启动过程](http://gityuan.com/2016/02/21/activity-manager-service/)
