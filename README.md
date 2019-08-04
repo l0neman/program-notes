@@ -12,6 +12,10 @@ android 逆向工程笔记。
 
 android 系统原理笔记。
 
+## [android-notes-open-frameworks](./android-notes-open-frameworks)
+
+android 开源框架笔记。
+
 ## [other-notes](./other-notes)
 
 其他笔记。
