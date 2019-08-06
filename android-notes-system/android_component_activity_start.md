@@ -16,7 +16,7 @@
 
 下面分别查看两种启动方式的实现：
 
-## Activity
+### Activity
 
 ```java
 // Activity.java
@@ -76,7 +76,7 @@ public void startActivityForResult(Intent intent, int requestCode, @Nullable Bun
 }
 ```
 
-## Context
+### Context
 
 ```java
 // ContextImpl.java
@@ -102,11 +102,36 @@ public void startActivity(Intent intent, Bundle options) {
 }
 ```
 
-## Instrumentation
+## 启动流程
 
-可以看到不管启动的 activity 是否需要藩返回值（for result），最终他们都会调用到 `mInstrumentation.execStartActivity` 这个方法，不过参数上会有些差异。
+可以看到不管启动的 activity 是否需要返回值（for result），最终他们都会调用到 `mInstrumentation.execStartActivity` 这个方法，不过参数上会有些差异。
+
+```java
+public ActivityResult execStartActivity(
+        Context who, IBinder contextThread, IBinder token, Activity target,
+        Intent intent, int requestCode, Bundle options);
+```
 
 `Instrumentation` 类型直译过来是“仪表”，在 android framework 层它是负责管理 activity 生命周期的类型。
+
+首先看一下上面参数的各个含义：
+
+```java
+execStartActivity:
+who:Context           -> 启动 activity 的 context。
+contextThread:IBinder -> 启动 activity 的主线程对象，它由 `ApplicationThread` 类实现，将被发送到 AMS 中，方便 AMS 与应用进程沟通。
+token:IBinder         -> 当前 activity 的 token 对象，它是 AMS 中 ActivityRecord 对象对应的 Binder 客户端句柄，ActivityRecord 类型是 AMS 为了记录启动的 activity 信息的类型。
+target:Activity       -> 当前 activity 对象。
+intent:Intent         -> 要启动的 activity 意图。
+requestCode:int       -> 需要接收结果时的请求码，-1 表示不需要接收结果。
+options:Bundle        -> 附加选项。
+```
+
+对比 context 和 activity 启动 activity 的参数可以发现，context 由于可能不是 activity 对象，所以 `token` 和 `activity` 都是 null，而且不能接收返回值，所以 `requestCode` 一定为 -1。其中 context 传递的第一个参数 `getOuterContext` 如果 context 是 activity，那么它就是这个 activity 的对象。
+
+### Instrumentation
+
+由于 activity 这种启动方式参数较为全面，那么现在从它开始分析 activity 启动流程。
 
 ```java
 // Instrumentation.java
@@ -152,19 +177,3 @@ public ActivityResult execStartActivity(
     return null;
 }
 ```
-
-首先看一下上面参数的各个含义：
-
-```java
-execStartActivity:
-who:Context           -> 启动 activity 的 context。
-contextThread:IBinder -> 启动 activity 的主线程对象，它由 `ApplicationThread` 类实现，将被发送到 AMS 中，方便 AMS 与应用进程沟通。
-token:IBinder         -> 当前 activity 的 token 对象，它是 AMS 中 ActivityRecord 对象对应的 Binder 客户端句柄，ActivityRecord 类型是 AMS 为了记录启动的 activity 信息的类型。
-target:Activity       -> 当前 activity 对象。
-intent:Intent         -> 要启动的 activity 意图。
-requestCode:int       -> 需要接收结果时的请求码，-1 表示不需要接收结果。
-options:Bundle        -> 附加选项。
-```
-
-对比 context 和 activity 启动 activity 的参数可以发现，context 由于可能不是 activity 对象，所以 `token` 和 `activity` 都是 null，而且不能接收返回值，所以 `requestCode` 一定为 -1。其中 context 传递的第一个参数 `getOuterContext` 如果 context 是 activity，那么它就是这个 activity 的对象。
-
