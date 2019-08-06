@@ -2,7 +2,7 @@
 
 ## 前言
 
-了解 Android 系统原理不仅需要从宏观上了解，还需要深入细节，两者结合才能做到深入理解。下面基于 Android 6.0 系统源码分析 activity 启动过程。
+了解 Android 系统原理不仅需要从宏观上了解，还需要深入细节，两者结合才能做到深入理解。下面基于 Android 6.0.1 系统源码分析 activity 启动过程。
 
 ## 启动方式
 
@@ -43,7 +43,7 @@ public void startActivityForResult(Intent intent, int requestCode) {
 
 // 最终都走到这个方法。
 public void startActivityForResult(Intent intent, int requestCode, @Nullable Bundle options) {
-    // mParent 为 ActivityGroup（已过时）提供支持，所以这里就不考虑了。
+    // mParent 为 ActivityGroup（已过时）提供支持，所以这里先不考虑存在的情况。
     if (mParent == null) {
         Instrumentation.ActivityResult ar =
             mInstrumentation.execStartActivity(
@@ -101,4 +101,70 @@ public void startActivity(Intent intent, Bundle options) {
             (Activity) null, intent, -1, options);
 }
 ```
+
+## Instrumentation
+
+可以看到不管启动的 activity 是否需要藩返回值（for result），最终他们都会调用到 `mInstrumentation.execStartActivity` 这个方法，不过参数上会有些差异。
+
+`Instrumentation` 类型直译过来是“仪表”，在 android framework 层它是负责管理 activity 生命周期的类型。
+
+```java
+// Instrumentation.java
+
+public ActivityResult execStartActivity(
+        Context who, IBinder contextThread, IBinder token, Activity target,
+        Intent intent, int requestCode, Bundle options) {
+    IApplicationThread whoThread = (IApplicationThread) contextThread;
+    Uri referrer = target != null ? target.onProvideReferrer() : null;
+    
+    if (referrer != null) {
+        intent.putExtra(Intent.EXTRA_REFERRER, referrer);
+    }
+    
+    if (mActivityMonitors != null) {
+        synchronized (mSync) {
+            final int N = mActivityMonitors.size();
+            for (int i=0; i<N; i++) {
+                final ActivityMonitor am = mActivityMonitors.get(i);
+                if (am.match(who, null, intent)) {
+                    am.mHits++;
+                    if (am.isBlocking()) {
+                        return requestCode >= 0 ? am.getResult() : null;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    
+    try {
+        intent.migrateExtraStreamToClipData();
+        intent.prepareToLeaveProcess();
+        int result = ActivityManagerNative.getDefault()
+            .startActivity(whoThread, who.getBasePackageName(), intent,
+                    intent.resolveTypeIfNeeded(who.getContentResolver()),
+                    token, target != null ? target.mEmbeddedID : null,
+                    requestCode, 0, null, options);
+        checkStartActivityResult(result, intent);
+    } catch (RemoteException e) {
+        throw new RuntimeException("Failure from system", e);
+    }
+    return null;
+}
+```
+
+首先看一下上面参数的各个含义：
+
+```java
+execStartActivity:
+who:Context           -> 启动 activity 的 context。
+contextThread:IBinder -> 启动 activity 的主线程对象，它由 `ApplicationThread` 类实现，将被发送到 AMS 中，方便 AMS 与应用进程沟通。
+token:IBinder         -> 当前 activity 的 token 对象，它是 AMS 中 ActivityRecord 对象对应的 Binder 客户端句柄，ActivityRecord 类型是 AMS 为了记录启动的 activity 信息的类型。
+target:Activity       -> 当前 activity 对象。
+intent:Intent         -> 要启动的 activity 意图。
+requestCode:int       -> 需要接收结果时的请求码，-1 表示不需要接收结果。
+options:Bundle        -> 附加选项。
+```
+
+对比 context 和 activity 启动 activity 的参数可以发现，context 由于可能不是 activity 对象，所以 `token` 和 `activity` 都是 null，而且不能接收返回值，所以 `requestCode` 一定为 -1。其中 context 传递的第一个参数 `getOuterContext` 如果 context 是 activity，那么它就是这个 activity 的对象。
 
