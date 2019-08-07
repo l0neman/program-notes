@@ -50,6 +50,7 @@ public void startActivityForResult(Intent intent, int requestCode, @Nullable Bun
                 this, mMainThread.getApplicationThread(), mToken, this,
                 intent, requestCode, options);
         if (ar != null) {
+            // 将结果发送给需要接收的 activity（for result）。
             mMainThread.sendActivityResult(
                 mToken, mEmbeddedID, requestCode, ar.getResultCode(),
                 ar.getResultData());
@@ -129,23 +130,32 @@ options:Bundle        -> 附加选项。
 
 对比 context 和 activity 启动 activity 的参数可以发现，context 由于可能不是 activity 对象，所以 `token` 和 `activity` 都是 null，而且不能接收返回值，所以 `requestCode` 一定为 -1。其中 context 传递的第一个参数 `getOuterContext` 如果 context 是 activity，那么它就是这个 activity 的对象。
 
+这个在 `Activity` 的 context 创建过程中体现：
+
+```java
+ContextImpl appContext = ContextImpl.createActivityContext(
+        this, r.packageInfo, displayId, r.overrideConfig);
+appContext.setOuterContext(activity);
+Context baseContext = appContext;
+...
+```
+
 ### Instrumentation
 
 由于 activity 这种启动方式参数较为全面，那么现在从它开始分析 activity 启动流程。
 
-```java
+``` java
 // Instrumentation.java
-
+    
 public ActivityResult execStartActivity(
         Context who, IBinder contextThread, IBinder token, Activity target,
         Intent intent, int requestCode, Bundle options) {
     IApplicationThread whoThread = (IApplicationThread) contextThread;
     Uri referrer = target != null ? target.onProvideReferrer() : null;
-    
     if (referrer != null) {
         intent.putExtra(Intent.EXTRA_REFERRER, referrer);
     }
-    
+    // 检查 activity 监视器是否允许 activity 启动，不运行则直接返回。
     if (mActivityMonitors != null) {
         synchronized (mSync) {
             final int N = mActivityMonitors.size();
@@ -161,7 +171,6 @@ public ActivityResult execStartActivity(
             }
         }
     }
-    
     try {
         intent.migrateExtraStreamToClipData();
         intent.prepareToLeaveProcess();
@@ -177,3 +186,289 @@ public ActivityResult execStartActivity(
     return null;
 }
 ```
+
+这里只是检查了一下 activity 监视器状态，然后就调用了 `ActivityManagerNative。getDefault()` 的 `startActivity` 方法。
+
+通过对 Android 系统中 Binder 通信框架和系统服务的关系，`ActivityManagerNative。getDefault()` 返回的是 `ActivityManagerProxy` 对象，它作为 `ActivityManagerService` 的客户端，将应用进程的请求转发到 `ActivityManagerService` 中，即平常提到的 AMS 服务。
+
+分析一下方法参数：
+
+```java
+caller:IApplicationThread -> 同上。
+callingPackage:String     -> 调用者 context 包名。
+intent:Intent             -> 同上。
+resolvedType:String       -> intent MIME type。
+resultTo:IBinder          -> 结果接收 activity 的 ActivityRecord 句柄，目前为当前 activity。
+resultWho:String          -> 结果接收者描述，Activity 的 mEmbeddedID。
+requestCode:int           -> 同上。
+startFlags:int            -> 0。
+profilerInfo:ProfilerInfo -> null。
+options:Bundle            -> 同上。
+```
+
+### ActivityManagerProxy
+
+```java
+// ActivityManagerNative.java - class ActivityManagerProxy
+
+public int startActivity(IApplicationThread caller, String callingPackage, Intent intent,
+        String resolvedType, IBinder resultTo, String resultWho, int requestCode,
+        int startFlags, ProfilerInfo profilerInfo, Bundle options) throws RemoteException {
+    Parcel data = Parcel.obtain();
+    Parcel reply = Parcel.obtain();
+    data.writeInterfaceToken(IActivityManager.descriptor);
+    data.writeStrongBinder(caller != null ? caller.asBinder() : null);
+    data.writeString(callingPackage);
+    intent.writeToParcel(data, 0);
+    data.writeString(resolvedType);
+    data.writeStrongBinder(resultTo);
+    data.writeString(resultWho);
+    data.writeInt(requestCode);
+    data.writeInt(startFlags);
+    if (profilerInfo != null) {
+        data.writeInt(1);
+        profilerInfo.writeToParcel(data, Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
+    } else {
+        data.writeInt(0);
+    }
+    if (options != null) {
+        data.writeInt(1);
+        options.writeToParcel(data, 0);
+    } else {
+        data.writeInt(0);
+    }
+    mRemote.transact(START_ACTIVITY_TRANSACTION, data, reply, 0);
+    reply.readException();
+    int result = reply.readInt();
+    reply.recycle();
+    data.recycle();
+    return result;
+}
+```
+
+这里将全部参数原封不动的发送给了 AMS，使用了 `START_ACTIVITY_TRANSACTION` 指令进行携带，最终发送到了 `ActivityManagerNative` 的 `onTransact` 方法中。
+
+### ActivityManagerNative
+
+ActivityManagerNative 负责为 AMS 接收指令和数据并调用 AMS 的入口方法。
+
+```java
+// ActivityManagerNative.java
+
+@Override
+public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
+        throws RemoteException {
+    switch (code) {
+    case START_ACTIVITY_TRANSACTION:
+    {
+        data.enforceInterface(IActivityManager.descriptor);
+        IBinder b = data.readStrongBinder();
+        IApplicationThread app = ApplicationThreadNative.asInterface(b);
+        String callingPackage = data.readString();
+        Intent intent = Intent.CREATOR.createFromParcel(data);
+        String resolvedType = data.readString();
+        IBinder resultTo = data.readStrongBinder();
+        String resultWho = data.readString();
+        int requestCode = data.readInt();
+        int startFlags = data.readInt();
+        ProfilerInfo profilerInfo = data.readInt() != 0
+                ? ProfilerInfo.CREATOR.createFromParcel(data) : null;
+        Bundle options = data.readInt() != 0
+                ? Bundle.CREATOR.createFromParcel(data) : null;
+        int result = startActivity(app, callingPackage, intent, resolvedType,
+                resultTo, resultWho, requestCode, startFlags, profilerInfo, options);
+        reply.writeNoException();
+        reply.writeInt(result);
+        return true;
+    }
+    ...
+}
+```
+
+### ActivityManagerService
+
+```java
+// ActivityManagerService.java
+
+@Override
+public final int startActivity(IApplicationThread caller, String callingPackage,
+        Intent intent, String resolvedType, IBinder resultTo, String resultWho, int requestCode,
+        int startFlags, ProfilerInfo profilerInfo, Bundle options) {
+    return startActivityAsUser(caller, callingPackage, intent, resolvedType, resultTo,
+        resultWho, requestCode, startFlags, profilerInfo, options,
+        UserHandle.getCallingUserId());
+}
+```
+
+调用了 `startActivityAsUser` 添加了一个 `UserHandle.getCallingUserId()` 参数，它是启动 Activity 的调用者的用户 Id。
+
+```java
+// ActivityManagerService.java
+
+@Override
+public final int startActivityAsUser(IApplicationThread caller, String callingPackage,
+        Intent intent, String resolvedType, IBinder resultTo, String resultWho, int requestCode,
+        int startFlags, ProfilerInfo profilerInfo, Bundle options, int userId) {
+    // 隔离进程（uid 在一定范围内的进程）不允许调用 startActivity。
+    enforceNotIsolatedCaller("startActivity");
+    // 处理 userId。
+    userId = handleIncomingUser(Binder.getCallingPid(), Binder.getCallingUid(), userId,
+            false, ALLOW_FULL_ONLY, "startActivity", null);
+    // TODO: Switch to user app stacks here.
+    return mStackSupervisor.startActivityMayWait(caller, -1, callingPackage, intent,
+            resolvedType, null, null, resultTo, resultWho, requestCode, startFlags,
+            profilerInfo, null, null, options, false, userId, null, null);
+}
+```
+
+AMS 在接收到 userId 后直接调用了 `mStackSupervisor` 的 `startActivity` 方法，它是 `ActivityStackSupervisor` 类型的对象，是用于管理 Activity 栈的类型。
+
+### ActivityStackSupervisor
+
+`mStackSupervisor` 的初始化在 AMS 构造器中：
+
+```java
+// ActivityManagerService.java
+
+mRecentTasks = new RecentTasks(this);
+```
+
+```java
+// ActivityStackSupervisor.java
+
+public ActivityStackSupervisor(ActivityManagerService service, RecentTasks recentTasks) {
+    mService = service;
+    mRecentTasks = recentTasks;
+    mHandler = new  ActivityStackSupervisorHandler(mService.mHandler.getLooper());
+}
+```
+
+接下来看 `startActivity` 方法。
+
+```java
+
+final int startActivityMayWait(IApplicationThread caller, int callingUid,
+        String callingPackage, Intent intent, String resolvedType,
+        IVoiceInteractionSession voiceSession, IVoiceInteractor voiceInteractor,
+        IBinder resultTo, String resultWho, int requestCode, int startFlags,
+        ProfilerInfo profilerInfo, WaitResult outResult, Configuration config,
+        Bundle options, boolean ignoreTargetSecurity, int userId,
+        IActivityContainer iContainer, TaskRecord inTask) {
+    // 拒接 intent 携带文件描述符。
+    if (intent != null && intent.hasFileDescriptors()) {
+        throw new IllegalArgumentException("File descriptors passed in Intent");
+    }
+    boolean componentSpecified = intent.getComponent() != null;
+
+    // 不修改原始 intent。
+    intent = new Intent(intent);
+
+    // 1. 查询要启动的 activity 信息。
+    ActivityInfo aInfo =
+            resolveActivity(intent, resolvedType, startFlags, profilerInfo, userId);
+
+    ActivityContainer container = (ActivityContainer)iContainer;
+    synchronized (mService) {
+        if (container != null && container.mParentActivity != null &&
+                container.mParentActivity.state != RESUMED) {
+            // 这里不考虑父子 activiy 的情况。
+            // 如果父 activity 没有进入 resumed 状态，拒绝启动子 activity。
+            return ActivityManager.START_CANCELED;
+        }
+        // 调用者进程 PID 和 UID。
+        final int realCallingPid = Binder.getCallingPid();
+        final int realCallingUid = Binder.getCallingUid();
+        int callingPid;
+        if (callingUid >= 0) {
+            callingPid = -1;
+        } else if (caller == null) {
+            callingPid = realCallingPid;
+            callingUid = realCallingUid;
+        } else {
+            callingPid = callingUid = -1;
+        }
+
+        final ActivityStack stack;
+        if (container == null || container.mStack.isOnHomeDisplay()) {
+            // 将 stack 赋值为当前焦点栈。
+            stack = mFocusedStack;
+        } else {
+            stack = container.mStack;
+        }
+        // 配置是否变更。
+        stack.mConfigWillChange = config != null && mService.mConfiguration.diff(config) != 0;
+        if (DEBUG_CONFIGURATION) Slog.v(TAG_CONFIGURATION,
+                "Starting activity when config will change = " + stack.mConfigWillChange);
+
+        // 清理 Binder 中调用者 id，并填入当前进程 id。
+        final long origId = Binder.clearCallingIdentity();
+
+        if (aInfo != null &&
+                (aInfo.applicationInfo.privateFlags
+                        &ApplicationInfo.PRIVATE_FLAG_CANT_SAVE_STATE) != 0) {
+            // This may be a heavy-weight process!  Check to see if we already
+            // have another, different heavy-weight process running.
+            if (aInfo.processName.equals(aInfo.applicationInfo.packageName)) {
+                if (mService.mHeavyWeightProcess != null &&
+                        (mService.mHeavyWeightProcess.info.uid != aInfo.applicationInfo.uid ||
+                        !mService.mHeavyWeightProcess.processName.equals(aInfo.processName))) {
+                // 重量级进程处理，特殊情况走此分支。
+            }
+        }
+
+        int res = startActivityLocked(caller, intent, resolvedType, aInfo,
+                voiceSession, voiceInteractor, resultTo, resultWho,
+                requestCode, callingPid, callingUid, callingPackage,
+                realCallingPid, realCallingUid, startFlags, options, ignoreTargetSecurity,
+                componentSpecified, null, container, inTask);
+
+        Binder.restoreCallingIdentity(origId);
+
+        if (stack.mConfigWillChange) {
+            // If the caller also wants to switch to a new configuration,
+            // do so now.  This allows a clean switch, as we are waiting
+            // for the current activity to pause (so we will not destroy
+            // it), and have not yet started the next activity.
+            mService.enforceCallingPermission(android.Manifest.permission.CHANGE_CONFIGURATION,
+                    "updateConfiguration()");
+            stack.mConfigWillChange = false;
+            if (DEBUG_CONFIGURATION) Slog.v(TAG_CONFIGURATION,
+                    "Updating to new configuration after starting activity.");
+            mService.updateConfigurationLocked(config, null, false, false);
+        }
+
+        if (outResult != null) {
+            outResult.result = res;
+            if (res == ActivityManager.START_SUCCESS) {
+                mWaitingActivityLaunched.add(outResult);
+                do {
+                    try {
+                        mService.wait();
+                    } catch (InterruptedException e) {
+                    }
+                } while (!outResult.timeout && outResult.who == null);
+            } else if (res == ActivityManager.START_TASK_TO_FRONT) {
+                ActivityRecord r = stack.topRunningActivityLocked(null);
+                if (r.nowVisible && r.state == RESUMED) {
+                    outResult.timeout = false;
+                    outResult.who = new ComponentName(r.info.packageName, r.info.name);
+                    outResult.totalTime = 0;
+                    outResult.thisTime = 0;
+                } else {
+                    outResult.thisTime = SystemClock.uptimeMillis();
+                    mWaitingActivityVisible.add(outResult);
+                    do {
+                        try {
+                            mService.wait();
+                        } catch (InterruptedException e) {
+                        }
+                    } while (!outResult.timeout && outResult.who == null);
+                }
+            }
+        }
+
+        return res;
+    }
+}
+```
+
