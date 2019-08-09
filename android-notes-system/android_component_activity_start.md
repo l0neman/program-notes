@@ -653,6 +653,7 @@ final int startActivityLocked(IApplicationThread caller,
 
     ProcessRecord callerApp = null;
     if (caller != null) {
+        // 根据 caller 查询进程记录。
         callerApp = mService.getRecordForAppLocked(caller);
         if (callerApp != null) {
             callingPid = callerApp.pid;
@@ -677,8 +678,10 @@ final int startActivityLocked(IApplicationThread caller,
     }
 
     ActivityRecord sourceRecord = null;
+    // 接收结果的 activity 记录。
     ActivityRecord resultRecord = null;
     if (resultTo != null) {
+        // 从 activity 栈记录中查询调用者 activity 记录。
         sourceRecord = isInAnyStackLocked(resultTo);
         if (DEBUG_RESULTS) Slog.v(TAG_RESULTS,
                 "Will send result to " + resultTo + " " + sourceRecord);
@@ -691,9 +694,9 @@ final int startActivityLocked(IApplicationThread caller,
 
     final int launchFlags = intent.getFlags();
 
+    // 目前流程不需要接收返回结果。
     if ((launchFlags & Intent.FLAG_ACTIVITY_FORWARD_RESULT) != 0 && sourceRecord != null) {
-        // Transfer the result target from the source activity to the new
-        // one being started, including any failures.
+        // 将接收 result 的目标从源 activity 转移至正在启动的新 activity，包括任何错误。
         if (requestCode >= 0) {
             ActivityOptions.abort(options);
             return ActivityManager.START_FORWARD_AND_REQUEST_CONFLICT;
@@ -706,48 +709,43 @@ final int startActivityLocked(IApplicationThread caller,
         requestCode = sourceRecord.requestCode;
         sourceRecord.resultTo = null;
         if (resultRecord != null) {
+            // 从等等接收结果的 activity 记录移除源 activity 记录。
             resultRecord.removeResultsLocked(sourceRecord, resultWho, requestCode);
         }
         if (sourceRecord.launchedFromUid == callingUid) {
-            // The new activity is being launched from the same uid as the previous
-            // activity in the flow, and asking to forward its result back to the
-            // previous.  In this case the activity is serving as a trampoline between
-            // the two, so we also want to update its launchedFromPackage to be the
-            // same as the previous activity.  Note that this is safe, since we know
-            // these two packages come from the same uid; the caller could just as
-            // well have supplied that same package name itself.  This specifially
-            // deals with the case of an intent picker/chooser being launched in the app
-            // flow to redirect to an activity picked by the user, where we want the final
-            // activity to consider it to have been launched by the previous app activity.
+            // 在流程中新的 activtiy 是从上一个 uid 相同的 activity 启动的，
+            // 并要求将其结果转发给上一个 activity，在这种情况下，
+            // activity 充当两者的蹦床，因此我们还希望将其的 launchFromPackage
+            // 更新为与之前的 activity 相同，请注意，这是安全的，
+            // 因为我们知道这两个包来自同一个 uid，调用者也可以自己提供相同的包名。
+            // 这专门用于处理在应用程序流程中启动的 intent 选择器的情况，以重定向到用户选择的
+            // activity，我们希望最终 activity 将其视为由先前的应用程序的 activity 启动。
             callingPackage = sourceRecord.launchedFromPackage;
         }
     }
 
     if (err == ActivityManager.START_SUCCESS && intent.getComponent() == null) {
-        // We couldn't find a class that can handle the given Intent.
-        // That's the end of that!
+        // 我们找不到可以处理 intent 的类型，那就结束。
         err = ActivityManager.START_INTENT_NOT_RESOLVED;
     }
 
     if (err == ActivityManager.START_SUCCESS && aInfo == null) {
-        // We couldn't find the specific class specified in the Intent.
-        // Also the end of the line.
+        // 我们找不到 intent 中指定的类型。
         err = ActivityManager.START_CLASS_NOT_FOUND;
     }
 
     if (err == ActivityManager.START_SUCCESS
             && !isCurrentProfileLocked(userId)
             && (aInfo.flags & FLAG_SHOW_FOR_ALL_USERS) == 0) {
-        // Trying to launch a background activity that doesn't show for all users.
+        // i尝试启动对所有用户都不显示的 activity。
         err = ActivityManager.START_NOT_CURRENT_USER_ACTIVITY;
     }
 
     if (err == ActivityManager.START_SUCCESS && sourceRecord != null
             && sourceRecord.task.voiceSession != null) {
-        // If this activity is being launched as part of a voice session, we need
-        // to ensure that it is safe to do so.  If the upcoming activity will also
-        // be part of the voice session, we can only launch it if it has explicitly
-        // said it supports the VOICE category, or it is a part of the calling app.
+        // 如果此 activity 是作为语音会话的一部分启动的，我们需要确保这样做是安全的。
+        // 如果即将进行的活动也将成为语音会话的一部分，我们只能在明确表示支持
+        // android.intent.category.VOICE 类别时启动它，或者它是调用应用的一部分。
         if ((launchFlags & Intent.FLAG_ACTIVITY_NEW_TASK) == 0
                 && sourceRecord.info.applicationInfo.uid != aInfo.applicationInfo.uid) {
             try {
@@ -767,8 +765,7 @@ final int startActivityLocked(IApplicationThread caller,
     }
 
     if (err == ActivityManager.START_SUCCESS && voiceSession != null) {
-        // If the caller is starting a new voice session, just make sure the target
-        // is actually allowing it to run this way.
+        // 如果调用者正在启动新的语音会话，只需要确保目标允许它以这种方式运行。
         try {
             if (!AppGlobals.getPackageManager().activitySupportsIntent(intent.getComponent(),
                     intent, resolvedType)) {
@@ -783,8 +780,10 @@ final int startActivityLocked(IApplicationThread caller,
         }
     }
 
+    // 结果 activity 栈。
     final ActivityStack resultStack = resultRecord == null ? null : resultRecord.task.stack;
 
+    // 如果有错误，则返回。
     if (err != ActivityManager.START_SUCCESS) {
         if (resultRecord != null) {
             resultStack.sendActivityResultLocked(-1,
@@ -800,6 +799,7 @@ final int startActivityLocked(IApplicationThread caller,
     final int startAnyPerm = mService.checkPermission(
             START_ANY_ACTIVITY, callingPid, callingUid);
 
+    // 权限检查，各种限制条件。
     if (startAnyPerm != PERMISSION_GRANTED) {
         final int componentRestriction = getComponentRestrictionForCallingPackage(
                 aInfo, callingPackage, callingPid, callingUid, ignoreTargetSecurity);
@@ -857,8 +857,7 @@ final int startActivityLocked(IApplicationThread caller,
 
     if (mService.mController != null) {
         try {
-            // The Intent we give to the watcher has the extra data
-            // stripped off, since it can contain private information.
+            // 我们给 activity 观察者有额外的数据，因为它可以包含私有数据。
             Intent watchIntent = intent.cloneFilter();
             abort |= !mService.mController.activityStarting(watchIntent,
                     aInfo.applicationInfo.packageName);
@@ -867,6 +866,7 @@ final int startActivityLocked(IApplicationThread caller,
         }
     }
 
+    // 不允许启动。
     if (abort) {
         if (resultRecord != null) {
             resultStack.sendActivityResultLocked(-1, resultRecord, resultWho, requestCode,
@@ -878,6 +878,7 @@ final int startActivityLocked(IApplicationThread caller,
         return ActivityManager.START_SUCCESS;
     }
 
+    // 创建 activity 记录。
     ActivityRecord r = new ActivityRecord(mService, callerApp, callingUid, callingPackage,
             intent, resolvedType, aInfo, mService.mConfiguration, resultRecord, resultWho,
             requestCode, componentSpecified, voiceSession != null, this, container, options);
@@ -891,13 +892,17 @@ final int startActivityLocked(IApplicationThread caller,
         r.appTimeTracker = sourceRecord.appTimeTracker;
     }
 
+    // 将当前焦点栈赋值 activity 栈赋。
     final ActivityStack stack = mFocusedStack;
     if (voiceSession == null && (stack.mResumedActivity == null
             || stack.mResumedActivity.info.applicationInfo.uid != callingUid)) {
+        // 如果前台 activity 栈还没有 resumed 状态的 activity，则检查是否允许切换。
+        // 1. 允许切换的时间小于当前时间。2. 检查是否有切换权限（不影响同一个 app 内切换）。
         if (!mService.checkAppSwitchAllowedLocked(callingPid, callingUid,
                 realCallingPid, realCallingUid, "Activity start")) {
             PendingActivityLaunch pal =
                     new PendingActivityLaunch(r, sourceRecord, startFlags, stack);
+            // 将不允许切换的 activity 记录保存至带启动 activity 列表中。
             mPendingActivityLaunches.add(pal);
             ActivityOptions.abort(options);
             return ActivityManager.START_SWITCHES_CANCELED;
@@ -905,31 +910,43 @@ final int startActivityLocked(IApplicationThread caller,
     }
 
     if (mService.mDidAppSwitch) {
-        // This is the second allowed switch since we stopped switches,
-        // so now just generally allow switches.  Use case: user presses
-        // home (switches disabled, switch to home, mDidAppSwitch now true);
-        // user taps a home icon (coming from home so allowed, we hit here
-        // and now allow anyone to switch again).
+        // 这是我们禁止切换后第二次允许切换，所在现在一般只允许切换。
+        // 例如：用户点击 home 键（禁止切换，切换到桌面，mDidAppSwitch 现在是 true）；
+        // 用户点击一个 home 图标（来自 home 所以允许，我们点击它，那么现在允许任何人再次切换）。
+        // 所以将允许启动的时间设为 0，那么上面的判断即可通过。
         mService.mAppSwitchesAllowedTime = 0;
     } else {
         mService.mDidAppSwitch = true;
     }
 
+    // 启动等待启动列表里面的 activity。
     doPendingActivityLaunchesLocked(false);
 
+    // 下一步启动。
     err = startActivityUncheckedLocked(r, sourceRecord, voiceSession, voiceInteractor,
             startFlags, true, options, inTask);
 
     if (err < 0) {
-        // If someone asked to have the keyguard dismissed on the next
-        // activity start, but we are not actually doing an activity
-        // switch...  just dismiss the keyguard now, because we
-        // probably want to see whatever is behind it.
+        // 如果有人要求在下一次 activity 开启时让键盘关闭，但我们实际上并没有进行
+        // activity 切换......现在就关闭键盘，因为我们可能想看看它的后面不管它后面有什么。
         notifyActivityDrawnForKeyguard();
     }
+    
     return err;
 }
 ```
 
+```java
+// ActivityStackSupervisor.java
 
+// 启动等待启动列表里面的 activity。
+final void doPendingActivityLaunchesLocked(boolean doResume) {
+    while (!mPendingActivityLaunches.isEmpty()) {
+        PendingActivityLaunch pal = mPendingActivityLaunches.remove(0);
+        // 下一步启动。
+        startActivityUncheckedLocked(pal.r, pal.sourceRecord, null, null, pal.startFlags,
+                doResume && mPendingActivityLaunches.isEmpty(), null, null);
+    }
+}
+```
 
