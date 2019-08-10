@@ -999,7 +999,7 @@ final int startActivityUncheckedLocked(final ActivityRecord r, ActivityRecord so
     int launchFlags = intent.getFlags();
     if ((launchFlags & Intent.FLAG_ACTIVITY_NEW_DOCUMENT) != 0 &&
             (launchSingleInstance || launchSingleTask)) {
-        // We have a conflict between the Intent and the Activity manifest, manifest wins.
+        // 如果清单设置的模式和 intent 冲突，则按照清单文件优先。
         Slog.i(TAG, "Ignoring FLAG_ACTIVITY_NEW_DOCUMENT, launchMode is " +
                 "\"singleInstance\" or \"singleTask\"");
         launchFlags &=
@@ -1026,11 +1026,8 @@ final int startActivityUncheckedLocked(final ActivityRecord r, ActivityRecord so
 
     if (r.resultTo != null && (launchFlags & Intent.FLAG_ACTIVITY_NEW_TASK) != 0
             && r.resultTo.task.stack != null) {
-        // For whatever reason this activity is being launched into a new
-        // task...  yet the caller has requested a result back.  Well, that
-        // is pretty messed up, so instead immediately send back a cancel
-        // and let the new task continue launched as normal without a
-        // dependency on its originator.
+        // 不管是什么原因，此 activity 都被指定在一个新任务中启动……然而调用者已经请求返回结果。
+        // 好吧，这是相当混乱的，所以立即发送一个取消，让新任务继续正常启动，而不依赖于其发起者。
         Slog.w(TAG, "Activity is launching as a new task, so cancelling activity result.");
         r.resultTo.task.stack.sendActivityResultLocked(-1,
                 r.resultTo, r.resultWho, r.requestCode,
@@ -1042,8 +1039,7 @@ final int startActivityUncheckedLocked(final ActivityRecord r, ActivityRecord so
         launchFlags |= Intent.FLAG_ACTIVITY_NEW_TASK;
     }
 
-    // If we are actually going to launch in to a new task, there are some cases where
-    // we further want to do multiple task.
+    // 如果我们实际上要启动新任务，在某些情况下我们还需要执行多任务。
     if ((launchFlags & Intent.FLAG_ACTIVITY_NEW_TASK) != 0) {
         if (launchTaskBehind
                 || r.info.documentLaunchMode == ActivityInfo.DOCUMENT_LAUNCH_ALWAYS) {
@@ -1051,15 +1047,13 @@ final int startActivityUncheckedLocked(final ActivityRecord r, ActivityRecord so
         }
     }
 
-    // We'll invoke onUserLeaving before onPause only if the launching
-    // activity did not explicitly state that this is an automated launch.
+    // 只要 activity 没有明确声明这是自启动时，我们才会在 onPause 之前回调 onUserLeaving。
     mUserLeaving = (launchFlags & Intent.FLAG_ACTIVITY_NO_USER_ACTION) == 0;
     if (DEBUG_USER_LEAVING) Slog.v(TAG_USER_LEAVING,
             "startActivity() => mUserLeaving=" + mUserLeaving);
 
-    // If the caller has asked not to resume at this point, we make note
-    // of this in the record so that we can skip it when trying to find
-    // the top running activity.
+    // 如果调用者此时不要求回调 onResume，我们会在记录中记下来，以便我们在
+    // 尝试查找最佳运行 activity 时跳过它。
     if (!doResume) {
         r.delayedResume = true;
     }
@@ -1067,17 +1061,16 @@ final int startActivityUncheckedLocked(final ActivityRecord r, ActivityRecord so
     ActivityRecord notTop =
             (launchFlags & Intent.FLAG_ACTIVITY_PREVIOUS_IS_TOP) != 0 ? r : null;
 
-    // If the onlyIfNeeded flag is set, then we can do this if the activity
-    // being launched is the same as the one making the call...  or, as
-    // a special case, if we do not know the caller then we count the
-    // current top activity as the caller.
+    // 如果设置了 onlyIfNeeded 标记，那么如果正在启动的 activity 与调用者 activity 相同，
+    // 我们可以这样做……或者，作为一种特殊情况，如果我们不知道调用者，那么我们会
+    // 计算当前的顶部 activity 作为调用者。
     if ((startFlags&ActivityManager.START_FLAG_ONLY_IF_NEEDED) != 0) {
         ActivityRecord checkedCaller = sourceRecord;
         if (checkedCaller == null) {
             checkedCaller = mFocusedStack.topRunningNonDelayedActivityLocked(notTop);
         }
         if (!checkedCaller.realActivity.equals(r.realActivity)) {
-            // Caller is not the same as launcher, so always needed.
+            // 调用者与要启动的 activity 不相同时，因此总是需要此标记。
             startFlags &= ~ActivityManager.START_FLAG_ONLY_IF_NEEDED;
         }
     }
@@ -1085,9 +1078,7 @@ final int startActivityUncheckedLocked(final ActivityRecord r, ActivityRecord so
     boolean addingToTask = false;
     TaskRecord reuseTask = null;
 
-    // If the caller is not coming from another activity, but has given us an
-    // explicit task into which they would like us to launch the new activity,
-    // then let's see about doing that.
+    // 如果设置了 onlyIfNeeded 标记，
     if (sourceRecord == null && inTask != null && inTask.stack != null) {
         final Intent baseIntent = inTask.getBaseIntent();
         final ActivityRecord root = inTask.getRootActivity();
