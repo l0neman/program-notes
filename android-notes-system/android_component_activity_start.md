@@ -1,5 +1,7 @@
 # Android Activity 启动流程分析
 
+[TOC]
+
 ## 前言
 
 了解 Android 系统原理不仅需要从宏观上了解，还需要深入细节，两者结合才能做到深入理解。下面基于 Android 6.0.1 系统源码分析 activity 启动过程。
@@ -928,7 +930,7 @@ final int startActivityLocked(IApplicationThread caller,
 
     if (err < 0) {
         // 如果有人要求在下一次 activity 开启时让键盘关闭，但我们实际上并没有进行
-        // activity 切换......现在就关闭键盘，因为我们可能想看看它的后面不管它后面有什么。
+        // activity 切换……现在就关闭键盘，因为我们可能想看看它的后面不管它后面有什么。
         notifyActivityDrawnForKeyguard();
     }
     
@@ -944,7 +946,7 @@ final void doPendingActivityLaunchesLocked(boolean doResume) {
     while (!mPendingActivityLaunches.isEmpty()) {
         // 清楚取出的待启动 activity。
         PendingActivityLaunch pal = mPendingActivityLaunches.remove(0);
-        // 下一步启动。
+        // 下一步启动，doResume 为 false，则延迟回调 onResume。
         startActivityUncheckedLocked(pal.r, pal.sourceRecord, null, null, pal.startFlags,
                 doResume && mPendingActivityLaunches.isEmpty(), null, null);
     }
@@ -961,7 +963,18 @@ final void doPendingActivityLaunchesLocked(boolean doResume) {
 
 下面将进入 `startActivityUncheckedLocked` 方法。
 
-参数分析：todo
+参数分析：
+
+```java
+r:ActivityRecord                      -> 启动目标 activity 记录。
+sourceRecord:ActivityRecord           -> 调用者 activity 记录。
+voiceSession:IVoiceInteractionSession -> 同上。
+voiceInteractor:IVoiceInteractor      -> 同上。
+startFlags:int                        -> 0。
+doResume:boolean                      -> 是否回调 onResume。
+options:Bundle                        -> 同上。
+inTask:TaskRecord                     -> 同上。
+```
 
 ```java
 // ActivityStackSupervisor.java
@@ -972,10 +985,8 @@ final int startActivityUncheckedLocked(final ActivityRecord r, ActivityRecord so
     final Intent intent = r.intent;
     final int callingUid = r.launchedFromUid;
 
-    // In some flows in to this function, we retrieve the task record and hold on to it
-    // without a lock before calling back in to here...  so the task at this point may
-    // not actually be in recents.  Check for that, and if it isn't in recents just
-    // consider it invalid.
+    // 在这个方法的一些流程中，我们检索任务的记录并且在没有 lock 的情况下保持它。
+    // 然后再回到这里……所以此时的任务可能不在最近任务中，检查它，如果不在，则认为无效。
     if (inTask != null && !inTask.inRecents) {
         Slog.w(TAG, "Starting activity in task not in recents: " + inTask);
         inTask = null;
