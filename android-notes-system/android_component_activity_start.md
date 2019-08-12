@@ -1715,7 +1715,7 @@ final void startActivityLocked(ActivityRecord r, boolean newTask,
     }
 
     if (doResume) {
-        // resume activity。
+        // 执行 activity resume。
         mStackSupervisor.resumeTopActivitiesLocked(this, r, options);
     }
 }
@@ -1733,9 +1733,10 @@ boolean resumeTopActivitiesLocked(ActivityStack targetStack, ActivityRecord targ
     if (targetStack == null) {
         targetStack = mFocusedStack;
     }
-    // Do targetStack first.
+    // 首先处理 targetStack.
     boolean result = false;
     if (isFrontStack(targetStack)) {
+        // 下一步分析。
         result = targetStack.resumeTopActivityLocked(target, targetOptions);
     }
 
@@ -1744,7 +1745,7 @@ boolean resumeTopActivitiesLocked(ActivityStack targetStack, ActivityRecord targ
         for (int stackNdx = stacks.size() - 1; stackNdx >= 0; --stackNdx) {
             final ActivityStack stack = stacks.get(stackNdx);
             if (stack == targetStack) {
-                // Already started above.
+                // 上面已经启动过。
                 continue;
             }
             if (isFrontStack(stack)) {
@@ -1753,6 +1754,492 @@ boolean resumeTopActivitiesLocked(ActivityStack targetStack, ActivityRecord targ
         }
     }
     return result;
+}
+```
+
+#### ActivityStack
+
+```java
+// ActivityStack.java
+
+final boolean resumeTopActivityLocked(ActivityRecord prev, Bundle options) {
+    if (mStackSupervisor.inResumeTopActivity) {
+        // 不要递归启动。
+        return false;
+    }
+
+    boolean result = false;
+    try {
+        // 防止递归。
+        mStackSupervisor.inResumeTopActivity = true;
+        if (mService.mLockScreenShown == ActivityManagerService.LOCK_SCREEN_LEAVING) {
+            mService.mLockScreenShown = ActivityManagerService.LOCK_SCREEN_HIDDEN;
+            mService.updateSleepIfNeededLocked();
+        }
+        // 下一个方法。
+        result = resumeTopActivityInnerLocked(prev, options);
+    } finally {
+        mStackSupervisor.inResumeTopActivity = false;
+    }
+    return result;
+}
+
+```
+
+```java
+// ActivityStack.java
+
+private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options) {
+    if (DEBUG_LOCKSCREEN) mService.logLockScreen("");
+
+    if (!mService.mBooting && !mService.mBooted) {
+        // Not ready yet!
+        return false;
+    }
+
+    ActivityRecord parent = mActivityContainer.mParentActivity;
+    if ((parent != null && parent.state != ActivityState.RESUMED) ||
+            !mActivityContainer.isAttachedLocked()) {
+        // Do not resume this stack if its parent is not resumed.
+        // TODO: If in a loop, make sure that parent stack resumeTopActivity is called 1st.
+        return false;
+    }
+
+    cancelInitializingActivities();
+
+    // Find the first activity that is not finishing.
+    final ActivityRecord next = topRunningActivityLocked(null);
+
+    // Remember how we'll process this pause/resume situation, and ensure
+    // that the state is reset however we wind up proceeding.
+    final boolean userLeaving = mStackSupervisor.mUserLeaving;
+    mStackSupervisor.mUserLeaving = false;
+
+    final TaskRecord prevTask = prev != null ? prev.task : null;
+    if (next == null) {
+        // There are no more activities!
+        final String reason = "noMoreActivities";
+        if (!mFullscreen) {
+            // Try to move focus to the next visible stack with a running activity if this
+            // stack is not covering the entire screen.
+            final ActivityStack stack = getNextVisibleStackLocked();
+            if (adjustFocusToNextVisibleStackLocked(stack, reason)) {
+                return mStackSupervisor.resumeTopActivitiesLocked(stack, prev, null);
+            }
+        }
+        // Let's just start up the Launcher...
+        ActivityOptions.abort(options);
+        if (DEBUG_STATES) Slog.d(TAG_STATES,
+                "resumeTopActivityLocked: No more activities go home");
+        if (DEBUG_STACK) mStackSupervisor.validateTopActivitiesLocked();
+        // Only resume home if on home display
+        final int returnTaskType = prevTask == null || !prevTask.isOverHomeStack() ?
+                HOME_ACTIVITY_TYPE : prevTask.getTaskToReturnTo();
+        return isOnHomeDisplay() &&
+                mStackSupervisor.resumeHomeStackTask(returnTaskType, prev, reason);
+    }
+
+    next.delayedResume = false;
+
+    // If the top activity is the resumed one, nothing to do.
+    if (mResumedActivity == next && next.state == ActivityState.RESUMED &&
+                mStackSupervisor.allResumedActivitiesComplete()) {
+        // Make sure we have executed any pending transitions, since there
+        // should be nothing left to do at this point.
+        mWindowManager.executeAppTransition();
+        mNoAnimActivities.clear();
+        ActivityOptions.abort(options);
+        if (DEBUG_STATES) Slog.d(TAG_STATES,
+                "resumeTopActivityLocked: Top activity resumed " + next);
+        if (DEBUG_STACK) mStackSupervisor.validateTopActivitiesLocked();
+        return false;
+    }
+
+    final TaskRecord nextTask = next.task;
+    if (prevTask != null && prevTask.stack == this &&
+            prevTask.isOverHomeStack() && prev.finishing && prev.frontOfTask) {
+        if (DEBUG_STACK)  mStackSupervisor.validateTopActivitiesLocked();
+        if (prevTask == nextTask) {
+            prevTask.setFrontOfTask();
+        } else if (prevTask != topTask()) {
+            // This task is going away but it was supposed to return to the home stack.
+            // Now the task above it has to return to the home task instead.
+            final int taskNdx = mTaskHistory.indexOf(prevTask) + 1;
+            mTaskHistory.get(taskNdx).setTaskToReturnTo(HOME_ACTIVITY_TYPE);
+        } else if (!isOnHomeDisplay()) {
+            return false;
+        } else if (!isHomeStack()){
+            if (DEBUG_STATES) Slog.d(TAG_STATES,
+                    "resumeTopActivityLocked: Launching home next");
+            final int returnTaskType = prevTask == null || !prevTask.isOverHomeStack() ?
+                    HOME_ACTIVITY_TYPE : prevTask.getTaskToReturnTo();
+            return isOnHomeDisplay() &&
+                    mStackSupervisor.resumeHomeStackTask(returnTaskType, prev, "prevFinished");
+        }
+    }
+
+    // If we are sleeping, and there is no resumed activity, and the top
+    // activity is paused, well that is the state we want.
+    if (mService.isSleepingOrShuttingDown()
+            && mLastPausedActivity == next
+            && mStackSupervisor.allPausedActivitiesComplete()) {
+        // Make sure we have executed any pending transitions, since there
+        // should be nothing left to do at this point.
+        mWindowManager.executeAppTransition();
+        mNoAnimActivities.clear();
+        ActivityOptions.abort(options);
+        if (DEBUG_STATES) Slog.d(TAG_STATES,
+                "resumeTopActivityLocked: Going to sleep and all paused");
+        if (DEBUG_STACK) mStackSupervisor.validateTopActivitiesLocked();
+        return false;
+    }
+
+    // Make sure that the user who owns this activity is started.  If not,
+    // we will just leave it as is because someone should be bringing
+    // another user's activities to the top of the stack.
+    if (mService.mStartedUsers.get(next.userId) == null) {
+        Slog.w(TAG, "Skipping resume of top activity " + next
+                + ": user " + next.userId + " is stopped");
+        if (DEBUG_STACK) mStackSupervisor.validateTopActivitiesLocked();
+        return false;
+    }
+
+    // The activity may be waiting for stop, but that is no longer
+    // appropriate for it.
+    mStackSupervisor.mStoppingActivities.remove(next);
+    mStackSupervisor.mGoingToSleepActivities.remove(next);
+    next.sleeping = false;
+    mStackSupervisor.mWaitingVisibleActivities.remove(next);
+
+    if (DEBUG_SWITCH) Slog.v(TAG_SWITCH, "Resuming " + next);
+
+    // If we are currently pausing an activity, then don't do anything
+    // until that is done.
+    if (!mStackSupervisor.allPausedActivitiesComplete()) {
+        if (DEBUG_SWITCH || DEBUG_PAUSE || DEBUG_STATES) Slog.v(TAG_PAUSE,
+                "resumeTopActivityLocked: Skip resume: some activity pausing.");
+        if (DEBUG_STACK) mStackSupervisor.validateTopActivitiesLocked();
+        return false;
+    }
+
+    // Okay we are now going to start a switch, to 'next'.  We may first
+    // have to pause the current activity, but this is an important point
+    // where we have decided to go to 'next' so keep track of that.
+    // XXX "App Redirected" dialog is getting too many false positives
+    // at this point, so turn off for now.
+    if (false) {
+        if (mLastStartedActivity != null && !mLastStartedActivity.finishing) {
+            long now = SystemClock.uptimeMillis();
+            final boolean inTime = mLastStartedActivity.startTime != 0
+                    && (mLastStartedActivity.startTime + START_WARN_TIME) >= now;
+            final int lastUid = mLastStartedActivity.info.applicationInfo.uid;
+            final int nextUid = next.info.applicationInfo.uid;
+            if (inTime && lastUid != nextUid
+                    && lastUid != next.launchedFromUid
+                    && mService.checkPermission(
+                            android.Manifest.permission.STOP_APP_SWITCHES,
+                            -1, next.launchedFromUid)
+                    != PackageManager.PERMISSION_GRANTED) {
+                mService.showLaunchWarningLocked(mLastStartedActivity, next);
+            } else {
+                next.startTime = now;
+                mLastStartedActivity = next;
+            }
+        } else {
+            next.startTime = SystemClock.uptimeMillis();
+            mLastStartedActivity = next;
+        }
+    }
+
+    mStackSupervisor.setLaunchSource(next.info.applicationInfo.uid);
+
+    // We need to start pausing the current activity so the top one
+    // can be resumed...
+    boolean dontWaitForPause = (next.info.flags&ActivityInfo.FLAG_RESUME_WHILE_PAUSING) != 0;
+    boolean pausing = mStackSupervisor.pauseBackStacks(userLeaving, true, dontWaitForPause);
+    if (mResumedActivity != null) {
+        if (DEBUG_STATES) Slog.d(TAG_STATES,
+                "resumeTopActivityLocked: Pausing " + mResumedActivity);
+        pausing |= startPausingLocked(userLeaving, false, true, dontWaitForPause);
+    }
+    if (pausing) {
+        if (DEBUG_SWITCH || DEBUG_STATES) Slog.v(TAG_STATES,
+                "resumeTopActivityLocked: Skip resume: need to start pausing");
+        // At this point we want to put the upcoming activity's process
+        // at the top of the LRU list, since we know we will be needing it
+        // very soon and it would be a waste to let it get killed if it
+        // happens to be sitting towards the end.
+        if (next.app != null && next.app.thread != null) {
+            mService.updateLruProcessLocked(next.app, true, null);
+        }
+        if (DEBUG_STACK) mStackSupervisor.validateTopActivitiesLocked();
+        return true;
+    }
+
+    // If the most recent activity was noHistory but was only stopped rather
+    // than stopped+finished because the device went to sleep, we need to make
+    // sure to finish it as we're making a new activity topmost.
+    if (mService.isSleeping() && mLastNoHistoryActivity != null &&
+            !mLastNoHistoryActivity.finishing) {
+        if (DEBUG_STATES) Slog.d(TAG_STATES,
+                "no-history finish of " + mLastNoHistoryActivity + " on new resume");
+        requestFinishActivityLocked(mLastNoHistoryActivity.appToken, Activity.RESULT_CANCELED,
+                null, "resume-no-history", false);
+        mLastNoHistoryActivity = null;
+    }
+
+    if (prev != null && prev != next) {
+        if (!mStackSupervisor.mWaitingVisibleActivities.contains(prev)
+                && next != null && !next.nowVisible) {
+            mStackSupervisor.mWaitingVisibleActivities.add(prev);
+            if (DEBUG_SWITCH) Slog.v(TAG_SWITCH,
+                    "Resuming top, waiting visible to hide: " + prev);
+        } else {
+            // The next activity is already visible, so hide the previous
+            // activity's windows right now so we can show the new one ASAP.
+            // We only do this if the previous is finishing, which should mean
+            // it is on top of the one being resumed so hiding it quickly
+            // is good.  Otherwise, we want to do the normal route of allowing
+            // the resumed activity to be shown so we can decide if the
+            // previous should actually be hidden depending on whether the
+            // new one is found to be full-screen or not.
+            if (prev.finishing) {
+                mWindowManager.setAppVisibility(prev.appToken, false);
+                if (DEBUG_SWITCH) Slog.v(TAG_SWITCH,
+                        "Not waiting for visible to hide: " + prev + ", waitingVisible="
+                        + mStackSupervisor.mWaitingVisibleActivities.contains(prev)
+                        + ", nowVisible=" + next.nowVisible);
+            } else {
+                if (DEBUG_SWITCH) Slog.v(TAG_SWITCH,
+                        "Previous already visible but still waiting to hide: " + prev
+                        + ", waitingVisible="
+                        + mStackSupervisor.mWaitingVisibleActivities.contains(prev)
+                        + ", nowVisible=" + next.nowVisible);
+            }
+        }
+    }
+
+    // Launching this app's activity, make sure the app is no longer
+    // considered stopped.
+    try {
+        AppGlobals.getPackageManager().setPackageStoppedState(
+                next.packageName, false, next.userId); /* TODO: Verify if correct userid */
+    } catch (RemoteException e1) {
+    } catch (IllegalArgumentException e) {
+        Slog.w(TAG, "Failed trying to unstop package "
+                + next.packageName + ": " + e);
+    }
+
+    // We are starting up the next activity, so tell the window manager
+    // that the previous one will be hidden soon.  This way it can know
+    // to ignore it when computing the desired screen orientation.
+    boolean anim = true;
+    if (prev != null) {
+        if (prev.finishing) {
+            if (DEBUG_TRANSITION) Slog.v(TAG_TRANSITION,
+                    "Prepare close transition: prev=" + prev);
+            if (mNoAnimActivities.contains(prev)) {
+                anim = false;
+                mWindowManager.prepareAppTransition(AppTransition.TRANSIT_NONE, false);
+            } else {
+                mWindowManager.prepareAppTransition(prev.task == next.task
+                        ? AppTransition.TRANSIT_ACTIVITY_CLOSE
+                        : AppTransition.TRANSIT_TASK_CLOSE, false);
+            }
+            mWindowManager.setAppWillBeHidden(prev.appToken);
+            mWindowManager.setAppVisibility(prev.appToken, false);
+        } else {
+            if (DEBUG_TRANSITION) Slog.v(TAG_TRANSITION,
+                    "Prepare open transition: prev=" + prev);
+            if (mNoAnimActivities.contains(next)) {
+                anim = false;
+                mWindowManager.prepareAppTransition(AppTransition.TRANSIT_NONE, false);
+            } else {
+                mWindowManager.prepareAppTransition(prev.task == next.task
+                        ? AppTransition.TRANSIT_ACTIVITY_OPEN
+                        : next.mLaunchTaskBehind
+                                ? AppTransition.TRANSIT_TASK_OPEN_BEHIND
+                                : AppTransition.TRANSIT_TASK_OPEN, false);
+            }
+        }
+        if (false) {
+            mWindowManager.setAppWillBeHidden(prev.appToken);
+            mWindowManager.setAppVisibility(prev.appToken, false);
+        }
+    } else {
+        if (DEBUG_TRANSITION) Slog.v(TAG_TRANSITION, "Prepare open transition: no previous");
+        if (mNoAnimActivities.contains(next)) {
+            anim = false;
+            mWindowManager.prepareAppTransition(AppTransition.TRANSIT_NONE, false);
+        } else {
+            mWindowManager.prepareAppTransition(AppTransition.TRANSIT_ACTIVITY_OPEN, false);
+        }
+    }
+
+    Bundle resumeAnimOptions = null;
+    if (anim) {
+        ActivityOptions opts = next.getOptionsForTargetActivityLocked();
+        if (opts != null) {
+            resumeAnimOptions = opts.toBundle();
+        }
+        next.applyOptionsLocked();
+    } else {
+        next.clearOptionsLocked();
+    }
+
+    ActivityStack lastStack = mStackSupervisor.getLastStack();
+    if (next.app != null && next.app.thread != null) {
+        if (DEBUG_SWITCH) Slog.v(TAG_SWITCH, "Resume running: " + next);
+
+        // This activity is now becoming visible.
+        mWindowManager.setAppVisibility(next.appToken, true);
+
+        // schedule launch ticks to collect information about slow apps.
+        next.startLaunchTickingLocked();
+
+        ActivityRecord lastResumedActivity =
+                lastStack == null ? null :lastStack.mResumedActivity;
+        ActivityState lastState = next.state;
+
+        mService.updateCpuStats();
+
+        if (DEBUG_STATES) Slog.v(TAG_STATES, "Moving to RESUMED: " + next + " (in existing)");
+        next.state = ActivityState.RESUMED;
+        mResumedActivity = next;
+        next.task.touchActiveTime();
+        mRecentTasks.addLocked(next.task);
+        mService.updateLruProcessLocked(next.app, true, null);
+        updateLRUListLocked(next);
+        mService.updateOomAdjLocked();
+
+        // Have the window manager re-evaluate the orientation of
+        // the screen based on the new activity order.
+        boolean notUpdated = true;
+        if (mStackSupervisor.isFrontStack(this)) {
+            Configuration config = mWindowManager.updateOrientationFromAppTokens(
+                    mService.mConfiguration,
+                    next.mayFreezeScreenLocked(next.app) ? next.appToken : null);
+            if (config != null) {
+                next.frozenBeforeDestroy = true;
+            }
+            notUpdated = !mService.updateConfigurationLocked(config, next, false, false);
+        }
+
+        if (notUpdated) {
+            // The configuration update wasn't able to keep the existing
+            // instance of the activity, and instead started a new one.
+            // We should be all done, but let's just make sure our activity
+            // is still at the top and schedule another run if something
+            // weird happened.
+            ActivityRecord nextNext = topRunningActivityLocked(null);
+            if (DEBUG_SWITCH || DEBUG_STATES) Slog.i(TAG_STATES,
+                    "Activity config changed during resume: " + next
+                    + ", new next: " + nextNext);
+            if (nextNext != next) {
+                // Do over!
+                mStackSupervisor.scheduleResumeTopActivities();
+            }
+            if (mStackSupervisor.reportResumedActivityLocked(next)) {
+                mNoAnimActivities.clear();
+                if (DEBUG_STACK) mStackSupervisor.validateTopActivitiesLocked();
+                return true;
+            }
+            if (DEBUG_STACK) mStackSupervisor.validateTopActivitiesLocked();
+            return false;
+        }
+
+        try {
+            // Deliver all pending results.
+            ArrayList<ResultInfo> a = next.results;
+            if (a != null) {
+                final int N = a.size();
+                if (!next.finishing && N > 0) {
+                    if (DEBUG_RESULTS) Slog.v(TAG_RESULTS,
+                            "Delivering results to " + next + ": " + a);
+                    next.app.thread.scheduleSendResult(next.appToken, a);
+                }
+            }
+
+            if (next.newIntents != null) {
+                next.app.thread.scheduleNewIntent(next.newIntents, next.appToken);
+            }
+
+            EventLog.writeEvent(EventLogTags.AM_RESUME_ACTIVITY, next.userId,
+                    System.identityHashCode(next), next.task.taskId, next.shortComponentName);
+
+            next.sleeping = false;
+            mService.showAskCompatModeDialogLocked(next);
+            next.app.pendingUiClean = true;
+            next.app.forceProcessStateUpTo(mService.mTopProcessState);
+            next.clearOptionsLocked();
+            next.app.thread.scheduleResumeActivity(next.appToken, next.app.repProcState,
+                    mService.isNextTransitionForward(), resumeAnimOptions);
+
+            mStackSupervisor.checkReadyForSleepLocked();
+
+            if (DEBUG_STATES) Slog.d(TAG_STATES, "resumeTopActivityLocked: Resumed " + next);
+        } catch (Exception e) {
+            // Whoops, need to restart this activity!
+            if (DEBUG_STATES) Slog.v(TAG_STATES, "Resume failed; resetting state to "
+                    + lastState + ": " + next);
+            next.state = lastState;
+            if (lastStack != null) {
+                lastStack.mResumedActivity = lastResumedActivity;
+            }
+            Slog.i(TAG, "Restarting because process died: " + next);
+            if (!next.hasBeenLaunched) {
+                next.hasBeenLaunched = true;
+            } else  if (SHOW_APP_STARTING_PREVIEW && lastStack != null &&
+                    mStackSupervisor.isFrontStack(lastStack)) {
+                mWindowManager.setAppStartingWindow(
+                        next.appToken, next.packageName, next.theme,
+                        mService.compatibilityInfoForPackageLocked(next.info.applicationInfo),
+                        next.nonLocalizedLabel, next.labelRes, next.icon, next.logo,
+                        next.windowFlags, null, true);
+            }
+            mStackSupervisor.startSpecificActivityLocked(next, true, false);
+            if (DEBUG_STACK) mStackSupervisor.validateTopActivitiesLocked();
+            return true;
+        }
+
+        // From this point on, if something goes wrong there is no way
+        // to recover the activity.
+        try {
+            next.visible = true;
+            completeResumeLocked(next);
+        } catch (Exception e) {
+            // If any exception gets thrown, toss away this
+            // activity and try the next one.
+            Slog.w(TAG, "Exception thrown during resume of " + next, e);
+            requestFinishActivityLocked(next.appToken, Activity.RESULT_CANCELED, null,
+                    "resume-exception", true);
+            if (DEBUG_STACK) mStackSupervisor.validateTopActivitiesLocked();
+            return true;
+        }
+        next.stopped = false;
+
+    } else {
+        // Whoops, need to restart this activity!
+        if (!next.hasBeenLaunched) {
+            next.hasBeenLaunched = true;
+        } else {
+            if (SHOW_APP_STARTING_PREVIEW) {
+                mWindowManager.setAppStartingWindow(
+                        next.appToken, next.packageName, next.theme,
+                        mService.compatibilityInfoForPackageLocked(
+                                next.info.applicationInfo),
+                        next.nonLocalizedLabel,
+                        next.labelRes, next.icon, next.logo, next.windowFlags,
+                        null, true);
+            }
+            if (DEBUG_SWITCH) Slog.v(TAG_SWITCH, "Restarting: " + next);
+        }
+        if (DEBUG_STATES) Slog.d(TAG_STATES, "resumeTopActivityLocked: Restarting " + next);
+        mStackSupervisor.startSpecificActivityLocked(next, true, true);
+    }
+
+    if (DEBUG_STACK) mStackSupervisor.validateTopActivitiesLocked();
+    return true;
 }
 ```
 
