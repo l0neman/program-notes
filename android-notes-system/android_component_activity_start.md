@@ -142,7 +142,9 @@ Context baseContext = appContext;
 ...
 ```
 
-### Instrumentation
+### Client
+
+#### Instrumentation
 
 由于 activity 这种启动方式参数较为全面，那么现在从它开始分析 activity 启动流程。
 
@@ -209,7 +211,7 @@ profilerInfo:ProfilerInfo -> null。
 options:Bundle            -> 同上。
 ```
 
-### ActivityManagerProxy
+#### ActivityManagerProxy
 
 ```java
 // ActivityManagerNative.java - class ActivityManagerProxy
@@ -251,7 +253,7 @@ public int startActivity(IApplicationThread caller, String callingPackage, Inten
 
 这里将全部参数原封不动的发送给了 AMS，使用了 `START_ACTIVITY_TRANSACTION` 指令进行携带，最终发送到了 `ActivityManagerNative` 的 `onTransact` 方法中。
 
-### ActivityManagerNative
+#### ActivityManagerNative
 
 ActivityManagerNative 负责为 AMS 接收指令和数据并调用 AMS 的入口方法。
 
@@ -288,7 +290,9 @@ public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
 }
 ```
 
-### ActivityManagerService
+### Server
+
+#### ActivityManagerService
 
 ```java
 // ActivityManagerService.java
@@ -327,7 +331,7 @@ public final int startActivityAsUser(IApplicationThread caller, String callingPa
 
 AMS 在接收到 userId 后直接调用了 `mStackSupervisor` 的 `startActivity` 方法，它是 `ActivityStackSupervisor` 类型的对象，是用于管理 Activity 栈的类型。
 
-### ActivityStackSupervisor
+#### ActivityStackSupervisor
 
 `mStackSupervisor` 的初始化在 AMS 构造器中：
 
@@ -554,7 +558,7 @@ ActivityInfo resolveActivity(Intent intent, String resolvedType, int startFlags,
 
 继续看 `PackageManagerService` 的 `resolveIntent` 方法。
 
-### PackageManagerService
+#### PackageManagerService
 
 ```java
 // PackageManagerService.java
@@ -638,7 +642,7 @@ public List<ResolveInfo> queryIntentActivities(Intent intent,
 
 而上面的 `chooseBestActivity` 将会根据查询到的 activity 信息，通过 priority 等相关规则寻找最终的目标 activity，这里就直接向下进行，回到上面，下一个方法是 `startActivityLocked`。
 
-### ActivityStackSupervisor
+#### ActivityStackSupervisor
 
 ```java
 // ActivityStackSupervisor.java
@@ -1155,7 +1159,7 @@ final int startActivityUncheckedLocked(final ActivityRecord r, ActivityRecord so
         if (sourceRecord.finishing) {
             // 如果源 activity 正在 finish，我们无法进一步将它视为我们的的源。这是因为
             // 与之关联的任务现在可能是空的并且正在被移除，所以我们不想盲目的将它投入到该
-            // 任务中，相反，我们会采取 NEW_TASL 流程并尝试为它找到任务。
+            // 任务中，相反，我们会采取 NEW_TASK 流程并尝试为它找到任务。
             // 但保存任务信息，以便在创建新任务时使用它。
             if ((launchFlags & Intent.FLAG_ACTIVITY_NEW_TASK) == 0) {
                 Slog.w(TAG, "startActivity called from finishing " + sourceRecord
@@ -1372,7 +1376,7 @@ final int startActivityUncheckedLocked(final ActivityRecord r, ActivityRecord so
                         }
                         ActivityOptions.abort(options);
                         if ((startFlags&ActivityManager.START_FLAG_ONLY_IF_NEEDED) != 0) {
-                           // 我们不需要启动新的 activity，客户端说如果这样就什么都不要做。就是这样！
+                            // 我们不需要启动新的 activity，客户端说如果这样就什么都不要做。就是这样！
                             return ActivityManager.START_RETURN_INTENT_TO_CALLER;
                         }
                         top.deliverNewIntentLocked(callingUid, r.intent, r.launchedFromPackage);
@@ -1442,16 +1446,14 @@ final int startActivityUncheckedLocked(final ActivityRecord r, ActivityRecord so
                     r.appTimeTracker, "sourceTaskToFront");
         }
         if (!addingToTask && (launchFlags&Intent.FLAG_ACTIVITY_CLEAR_TOP) != 0) {
-            // In this case, we are adding the activity to an existing
-            // task, but the caller has asked to clear that task if the
-            // activity is already running.
+            // 在这种情况下，我们将 activity 添加到现有任务中，但是如果
+            // activity 已在运行，则调用者要求清除该任务。
             ActivityRecord top = sourceTask.performClearTaskLocked(r, launchFlags);
             keepCurTransition = true;
             if (top != null) {
                 ActivityStack.logStartActivity(EventLogTags.AM_NEW_INTENT, r, top.task);
                 top.deliverNewIntentLocked(callingUid, r.intent, r.launchedFromPackage);
-                // For paranoia, make sure we have correctly
-                // resumed the top activity.
+                // 对于偏执者，请确保我们已经正确地 resume 了顶层 activity。
                 targetStack.mLastPausedActivity = null;
                 if (doResume) {
                     targetStack.resumeTopActivityLocked(null);
@@ -1461,9 +1463,8 @@ final int startActivityUncheckedLocked(final ActivityRecord r, ActivityRecord so
             }
         } else if (!addingToTask &&
                 (launchFlags&Intent.FLAG_ACTIVITY_REORDER_TO_FRONT) != 0) {
-            // In this case, we are launching an activity in our own task
-            // that may already be running somewhere in the history, and
-            // we want to shuffle it to the front of the stack if so.
+            // 在这种情况下，在我们自己的任务中运行一个 activity，该 activity 可能
+            // 已经在历史中的某个地方运行，如果是这样，我们想将它前置。
             final ActivityRecord top = sourceTask.findActivityInHistoryLocked(r);
             if (top != null) {
                 final TaskRecord task = top.task;
@@ -1478,16 +1479,14 @@ final int startActivityUncheckedLocked(final ActivityRecord r, ActivityRecord so
                 return ActivityManager.START_DELIVERED_TO_TOP;
             }
         }
-        // An existing activity is starting this new activity, so we want
-        // to keep the new one in the same task as the one that is starting
-        // it.
+        // 一个已经存在的 activity 正在启动这个新 activity，
+        // 因此我们希望将新 activity 保持在和启动它相同的任务中。
         r.setTask(sourceTask, null);
         if (DEBUG_TASKS) Slog.v(TAG_TASKS, "Starting new activity " + r
                 + " in existing task " + r.task + " from source " + sourceRecord);
 
     } else if (inTask != null) {
-        // The caller is asking that the new activity be started in an explicit
-        // task it has provided to us.
+        // 调用者要求新 activity 在它提供给我们的明确任务中启动。
         if (isLockTaskModeViolation(inTask)) {
             Slog.e(TAG, "Attempted Lock Task Mode violation r=" + r);
             return ActivityManager.START_RETURN_LOCK_TASK_MODE_VIOLATION;
@@ -1496,17 +1495,14 @@ final int startActivityUncheckedLocked(final ActivityRecord r, ActivityRecord so
         targetStack.moveTaskToFrontLocked(inTask, noAnimation, options, r.appTimeTracker,
                 "inTaskToFront");
 
-        // Check whether we should actually launch the new activity in to the task,
-        // or just reuse the current activity on top.
+        // 检查我们是否应该将新 activity 实际启动到任务中，或只是重复使用当前 activity。
         ActivityRecord top = inTask.getTopActivity();
         if (top != null && top.realActivity.equals(r.realActivity) && top.userId == r.userId) {
             if ((launchFlags & Intent.FLAG_ACTIVITY_SINGLE_TOP) != 0
                     || launchSingleTop || launchSingleTask) {
                 ActivityStack.logStartActivity(EventLogTags.AM_NEW_INTENT, top, top.task);
                 if ((startFlags&ActivityManager.START_FLAG_ONLY_IF_NEEDED) != 0) {
-                    // We don't need to start a new activity, and
-                    // the client said not to do anything if that
-                    // is the case, so this is it!
+                    // 我们不需要启动新的 activity，客户端说如果这样就什么都不要做。就是这样！
                     return ActivityManager.START_RETURN_INTENT_TO_CALLER;
                 }
                 top.deliverNewIntentLocked(callingUid, r.intent, r.launchedFromPackage);
@@ -1515,8 +1511,8 @@ final int startActivityUncheckedLocked(final ActivityRecord r, ActivityRecord so
         }
 
         if (!addingToTask) {
-            // We don't actually want to have this activity added to the task, so just
-            // stop here but still tell the caller that we consumed the intent.
+            // 我们实际上并不想将此 activity 添加到任务中，所以只需停在此处，
+            // 但仍然告诉调用者我们消费了 intent。
             ActivityOptions.abort(options);
             return ActivityManager.START_TASK_TO_FRONT;
         }
@@ -1526,9 +1522,8 @@ final int startActivityUncheckedLocked(final ActivityRecord r, ActivityRecord so
                 + " in explicit task " + r.task);
 
     } else {
-        // This not being started from an existing activity, and not part
-        // of a new task...  just put it in the top task, though these days
-        // this case should never happen.
+        // 这不是从现有 activity 开始，也不是新任务的一部分……只是
+        // 把它放在最顶层的任务中，尽管现在这种情况不应该发生。
         targetStack = computeStackFocus(r, newTask);
         targetStack.moveToFront("addingToTopTask");
         ActivityRecord prev = targetStack.topActivity();
@@ -1557,6 +1552,207 @@ final int startActivityUncheckedLocked(final ActivityRecord r, ActivityRecord so
         mService.setFocusedActivityLocked(r, "startedActivity");
     }
     return ActivityManager.START_SUCCESS;
+}
+```
+
+这个方法根据 Intent 结合清单文件中设置的 Activity 启动模式计算最终的启动标记，并根据启动标记为 activity 调整当前已存在的 activity 任务，如果需要则创建新的任务对象。上面的注释根据源码注释翻译。
+
+接下来是 `targetStack` 的 `startActivityLocked` 方法，`targetStack` 是 `ActivityStack` 类型，它表示具体的一个 activity 栈，而 `ActivityStackSupervisor` 是 activity 栈的管理者。
+
+#### ActivityStack
+
+```java
+// ActivtiyStack.java
+
+final void startActivityLocked(ActivityRecord r, boolean newTask,
+        boolean doResume, boolean keepCurTransition, Bundle options) {
+    TaskRecord rTask = r.task;
+    final int taskId = rTask.taskId;
+    // 被 mLaunchTaskBehind 标记任务放置在 activity 任务栈的后面。
+    if (!r.mLaunchTaskBehind && (taskForIdLocked(taskId) == null || newTask)) {
+        // 任务中的上一个 activity 已被删除或 AMS 正在重用该任务。
+        // 插入或替换。
+        // 可能不在。
+        insertTaskAtTop(rTask, r);
+        // 移动至栈顶。
+        mWindowManager.moveTaskToTop(taskId);
+    }
+    TaskRecord task = null;
+    if (!newTask) {
+        // 如果从已存在的任务开始，那么找到它的索引。
+        boolean startIt = true;
+        for (int taskNdx = mTaskHistory.size() - 1; taskNdx >= 0; --taskNdx) {
+            task = mTaskHistory.get(taskNdx);
+            if (task.getTopActivity() == null) {
+                // 任务中所有的 activity 都在 finish。
+                continue;
+            }
+            if (task == r.task) {
+                // 这里！现在，如果用户还没看到它，那么只需添加它而不启动;
+                // 它会在用户导航回来时启动。
+                if (!startIt) {
+                    if (DEBUG_ADD_REMOVE) Slog.i(TAG, "Adding activity " + r + " to task "
+                            + task, new RuntimeException("here").fillInStackTrace());
+                    task.addActivityToTop(r);
+                    r.putInHistory();
+                    mWindowManager.addAppToken(task.mActivities.indexOf(r), r.appToken,
+                            r.task.taskId, mStackId, r.info.screenOrientation, r.fullscreen,
+                            (r.info.flags & ActivityInfo.FLAG_SHOW_FOR_ALL_USERS) != 0,
+                            r.userId, r.info.configChanges, task.voiceSession != null,
+                            r.mLaunchTaskBehind);
+                    if (VALIDATE_TOKENS) {
+                        validateAppTokensLocked();
+                    }
+                    ActivityOptions.abort(options);
+                    return;
+                }
+                break;
+            } else if (task.numFullscreen > 0) {
+                startIt = false;
+            }
+        }
+    }
+
+    // 将新的 activity 放在任务栈顶部，以便接下来与用户进行交互。
+
+    // 如果我们不将新的 activity 放在最前面，
+    // 我们不希望将 onUserLeaving 回调给实际的最前面的 activity。
+    if (task == r.task && mTaskHistory.indexOf(task) != (mTaskHistory.size() - 1)) {
+        mStackSupervisor.mUserLeaving = false;
+        if (DEBUG_USER_LEAVING) Slog.v(TAG_USER_LEAVING,
+                "startActivity() behind front, mUserLeaving=false");
+    }
+
+    task = r.task;
+
+    // 将 activity 添加到历史任务栈中并继续。
+    if (DEBUG_ADD_REMOVE) Slog.i(TAG, "Adding activity " + r + " to stack to task " + task,
+            new RuntimeException("here").fillInStackTrace());
+    task.addActivityToTop(r);
+    task.setFrontOfTask();
+
+    r.putInHistory();
+    if (!isHomeStack() || numActivities() > 0) {
+        // 如果我们要切换到新任务，或者下一个 activity 所在进程没有运行。
+        // 我们希望展示 starting preview 窗口。
+        boolean showStartingIcon = newTask;
+        ProcessRecord proc = r.app;
+        if (proc == null) {
+            proc = mService.mProcessNames.get(r.processName, r.info.applicationInfo.uid);
+        }
+        if (proc == null || proc.thread == null) {
+            showStartingIcon = true;
+        }
+        if (DEBUG_TRANSITION) Slog.v(TAG_TRANSITION,
+                "Prepare open transition: starting " + r);
+        if ((r.intent.getFlags() & Intent.FLAG_ACTIVITY_NO_ANIMATION) != 0) {
+            mWindowManager.prepareAppTransition(AppTransition.TRANSIT_NONE, keepCurTransition);
+            mNoAnimActivities.add(r);
+        } else {
+            mWindowManager.prepareAppTransition(newTask
+                    ? r.mLaunchTaskBehind
+                            ? AppTransition.TRANSIT_TASK_OPEN_BEHIND
+                            : AppTransition.TRANSIT_TASK_OPEN
+                    : AppTransition.TRANSIT_ACTIVITY_OPEN, keepCurTransition);
+            mNoAnimActivities.remove(r);
+        }
+        mWindowManager.addAppToken(task.mActivities.indexOf(r),
+                r.appToken, r.task.taskId, mStackId, r.info.screenOrientation, r.fullscreen,
+                (r.info.flags & ActivityInfo.FLAG_SHOW_FOR_ALL_USERS) != 0, r.userId,
+                r.info.configChanges, task.voiceSession != null, r.mLaunchTaskBehind);
+        boolean doShow = true;
+        if (newTask) {
+            // 即使这个 activity 刚刚开始，我们仍然需要重置它，以确保我们应用的亲和栈关系
+            // 将任何现有 activity 从其他任务转移到里面。如果调用者已请求重置目标任务，则执行此操作。
+            if ((r.intent.getFlags() & Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED) != 0) {
+                resetTaskIfNeededLocked(r, r);
+                doShow = topRunningNonDelayedActivityLocked(null) == r;
+            }
+        } else if (options != null && new ActivityOptions(options).getAnimationType()
+                == ActivityOptions.ANIM_SCENE_TRANSITION) {
+            doShow = false;
+        }
+        if (r.mLaunchTaskBehind) {
+            // 不要为 mLaunchTaskBehind 启动窗口。更重要的是要确保我们告诉
+            // Window Manager 及时它位于任务栈的后面，r 也是可见的。
+            mWindowManager.setAppVisibility(r.appToken, true);
+            ensureActivitiesVisibleLocked(null, 0);
+        } else if (SHOW_APP_STARTING_PREVIEW && doShow) {
+            // 了解清楚我们是否正在从另一个与下一个 activity "具有相同的启动图标"的 activity
+            // 进行转换。这允许 Window Manager 保留它先前创建的窗口（如果仍有）。
+            ActivityRecord prev = mResumedActivity;
+            if (prev != null) {
+                // 如果出现以下情况，我们不想重复使用之前的 starting preview。
+                // (1) 当前 activity 在一个不同的任务中。
+                if (prev.task != r.task) {
+                    prev = null;
+                }
+                // (2) 当前 activity 已经显示。
+                else if (prev.nowVisible) {
+                    prev = null;
+                }
+            }
+            mWindowManager.setAppStartingWindow(
+                    r.appToken, r.packageName, r.theme,
+                    mService.compatibilityInfoForPackageLocked(
+                            r.info.applicationInfo), r.nonLocalizedLabel,
+                    r.labelRes, r.icon, r.logo, r.windowFlags,
+                    prev != null ? prev.appToken : null, showStartingIcon);
+            r.mStartingWindowShown = true;
+        }
+    } else {
+        // 如果这是第一个 activity，请不要做任何花哨的动画，
+        // 因为没有任何东西可以在它上面做动画。
+        mWindowManager.addAppToken(task.mActivities.indexOf(r), r.appToken,
+                r.task.taskId, mStackId, r.info.screenOrientation, r.fullscreen,
+                (r.info.flags & ActivityInfo.FLAG_SHOW_FOR_ALL_USERS) != 0, r.userId,
+                r.info.configChanges, task.voiceSession != null, r.mLaunchTaskBehind);
+        ActivityOptions.abort(options);
+        options = null;
+    }
+    if (VALIDATE_TOKENS) {
+        validateAppTokensLocked();
+    }
+
+    if (doResume) {
+        // resume activity。
+        mStackSupervisor.resumeTopActivitiesLocked(this, r, options);
+    }
+}
+```
+
+可以看到有很多和 Window Manager 交互的逻辑，主要是根据前面设置的 activity 任务栈，调整用户界面上相关的任务的展示。下面调用了 `ActivityStackSupervisor` 的 `resumeTopActivitiesLocked` 方法，开始 resume 顶层的前面刚启动的 activity。
+
+#### ActivityStackSupervisor
+
+```java
+// ActivityStackSupervisor.java
+
+boolean resumeTopActivitiesLocked(ActivityStack targetStack, ActivityRecord target,
+        Bundle targetOptions) {
+    if (targetStack == null) {
+        targetStack = mFocusedStack;
+    }
+    // Do targetStack first.
+    boolean result = false;
+    if (isFrontStack(targetStack)) {
+        result = targetStack.resumeTopActivityLocked(target, targetOptions);
+    }
+
+    for (int displayNdx = mActivityDisplays.size() - 1; displayNdx >= 0; --displayNdx) {
+        final ArrayList<ActivityStack> stacks = mActivityDisplays.valueAt(displayNdx).mStacks;
+        for (int stackNdx = stacks.size() - 1; stackNdx >= 0; --stackNdx) {
+            final ActivityStack stack = stacks.get(stackNdx);
+            if (stack == targetStack) {
+                // Already started above.
+                continue;
+            }
+            if (isFrontStack(stack)) {
+                stack.resumeTopActivityLocked(null);
+            }
+        }
+    }
+    return result;
 }
 ```
 
