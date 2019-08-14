@@ -610,7 +610,7 @@ public List<ResolveInfo> queryIntentActivities(Intent intent,
         if (pkgName == null) {
             List<CrossProfileIntentFilter> matchingFilters =
                     getMatchingCrossProfileIntentFilters(intent, resolvedType, userId);
-            // Check for results that need to skip the current profile.
+            // 检查需要跳过当前配置文件的结果。
             ResolveInfo xpResolveInfo  = querySkipCurrentProfileIntents(matchingFilters, intent,
                     resolvedType, flags, userId);
             if (xpResolveInfo != null && isUserEnabled(xpResolveInfo.targetUserId)) {
@@ -619,7 +619,7 @@ public List<ResolveInfo> queryIntentActivities(Intent intent,
                 return filterIfNotPrimaryUser(result, userId);
             }
 
-            // Check for results in the current profile.
+            // 检查当前配置文件中的结果。
             List<ResolveInfo> result = mActivities.queryIntent(
                     intent, resolvedType, flags, userId);
 
@@ -1945,11 +1945,12 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
 
     // 我们需要开始暂停当前 activity，以便可以恢复最重要的 activity。
     boolean dontWaitForPause = (next.info.flags&ActivityInfo.FLAG_RESUME_WHILE_PAUSING) != 0;
+    // 1. 这里将会通知其他 activity 暂停。
     boolean pausing = mStackSupervisor.pauseBackStacks(userLeaving, true, dontWaitForPause);
+    // 当前已经有 resume 的 activity，那么首先将其 pause。
     if (mResumedActivity != null) {
         if (DEBUG_STATES) Slog.d(TAG_STATES,
                 "resumeTopActivityLocked: Pausing " + mResumedActivity);
-        // 1. 这里将会通知 activity 暂停。
         pausing |= startPausingLocked(userLeaving, false, true, dontWaitForPause);
     }
     if (pausing) {
@@ -2213,11 +2214,212 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
             if (DEBUG_SWITCH) Slog.v(TAG_SWITCH, "Restarting: " + next);
         }
         if (DEBUG_STATES) Slog.d(TAG_STATES, "resumeTopActivityLocked: Restarting " + next);
+        // 开始启动指定的 activity。
         mStackSupervisor.startSpecificActivityLocked(next, true, true);
     }
 
     if (DEBUG_STACK) mStackSupervisor.validateTopActivitiesLocked();
     return true;
+}
+```
+
+这里主要是为了 resume 前面刚准备好的栈顶 activity，首先需要先 pause 其它的 activity，然后 resume 栈顶的 activity，如果需要则重启 activity。
+
+上面此句将回调其他 activity：
+
+```java
+boolean pausing = mStackSupervisor.pauseBackStacks(userLeaving, true, dontWaitForPause);
+...
+```
+
+#### ActivityStackSupervisor
+
+```java
+// ActivityStackSupervisor.java
+
+boolean pauseBackStacks(boolean userLeaving, boolean resuming, boolean dontWait) {
+    boolean someActivityPaused = false;
+    for (int displayNdx = mActivityDisplays.size() - 1; displayNdx >= 0; --displayNdx) {
+        ArrayList<ActivityStack> stacks = mActivityDisplays.valueAt(displayNdx).mStacks;
+        for (int stackNdx = stacks.size() - 1; stackNdx >= 0; --stackNdx) {
+            final ActivityStack stack = stacks.get(stackNdx);
+            if (!isFrontStack(stack) && stack.mResumedActivity != null) {
+                if (DEBUG_STATES) Slog.d(TAG_STATES, "pauseBackStacks: stack=" + stack +
+                        " mResumedActivity=" + stack.mResumedActivity);
+                someActivityPaused |= stack.startPausingLocked(userLeaving, false, resuming,
+                        dontWait);
+            }
+        }
+    }
+    return someActivityPaused;
+}
+```
+
+这里遍历栈并调用 `startPausingLocaked` 方法，pause 所有已经 resume 的 activity。
+
+#### ActivityStack
+
+```java
+// ActivityStack.java
+
+final boolean startPausingLocked(boolean userLeaving, boolean uiSleeping, boolean resuming,
+        boolean dontWait) {
+    if (mPausingActivity != null) {
+        Slog.wtf(TAG, "Going to pause when pause is already pending for " + mPausingActivity
+                + " state=" + mPausingActivity.state);
+        if (!mService.isSleeping()) {
+            completePauseLocked(false);
+        }
+    }
+    ActivityRecord prev = mResumedActivity;
+    if (prev == null) {
+        if (!resuming) {
+            Slog.wtf(TAG, "Trying to pause when nothing is resumed");
+            mStackSupervisor.resumeTopActivitiesLocked();
+        }
+        return false;
+    }
+
+    if (mActivityContainer.mParentActivity == null) {
+        mStackSupervisor.pauseChildStacks(prev, userLeaving, uiSleeping, resuming, dontWait);
+    }
+
+    if (DEBUG_STATES) Slog.v(TAG_STATES, "Moving to PAUSING: " + prev);
+    else if (DEBUG_PAUSE) Slog.v(TAG_PAUSE, "Start pausing: " + prev);
+    mResumedActivity = null;
+    mPausingActivity = prev;
+    mLastPausedActivity = prev;
+    mLastNoHistoryActivity = (prev.intent.getFlags() & Intent.FLAG_ACTIVITY_NO_HISTORY) != 0
+            || (prev.info.flags & ActivityInfo.FLAG_NO_HISTORY) != 0 ? prev : null;
+    prev.state = ActivityState.PAUSING;
+    prev.task.touchActiveTime();
+    clearLaunchTime(prev);
+    final ActivityRecord next = mStackSupervisor.topRunningActivityLocked();
+    if (mService.mHasRecents && (next == null || next.noDisplay || next.task != prev.task || uiSleeping)) {
+        prev.updateThumbnailLocked(screenshotActivities(prev), null);
+    }
+    stopFullyDrawnTraceIfNeeded();
+
+    mService.updateCpuStats();
+
+    if (prev.app != null && prev.app.thread != null) {
+        if (DEBUG_PAUSE) Slog.v(TAG_PAUSE, "Enqueueing pending pause: " + prev);
+        try {
+            EventLog.writeEvent(EventLogTags.AM_PAUSE_ACTIVITY,
+                    prev.userId, System.identityHashCode(prev),
+                    prev.shortComponentName);
+            mService.updateUsageStats(prev, false);
+            // 回调目标 activity 的 onPause。
+            prev.app.thread.schedulePauseActivity(prev.appToken, prev.finishing,
+                    userLeaving, prev.configChangeFlags, dontWait);
+        } catch (Exception e) {
+            // 忽略异常，如果进程死亡，其他代码会做清理工作。
+            Slog.w(TAG, "Exception thrown during pause", e);
+            mPausingActivity = null;
+            mLastPausedActivity = null;
+            mLastNoHistoryActivity = null;
+        }
+    } else {
+        mPausingActivity = null;
+        mLastPausedActivity = null;
+        mLastNoHistoryActivity = null;
+    }
+
+    // 如果我们不打算休眠，我们希望确保设备处于唤醒状态，
+    // 直到下一个 activity 开始。
+    if (!uiSleeping && !mService.isSleepingOrShuttingDown()) {
+        mStackSupervisor.acquireLaunchWakelock();
+    }
+
+    if (mPausingActivity != null) {
+        if (!uiSleeping) {
+            prev.pauseKeyDispatchingLocked();
+        } else if (DEBUG_PAUSE) {
+             Slog.v(TAG_PAUSE, "Key dispatch not paused for screen off");
+        }
+
+        if (dontWait) {
+            // 如果调用者表示它们不想等待暂停，那么现在就完成暂停。
+            completePauseLocked(false);
+            return false;
+
+        } else {
+            // 如果应用没有响应，请执行暂停超时。 
+            // 我们不会花太多时间，因为这会直接影响用户看到的界面响应效果。
+            Message msg = mHandler.obtainMessage(PAUSE_TIMEOUT_MSG);
+            msg.obj = prev;
+            prev.pauseTime = SystemClock.uptimeMillis();
+            // 发送暂停超时。
+            mHandler.sendMessageDelayed(msg, PAUSE_TIMEOUT);
+            if (DEBUG_PAUSE) Slog.v(TAG_PAUSE, "Waiting for pause to complete...");
+            return true;
+        }
+
+    } else {
+        // 此 activity 未能安排暂停，那么请将它其视为暂停。
+        if (DEBUG_PAUSE) Slog.v(TAG_PAUSE, "Activity not running, resuming next.");
+        if (!resuming) {
+            mStackSupervisor.getFocusedStack().resumeTopActivityLocked(null);
+        }
+        return false;
+    }
+}
+```
+
+回到上面，如果栈顶目标 activity 不需要重新启动，则执行 onResume 回调即可。
+
+```java
+next.app.thread.scheduleResumeActivity(next.appToken, next.app.repProcState,
+                    mService.isNextTransitionForward(), resumeAnimOptions);
+...
+```
+
+否则需要重新启动 activity，即：
+
+```java
+mStackSupervisor.startSpecificActivityLocked(next, true, true);
+...
+```
+
+那么这里继续从这分析完整的 activity 启动过程。
+
+#### ActivityStackSupervisor
+
+```java
+// ActivityStackSupervisor.java
+
+void startSpecificActivityLocked(ActivityRecord r,
+        boolean andResume, boolean checkConfig) {
+    // Is this activity's application already running?
+    ProcessRecord app = mService.getProcessRecordLocked(r.processName,
+            r.info.applicationInfo.uid, true);
+
+    r.task.stack.setLaunchTime(r);
+
+    if (app != null && app.thread != null) {
+        try {
+            if ((r.info.flags&ActivityInfo.FLAG_MULTIPROCESS) == 0
+                    || !"android".equals(r.info.packageName)) {
+                // Don't add this if it is a platform component that is marked
+                // to run in multiple processes, because this is actually
+                // part of the framework so doesn't make sense to track as a
+                // separate apk in the process.
+                app.addPackage(r.info.packageName, r.info.applicationInfo.versionCode,
+                        mService.mProcessStats);
+            }
+            realStartActivityLocked(r, app, andResume, checkConfig);
+            return;
+        } catch (RemoteException e) {
+            Slog.w(TAG, "Exception when starting activity "
+                    + r.intent.getComponent().flattenToShortString(), e);
+        }
+
+        // If a dead object exception was thrown -- fall through to
+        // restart the application.
+    }
+
+    mService.startProcessLocked(r.processName, r.info.applicationInfo, true, 0,
+            "activity", r.intent.getComponent(), false, false, true);
 }
 ```
 
