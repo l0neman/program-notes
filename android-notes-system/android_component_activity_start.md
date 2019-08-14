@@ -1793,46 +1793,44 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
     if (DEBUG_LOCKSCREEN) mService.logLockScreen("");
 
     if (!mService.mBooting && !mService.mBooted) {
-        // Not ready yet!
+        // 还没有准备好。
         return false;
     }
 
     ActivityRecord parent = mActivityContainer.mParentActivity;
     if ((parent != null && parent.state != ActivityState.RESUMED) ||
             !mActivityContainer.isAttachedLocked()) {
-        // Do not resume this stack if its parent is not resumed.
-        // TODO: If in a loop, make sure that parent stack resumeTopActivity is called 1st.
         return false;
     }
 
     cancelInitializingActivities();
 
-    // Find the first activity that is not finishing.
+    // 从栈顶找到第一个没有 finish 的 activity。
     final ActivityRecord next = topRunningActivityLocked(null);
 
-    // Remember how we'll process this pause/resume situation, and ensure
-    // that the state is reset however we wind up proceeding.
+    // 记住我们将如何处理这种 pause/resume 情况，并确保重置状态。
+    // 但我们最终会继续进行。
     final boolean userLeaving = mStackSupervisor.mUserLeaving;
     mStackSupervisor.mUserLeaving = false;
 
     final TaskRecord prevTask = prev != null ? prev.task : null;
     if (next == null) {
-        // There are no more activities!
+        // 没有更多的 actviity 了。
         final String reason = "noMoreActivities";
         if (!mFullscreen) {
-            // Try to move focus to the next visible stack with a running activity if this
-            // stack is not covering the entire screen.
+            // 如果此任务栈没有覆盖整个屏幕，则将焦点移动到具有活动的
+            // activity 的下一个可见任务栈。
             final ActivityStack stack = getNextVisibleStackLocked();
             if (adjustFocusToNextVisibleStackLocked(stack, reason)) {
                 return mStackSupervisor.resumeTopActivitiesLocked(stack, prev, null);
             }
         }
-        // Let's just start up the Launcher...
+        // 让我们启动 Launcher……
         ActivityOptions.abort(options);
         if (DEBUG_STATES) Slog.d(TAG_STATES,
                 "resumeTopActivityLocked: No more activities go home");
         if (DEBUG_STACK) mStackSupervisor.validateTopActivitiesLocked();
-        // Only resume home if on home display
+        // 只有在桌面显示时才能 resume 桌面。
         final int returnTaskType = prevTask == null || !prevTask.isOverHomeStack() ?
                 HOME_ACTIVITY_TYPE : prevTask.getTaskToReturnTo();
         return isOnHomeDisplay() &&
@@ -1841,11 +1839,10 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
 
     next.delayedResume = false;
 
-    // If the top activity is the resumed one, nothing to do.
+    // 如果顶层 activity 是要 resume 的，那么什么都不做。
     if (mResumedActivity == next && next.state == ActivityState.RESUMED &&
                 mStackSupervisor.allResumedActivitiesComplete()) {
-        // Make sure we have executed any pending transitions, since there
-        // should be nothing left to do at this point.
+        // 确保我们已经执行了任何等待的切换。因为此时应该没有什么可做的了。
         mWindowManager.executeAppTransition();
         mNoAnimActivities.clear();
         ActivityOptions.abort(options);
@@ -1862,8 +1859,7 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
         if (prevTask == nextTask) {
             prevTask.setFrontOfTask();
         } else if (prevTask != topTask()) {
-            // This task is going away but it was supposed to return to the home stack.
-            // Now the task above it has to return to the home task instead.
+            // 这个任务正在离开，但他应该返回到 home 栈。现在上面的任务必须返回到 home 任务。
             final int taskNdx = mTaskHistory.indexOf(prevTask) + 1;
             mTaskHistory.get(taskNdx).setTaskToReturnTo(HOME_ACTIVITY_TYPE);
         } else if (!isOnHomeDisplay()) {
@@ -1878,13 +1874,12 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
         }
     }
 
-    // If we are sleeping, and there is no resumed activity, and the top
-    // activity is paused, well that is the state we want.
+    // 如果我们正在休眠，并且没有 resume 的 activity，并且顶层 activity 处于
+    // pause 状态。那么这就是我们想要的状态。
     if (mService.isSleepingOrShuttingDown()
             && mLastPausedActivity == next
             && mStackSupervisor.allPausedActivitiesComplete()) {
-        // Make sure we have executed any pending transitions, since there
-        // should be nothing left to do at this point.
+        // 确保我们已经执行了任何等待的切换。因为此时应该没有什么可做的了。
         mWindowManager.executeAppTransition();
         mNoAnimActivities.clear();
         ActivityOptions.abort(options);
@@ -1894,9 +1889,8 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
         return false;
     }
 
-    // Make sure that the user who owns this activity is started.  If not,
-    // we will just leave it as is because someone should be bringing
-    // another user's activities to the top of the stack.
+    // 确保已启动拥有此 activity 的用户，如果没有，我们将保持现状，
+    // 因为有人应该将另一个用户的 activity 带到任务栈顶。
     if (mService.mStartedUsers.get(next.userId) == null) {
         Slog.w(TAG, "Skipping resume of top activity " + next
                 + ": user " + next.userId + " is stopped");
@@ -1904,8 +1898,7 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
         return false;
     }
 
-    // The activity may be waiting for stop, but that is no longer
-    // appropriate for it.
+    // activity 可能正在等待 stop，但这不再适用于它了。
     mStackSupervisor.mStoppingActivities.remove(next);
     mStackSupervisor.mGoingToSleepActivities.remove(next);
     next.sleeping = false;
@@ -1913,8 +1906,7 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
 
     if (DEBUG_SWITCH) Slog.v(TAG_SWITCH, "Resuming " + next);
 
-    // If we are currently pausing an activity, then don't do anything
-    // until that is done.
+    // 如果我们当前正在 pause activity，那么完成之前不要做任何事。
     if (!mStackSupervisor.allPausedActivitiesComplete()) {
         if (DEBUG_SWITCH || DEBUG_PAUSE || DEBUG_STATES) Slog.v(TAG_PAUSE,
                 "resumeTopActivityLocked: Skip resume: some activity pausing.");
@@ -1922,11 +1914,9 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
         return false;
     }
 
-    // Okay we are now going to start a switch, to 'next'.  We may first
-    // have to pause the current activity, but this is an important point
-    // where we have decided to go to 'next' so keep track of that.
-    // XXX "App Redirected" dialog is getting too many false positives
-    // at this point, so turn off for now.
+    // Ok 我们现在要开始切换到“next”，我们可能首先必须 pause 当前的 activity，
+    // 但是这是一个重要的点，我们决定切换到“next”，以便于跟踪它。
+    // XXX “应用重定向” 弹框此时出现过多的误报，因此暂时关闭。
     if (false) {
         if (mLastStartedActivity != null && !mLastStartedActivity.finishing) {
             long now = SystemClock.uptimeMillis();
@@ -1953,22 +1943,20 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
 
     mStackSupervisor.setLaunchSource(next.info.applicationInfo.uid);
 
-    // We need to start pausing the current activity so the top one
-    // can be resumed...
+    // 我们需要开始暂停当前 activity，以便可以恢复最重要的 activity。
     boolean dontWaitForPause = (next.info.flags&ActivityInfo.FLAG_RESUME_WHILE_PAUSING) != 0;
     boolean pausing = mStackSupervisor.pauseBackStacks(userLeaving, true, dontWaitForPause);
     if (mResumedActivity != null) {
         if (DEBUG_STATES) Slog.d(TAG_STATES,
                 "resumeTopActivityLocked: Pausing " + mResumedActivity);
+        // 1. 这里将会通知 activity 暂停。
         pausing |= startPausingLocked(userLeaving, false, true, dontWaitForPause);
     }
     if (pausing) {
         if (DEBUG_SWITCH || DEBUG_STATES) Slog.v(TAG_STATES,
                 "resumeTopActivityLocked: Skip resume: need to start pausing");
-        // At this point we want to put the upcoming activity's process
-        // at the top of the LRU list, since we know we will be needing it
-        // very soon and it would be a waste to let it get killed if it
-        // happens to be sitting towards the end.
+        // 在这一点上，我们希望即将到来的 activity 放置在 LRU 列表的顶部，因为我们
+        // 知道很快就会需要它，如果它正好在最后，那么让它被杀死将是一种浪费。
         if (next.app != null && next.app.thread != null) {
             mService.updateLruProcessLocked(next.app, true, null);
         }
@@ -1976,9 +1964,8 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
         return true;
     }
 
-    // If the most recent activity was noHistory but was only stopped rather
-    // than stopped+finished because the device went to sleep, we need to make
-    // sure to finish it as we're making a new activity topmost.
+    // 如果最近的 activity 是 noHistory 模式，但是只是因为设备进入睡眠而 stop 而不是
+    // stop + destory ，我们需要确保 finish 它，因为我们正在创建一个新的 activity。
     if (mService.isSleeping() && mLastNoHistoryActivity != null &&
             !mLastNoHistoryActivity.finishing) {
         if (DEBUG_STATES) Slog.d(TAG_STATES,
@@ -1995,14 +1982,11 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
             if (DEBUG_SWITCH) Slog.v(TAG_SWITCH,
                     "Resuming top, waiting visible to hide: " + prev);
         } else {
-            // The next activity is already visible, so hide the previous
-            // activity's windows right now so we can show the new one ASAP.
-            // We only do this if the previous is finishing, which should mean
-            // it is on top of the one being resumed so hiding it quickly
-            // is good.  Otherwise, we want to do the normal route of allowing
-            // the resumed activity to be shown so we can decide if the
-            // previous should actually be hidden depending on whether the
-            // new one is found to be full-screen or not.
+            // 下一个 activity 已经可见，因此请立刻隐藏上一个 activity 的窗口，
+            // 以便我们尽快显示新的 activity。如果前一个正在 finish，我们只会这样做，
+            // 这应该意味着它在被 resume 的那个之上，因此快速隐藏它是不错的。
+            // 否则，我们想要执行允许显示 resume 的 activity 的正常路由，这样我们就可以
+            // 决定是否应该隐藏前一个，具体取决于是否发现新的 activiy 是否全屏。
             if (prev.finishing) {
                 mWindowManager.setAppVisibility(prev.appToken, false);
                 if (DEBUG_SWITCH) Slog.v(TAG_SWITCH,
@@ -2019,8 +2003,7 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
         }
     }
 
-    // Launching this app's activity, make sure the app is no longer
-    // considered stopped.
+    // 启动此应用的 activity，确保该应用不再被视为已 stop 的。
     try {
         AppGlobals.getPackageManager().setPackageStoppedState(
                 next.packageName, false, next.userId); /* TODO: Verify if correct userid */
@@ -2030,9 +2013,8 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
                 + next.packageName + ": " + e);
     }
 
-    // We are starting up the next activity, so tell the window manager
-    // that the previous one will be hidden soon.  This way it can know
-    // to ignore it when computing the desired screen orientation.
+    // 我们正在启动下一个 activity，因此告诉 Window Manager，前一个 activity 很快就会被隐藏。
+    // 这样，在计算所需的屏幕方向时，它可以知道忽略它。
     boolean anim = true;
     if (prev != null) {
         if (prev.finishing) {
@@ -2091,10 +2073,10 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
     if (next.app != null && next.app.thread != null) {
         if (DEBUG_SWITCH) Slog.v(TAG_SWITCH, "Resume running: " + next);
 
-        // This activity is now becoming visible.
+        // 此 activity 现在变得可见。
         mWindowManager.setAppVisibility(next.appToken, true);
 
-        // schedule launch ticks to collect information about slow apps.
+        // 安排启动计时器以收集有关应用启动延时的信息。
         next.startLaunchTickingLocked();
 
         ActivityRecord lastResumedActivity =
@@ -2112,8 +2094,7 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
         updateLRUListLocked(next);
         mService.updateOomAdjLocked();
 
-        // Have the window manager re-evaluate the orientation of
-        // the screen based on the new activity order.
+        // 让 Window Manager根据新的 activity 顺序重新计算屏幕的方向。
         boolean notUpdated = true;
         if (mStackSupervisor.isFrontStack(this)) {
             Configuration config = mWindowManager.updateOrientationFromAppTokens(
@@ -2126,17 +2107,15 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
         }
 
         if (notUpdated) {
-            // The configuration update wasn't able to keep the existing
-            // instance of the activity, and instead started a new one.
-            // We should be all done, but let's just make sure our activity
-            // is still at the top and schedule another run if something
-            // weird happened.
+            // 配置更新无法保留 activity 的现有实例，而是启动了一个新实例。
+            // 我们应该完成所有工作，但是我们只是确保我们的 activity 仍处于最顶层
+            // 如果出现了一些奇怪的事情，那么安排另一次运行，
             ActivityRecord nextNext = topRunningActivityLocked(null);
             if (DEBUG_SWITCH || DEBUG_STATES) Slog.i(TAG_STATES,
                     "Activity config changed during resume: " + next
                     + ", new next: " + nextNext);
             if (nextNext != next) {
-                // Do over!
+                // 做完！
                 mStackSupervisor.scheduleResumeTopActivities();
             }
             if (mStackSupervisor.reportResumedActivityLocked(next)) {
@@ -2149,7 +2128,7 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
         }
 
         try {
-            // Deliver all pending results.
+            // 发送所有等待处理的结果。
             ArrayList<ResultInfo> a = next.results;
             if (a != null) {
                 final int N = a.size();
@@ -2172,6 +2151,7 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
             next.app.pendingUiClean = true;
             next.app.forceProcessStateUpTo(mService.mTopProcessState);
             next.clearOptionsLocked();
+            // 执行 activity 的 resume。
             next.app.thread.scheduleResumeActivity(next.appToken, next.app.repProcState,
                     mService.isNextTransitionForward(), resumeAnimOptions);
 
@@ -2179,7 +2159,7 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
 
             if (DEBUG_STATES) Slog.d(TAG_STATES, "resumeTopActivityLocked: Resumed " + next);
         } catch (Exception e) {
-            // Whoops, need to restart this activity!
+            // 哎呀，需要重启这个 activity！
             if (DEBUG_STATES) Slog.v(TAG_STATES, "Resume failed; resetting state to "
                     + lastState + ": " + next);
             next.state = lastState;
@@ -2202,14 +2182,12 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
             return true;
         }
 
-        // From this point on, if something goes wrong there is no way
-        // to recover the activity.
+        // 从这里开始，如果出现问题，就无法 resume activity 了。
         try {
             next.visible = true;
             completeResumeLocked(next);
         } catch (Exception e) {
-            // If any exception gets thrown, toss away this
-            // activity and try the next one.
+            // 如果抛出任何异常，请丢弃此 activity 并尝试下一个。
             Slog.w(TAG, "Exception thrown during resume of " + next, e);
             requestFinishActivityLocked(next.appToken, Activity.RESULT_CANCELED, null,
                     "resume-exception", true);
@@ -2219,7 +2197,7 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
         next.stopped = false;
 
     } else {
-        // Whoops, need to restart this activity!
+        // 哎呀，需要重启这个 activity！
         if (!next.hasBeenLaunched) {
             next.hasBeenLaunched = true;
         } else {
