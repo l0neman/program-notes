@@ -1674,12 +1674,12 @@ final void startActivityLocked(ActivityRecord r, boolean newTask,
         }
         if (r.mLaunchTaskBehind) {
             // 不要为 mLaunchTaskBehind 启动窗口。更重要的是要确保我们告诉
-            // Window Manager 及时它位于任务栈的后面，r 也是可见的。
+            // WindowManager 及时它位于任务栈的后面，r 也是可见的。
             mWindowManager.setAppVisibility(r.appToken, true);
             ensureActivitiesVisibleLocked(null, 0);
         } else if (SHOW_APP_STARTING_PREVIEW && doShow) {
             // 了解清楚我们是否正在从另一个与下一个 activity "具有相同的启动图标"的 activity
-            // 进行转换。这允许 Window Manager 保留它先前创建的窗口（如果仍有）。
+            // 进行转换。这允许 WindowManager 保留它先前创建的窗口（如果仍有）。
             ActivityRecord prev = mResumedActivity;
             if (prev != null) {
                 // 如果出现以下情况，我们不想重复使用之前的 starting preview。
@@ -1721,7 +1721,7 @@ final void startActivityLocked(ActivityRecord r, boolean newTask,
 }
 ```
 
-可以看到有很多和 Window Manager 交互的逻辑，主要是根据前面设置的 activity 任务栈，调整用户界面上相关的任务的展示。下面调用了 `ActivityStackSupervisor` 的 `resumeTopActivitiesLocked` 方法，开始 resume 顶层的前面刚启动的 activity。
+可以看到有很多和 `WindowManager` 交互的逻辑，主要是根据前面设置的 activity 任务栈，调整用户界面上相关的任务的展示。下面调用了 `ActivityStackSupervisor` 的 `resumeTopActivitiesLocked` 方法，开始 resume 顶层的前面刚启动的 activity。
 
 #### ActivityStackSupervisor
 
@@ -2014,7 +2014,7 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
                 + next.packageName + ": " + e);
     }
 
-    // 我们正在启动下一个 activity，因此告诉 Window Manager，前一个 activity 很快就会被隐藏。
+    // 我们正在启动下一个 activity，因此告诉 WindowManager，前一个 activity 很快就会被隐藏。
     // 这样，在计算所需的屏幕方向时，它可以知道忽略它。
     boolean anim = true;
     if (prev != null) {
@@ -2095,7 +2095,7 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, Bundle options
         updateLRUListLocked(next);
         mService.updateOomAdjLocked();
 
-        // 让 Window Manager根据新的 activity 顺序重新计算屏幕的方向。
+        // 让 WindowManager根据新的 activity 顺序重新计算屏幕的方向。
         boolean notUpdated = true;
         if (mStackSupervisor.isFrontStack(this)) {
             Configuration config = mWindowManager.updateOrientationFromAppTokens(
@@ -2390,7 +2390,7 @@ mStackSupervisor.startSpecificActivityLocked(next, true, true);
 
 void startSpecificActivityLocked(ActivityRecord r,
         boolean andResume, boolean checkConfig) {
-    // Is this activity's application already running?
+    // 这个 activity 所在应用进程是否运行?
     ProcessRecord app = mService.getProcessRecordLocked(r.processName,
             r.info.applicationInfo.uid, true);
 
@@ -2400,13 +2400,12 @@ void startSpecificActivityLocked(ActivityRecord r,
         try {
             if ((r.info.flags&ActivityInfo.FLAG_MULTIPROCESS) == 0
                     || !"android".equals(r.info.packageName)) {
-                // Don't add this if it is a platform component that is marked
-                // to run in multiple processes, because this is actually
-                // part of the framework so doesn't make sense to track as a
-                // separate apk in the process.
+                // 如果它是被标记为在多进程中运行的 android 平台组件，请不要添加它。
+                // 因为这实际上是框架的一部分，因此在进程中跟踪单独的 apk 没有意义。
                 app.addPackage(r.info.packageName, r.info.applicationInfo.versionCode,
                         mService.mProcessStats);
             }
+            // 这里去启动 activity。
             realStartActivityLocked(r, app, andResume, checkConfig);
             return;
         } catch (RemoteException e) {
@@ -2414,12 +2413,431 @@ void startSpecificActivityLocked(ActivityRecord r,
                     + r.intent.getComponent().flattenToShortString(), e);
         }
 
-        // If a dead object exception was thrown -- fall through to
-        // restart the application.
+        // 如果抛出了 DeadObjectException -- 请重新启动应用。
     }
 
+    // 确保应用进程启动。
     mService.startProcessLocked(r.processName, r.info.applicationInfo, true, 0,
             "activity", r.intent.getComponent(), false, false, true);
+}
+```
+
+上面首先获取要启动的 activity 的应用进程记录，如果存在则启动 activity，否则确保应用进程启动。
+
+如果应用进程未启动，则 `startProcessLocaked` 会启动进程，最终辗转调用到 AMS 的 `attachApplication ` 方法绑定应用，这时会判断如果有 activtiy 正在等待启动，会调用 `ActivityStackSUpervisor` 的 `attachApplicationLocked` 方法，它内部会调用 `realStartActivityLocked` 完成和上面进程已存在分支相同的启动。
+
+```java
+// ActivityStackSupervisor.java
+
+final boolean realStartActivityLocked(ActivityRecord r,
+        ProcessRecord app, boolean andResume, boolean checkConfig)
+        throws RemoteException {
+
+    if (andResume) {
+        r.startFreezingScreenLocked(app, 0);
+        mWindowManager.setAppVisibility(r.appToken, true);
+
+        // 安排计时器以手机应用启动延迟的信息。
+        r.startLaunchTickingLocked();
+    }
+
+    // 让 WindonManager 根据新的 activity 顺序重新计算屏幕的方向。
+    // 请注意，因此，它可以将新的方向信息回调到 ActivityManager。
+    // 我们不关心这一点，因为 activity 当前没有运行所以我们无论如何都只是重新启动它。
+    if (checkConfig) {
+        Configuration config = mWindowManager.updateOrientationFromAppTokens(
+                mService.mConfiguration,
+                r.mayFreezeScreenLocked(app) ? r.appToken : null);
+        mService.updateConfigurationLocked(config, r, false, false);
+    }
+
+    r.app = app;
+    app.waitingToKill = null;
+    r.launchCount++;
+    r.lastLaunchTime = SystemClock.uptimeMillis();
+
+    if (DEBUG_ALL) Slog.v(TAG, "Launching: " + r);
+
+    int idx = app.activities.indexOf(r);
+    if (idx < 0) {
+        app.activities.add(r);
+    }
+    // 更新 LRU 进程记录和进程优先级。
+    mService.updateLruProcessLocked(app, true, null);
+    mService.updateOomAdjLocked();
+
+    final TaskRecord task = r.task;
+    if (task.mLockTaskAuth == LOCK_TASK_AUTH_LAUNCHABLE ||
+            task.mLockTaskAuth == LOCK_TASK_AUTH_LAUNCHABLE_PRIV) {
+        setLockTaskModeLocked(task, LOCK_TASK_MODE_LOCKED, "mLockTaskAuth==LAUNCHABLE", false);
+    }
+
+    final ActivityStack stack = task.stack;
+    try {
+        if (app.thread == null) {
+            throw new RemoteException();
+        }
+        List<ResultInfo> results = null;
+        List<ReferrerIntent> newIntents = null;
+        if (andResume) {
+            results = r.results;
+            newIntents = r.newIntents;
+        }
+        if (DEBUG_SWITCH) Slog.v(TAG_SWITCH,
+                "Launching: " + r + " icicle=" + r.icicle + " with results=" + results
+                + " newIntents=" + newIntents + " andResume=" + andResume);
+        if (andResume) {
+            EventLog.writeEvent(EventLogTags.AM_RESTART_ACTIVITY,
+                    r.userId, System.identityHashCode(r),
+                    task.taskId, r.shortComponentName);
+        }
+        if (r.isHomeActivity() && r.isNotResolverActivity()) {
+            // Home 进程是任务的根进程。
+            mService.mHomeProcess = task.mActivities.get(0).app;
+        }
+        mService.ensurePackageDexOpt(r.intent.getComponent().getPackageName());
+        r.sleeping = false;
+        r.forceNewConfig = false;
+        mService.showAskCompatModeDialogLocked(r);
+        r.compat = mService.compatibilityInfoForPackageLocked(r.info.applicationInfo);
+        ProfilerInfo profilerInfo = null;
+        if (mService.mProfileApp != null && mService.mProfileApp.equals(app.processName)) {
+            if (mService.mProfileProc == null || mService.mProfileProc == app) {
+                mService.mProfileProc = app;
+                final String profileFile = mService.mProfileFile;
+                if (profileFile != null) {
+                    ParcelFileDescriptor profileFd = mService.mProfileFd;
+                    if (profileFd != null) {
+                        try {
+                            profileFd = profileFd.dup();
+                        } catch (IOException e) {
+                            if (profileFd != null) {
+                                try {
+                                    profileFd.close();
+                                } catch (IOException o) {
+                                }
+                                profileFd = null;
+                            }
+                        }
+                    }
+
+                    profilerInfo = new ProfilerInfo(profileFile, profileFd,
+                            mService.mSamplingInterval, mService.mAutoStopProfiler);
+                }
+            }
+        }
+
+        if (andResume) {
+            app.hasShownUi = true;
+            app.pendingUiClean = true;
+        }
+        app.forceProcessStateUpTo(mService.mTopProcessState);
+        // 这里通知客户端 ApplicationThread 执行启动 activity。
+        app.thread.scheduleLaunchActivity(new Intent(r.intent), r.appToken,
+                System.identityHashCode(r), r.info, new Configuration(mService.mConfiguration),
+                new Configuration(stack.mOverrideConfig), r.compat, r.launchedFromPackage,
+                task.voiceInteractor, app.repProcState, r.icicle, r.persistentState, results,
+                newIntents, !andResume, mService.isNextTransitionForward(), profilerInfo);
+
+        if ((app.info.privateFlags&ApplicationInfo.PRIVATE_FLAG_CANT_SAVE_STATE) != 0) {
+            // 重量级过程。
+        }
+
+    } catch (RemoteException e) {
+        if (r.launchFailed) {
+            // 这是我们第二次失败 - finish activity 然后放弃。
+            Slog.e(TAG, "Second failure launching "
+                  + r.intent.getComponent().flattenToShortString()
+                  + ", giving up", e);
+            mService.appDiedLocked(app);
+            stack.requestFinishActivityLocked(r.appToken, Activity.RESULT_CANCELED, null,
+                    "2nd-crash", false);
+            return false;
+        }
+
+        // 这是我们第一次失败 - 重启进程重试
+        app.activities.remove(r);
+        throw e;
+    }
+
+    r.launchFailed = false;
+    if (stack.updateLRUListLocked(r)) {
+        Slog.w(TAG, "Activity " + r
+              + " being launched, but already in LRU list");
+    }
+
+    if (andResume) {
+        // 作为启动过程的一部分，ActivityThread 也会执行 resume。
+        stack.minimalResumeActivityLocked(r);
+    } else {
+        // 这个 activity 没有在 resume 的状态下开始……
+        // 这看起来应该像我们要求它 pause + stop（但保持可见），
+        // 并且它已经这样做并报告回当前的冰柱（onRestoreInstanceState 的参数）和其他状态。
+        if (DEBUG_STATES) Slog.v(TAG_STATES,
+                "Moving to STOPPED: " + r + " (starting in stopped state)");
+        r.state = STOPPED;
+        r.stopped = true;
+    }
+
+    // 如果需要，启动新版本设置屏幕。 我们在启动初始 activity（即 home）
+    // 之后执行此操作，以便它可以在后台进行初始化，从而使切换回来更快，看起来更好。
+    if (isFrontStack(stack)) {
+        mService.startSetupActivityLocked();
+    }
+
+    // 更新我们绑定的任何服务，这些服务可能关心他们的客户端是否有 activity。
+    mService.mServices.updateServiceConnectionActivitiesLocked(r.app);
+
+    return true;
+}
+```
+
+此句将通过 IPC 通知客户端进程进行 activity 的启动工作，`app.thread` 为应用的客户端进程的表示类型 `ApplicationThread`，它是 `ActivityThread` 的内部类。
+
+```java
+app.thread.scheduleLaunchActivity
+```
+
+进程间通信将通过 `ApplicationThreadProxy` 转发至客户端 `ApplicationThreadNative`，然后至 `ApplicationThread` 方法
+
+#### ApplicationThreadProxy
+
+```java
+// ApplicationThreadNative.java - class ApplicationThreadProxy
+
+public final void scheduleLaunchActivity(Intent intent, IBinder token, int ident,
+        ActivityInfo info, Configuration curConfig, Configuration overrideConfig,
+        CompatibilityInfo compatInfo, String referrer, IVoiceInteractor voiceInteractor,
+        int procState, Bundle state, PersistableBundle persistentState,
+        List<ResultInfo> pendingResults, List<ReferrerIntent> pendingNewIntents,
+        boolean notResumed, boolean isForward, ProfilerInfo profilerInfo) throws RemoteException {
+    Parcel data = Parcel.obtain();
+    data.writeInterfaceToken(IApplicationThread.descriptor);
+    intent.writeToParcel(data, 0);
+    data.writeStrongBinder(token);
+    data.writeInt(ident);
+    info.writeToParcel(data, 0);
+    curConfig.writeToParcel(data, 0);
+    if (overrideConfig != null) {
+        data.writeInt(1);
+        overrideConfig.writeToParcel(data, 0);
+    } else {
+        data.writeInt(0);
+    }
+    compatInfo.writeToParcel(data, 0);
+    data.writeString(referrer);
+    data.writeStrongBinder(voiceInteractor != null ? voiceInteractor.asBinder() : null);
+    data.writeInt(procState);
+    data.writeBundle(state);
+    data.writePersistableBundle(persistentState);
+    data.writeTypedList(pendingResults);
+    data.writeTypedList(pendingNewIntents);
+    data.writeInt(notResumed ? 1 : 0);
+    data.writeInt(isForward ? 1 : 0);
+    if (profilerInfo != null) {
+        data.writeInt(1);
+        profilerInfo.writeToParcel(data, Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
+    } else {
+        data.writeInt(0);
+    }
+    // 发送至应用进程。
+    mRemote.transact(SCHEDULE_LAUNCH_ACTIVITY_TRANSACTION, data, null,
+            IBinder.FLAG_ONEWAY);
+    data.recycle();
+}
+```
+
+#### ApplicationThreadNative
+
+```java
+@Override
+public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
+        throws RemoteException {
+    switch (code) {
+    case SCHEDULE_LAUNCH_ACTIVITY_TRANSACTION:
+    {
+        data.enforceInterface(IApplicationThread.descriptor);
+        Intent intent = Intent.CREATOR.createFromParcel(data);
+        IBinder b = data.readStrongBinder();
+        int ident = data.readInt();
+        ActivityInfo info = ActivityInfo.CREATOR.createFromParcel(data);
+        Configuration curConfig = Configuration.CREATOR.createFromParcel(data);
+        Configuration overrideConfig = null;
+        if (data.readInt() != 0) {
+            overrideConfig = Configuration.CREATOR.createFromParcel(data);
+        }
+        CompatibilityInfo compatInfo = CompatibilityInfo.CREATOR.createFromParcel(data);
+        String referrer = data.readString();
+        IVoiceInteractor voiceInteractor = IVoiceInteractor.Stub.asInterface(
+                data.readStrongBinder());
+        int procState = data.readInt();
+        Bundle state = data.readBundle();
+        PersistableBundle persistentState = data.readPersistableBundle();
+        List<ResultInfo> ri = data.createTypedArrayList(ResultInfo.CREATOR);
+        List<ReferrerIntent> pi = data.createTypedArrayList(ReferrerIntent.CREATOR);
+        boolean notResumed = data.readInt() != 0;
+        boolean isForward = data.readInt() != 0;
+        ProfilerInfo profilerInfo = data.readInt() != 0
+                ? ProfilerInfo.CREATOR.createFromParcel(data) : null;
+        scheduleLaunchActivity(intent, b, ident, info, curConfig, overrideConfig, compatInfo,
+                referrer, voiceInteractor, procState, state, persistentState, ri, pi,
+                notResumed, isForward, profilerInfo);
+        return true;
+    }
+    ...
+}
+```
+
+### Client
+
+#### ApplicationThread
+
+```java
+// ActivityThread.java - class ApplicationThrad
+
+// 我们使用 token 来识别此 activity，而无需将 activity 本身发送回 ActivityManager。
+@Override
+public final void scheduleLaunchActivity(Intent intent, IBinder token, int ident,
+        ActivityInfo info, Configuration curConfig, Configuration overrideConfig,
+        CompatibilityInfo compatInfo, String referrer, IVoiceInteractor voiceInteractor,
+        int procState, Bundle state, PersistableBundle persistentState,
+        List<ResultInfo> pendingResults, List<ReferrerIntent> pendingNewIntents,
+        boolean notResumed, boolean isForward, ProfilerInfo profilerInfo) {
+
+    updateProcessState(procState, false);
+
+    ActivityClientRecord r = new ActivityClientRecord();
+
+    r.token = token;
+    r.ident = ident;
+    r.intent = intent;
+    r.referrer = referrer;
+    r.voiceInteractor = voiceInteractor;
+    r.activityInfo = info;
+    r.compatInfo = compatInfo;
+    r.state = state;
+    r.persistentState = persistentState;
+
+    r.pendingResults = pendingResults;
+    r.pendingIntents = pendingNewIntents;
+
+    r.startsNotResumed = notResumed;
+    r.isForward = isForward;
+
+    r.profilerInfo = profilerInfo;
+
+    r.overrideConfig = overrideConfig;
+    updatePendingConfiguration(curConfig);
+
+    sendMessage(H.LAUNCH_ACTIVITY, r);
+}
+```
+
+这里将信息打包发送给`ActivityThread` 内部 `H` 类（`Handler` 子类）的 `mH` 对象。
+
+#### H
+
+```java
+// ActivityThread.java - class H
+
+public void handleMessage(Message msg) {
+    if (DEBUG_MESSAGES) Slog.v(TAG, ">>> handling: " + codeToString(msg.what));
+    switch (msg.what) {
+        case LAUNCH_ACTIVITY: {
+            Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "activityStart");
+            final ActivityClientRecord r = (ActivityClientRecord) msg.obj;
+
+            r.packageInfo = getPackageInfoNoCheck(
+                    r.activityInfo.applicationInfo, r.compatInfo);
+            handleLaunchActivity(r, null);
+            Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+        } break;
+        ...
+    }
+    ...
+}         
+```
+
+```java
+// ActivityThread.java
+
+private void handleLaunchActivity(ActivityClientRecord r, Intent customIntent) {
+    // 如果我们在转到后台后准备好 gc，我们又回来了，那么跳过它。
+    unscheduleGcIdler();
+    mSomeActivitiesChanged = true;
+
+    if (r.profilerInfo != null) {
+        mProfiler.setProfiler(r.profilerInfo);
+        mProfiler.startProfiling();
+    }
+
+    // 确保我们使用最新的配置运行。
+    handleConfigurationChanged(null, null);
+
+    if (localLOGV) Slog.v(
+        TAG, "Handling launch of " + r);
+
+    // 在创建 activity 之前初始化。
+    WindowManagerGlobal.initialize();
+
+    // 回调目标 activity 的 onCreate。
+    Activity a = performLaunchActivity(r, customIntent);
+
+    if (a != null) {
+        r.createdConfig = new Configuration(mConfiguration);
+        Bundle oldState = r.state;
+        // 回调目标 activity 的 onStart，onResume。
+        handleResumeActivity(r.token, false, r.isForward,
+                !r.activity.mFinished && !r.startsNotResumed);
+
+        if (!r.activity.mFinished && r.startsNotResumed) {
+            // 实际上，ActivityManager 希望此 activity 在开始时 pause，
+            // 因为它需要可见，但不在前台。我们通过正常的启动（因为 activity 
+            // 希望在第一次运行时在窗口显示之前执行 onResume），然后 pause 
+            // 它来完成这一任务。但是，在这种情况下，我们不需要执行完整的 pause 
+            // 周期 【冷冻（onSaveInstance）等】，因为 实际上，ActivityManager 
+            // 假定它可以保留它所具有的当前状态。
+            try {
+                r.activity.mCalled = false;
+                // 调用目标 activity 的 onPause。
+                mInstrumentation.callActivityOnPause(r.activity);
+                // 我们需要保持原始状态，防止我们再次创建。 
+                // 但我们只针对 pre-Honeycomb 应用执行此操作，
+                // 这些应用程序在 pause 时始终保存其状态，
+                // 因此在从 pause 状态重新启动时我们无法保存它们的状态。 
+                // 对于 HC 及以后的版本，我们希望（并且可以）将状态保存为
+                // stop 的活动的正常部分。
+                if (r.isPreHoneycomb()) {
+                    r.state = oldState;
+                }
+                if (!r.activity.mCalled) {
+                    throw new SuperNotCalledException(
+                        "Activity " + r.intent.getComponent().toShortString() +
+                        " did not call through to super.onPause()");
+                }
+
+            } catch (SuperNotCalledException e) {
+                throw e;
+
+            } catch (Exception e) {
+                if (!mInstrumentation.onException(r.activity, e)) {
+                    throw new RuntimeException(
+                            "Unable to pause activity "
+                            + r.intent.getComponent().toShortString()
+                            + ": " + e.toString(), e);
+                }
+            }
+            r.paused = true;
+        }
+    } else {
+        // 如果出现任何原因的错误，请告诉 ActivityManager 停止我们。
+        try {
+            ActivityManagerNative.getDefault()
+                .finishActivity(r.token, Activity.RESULT_CANCELED, null, false);
+        } catch (RemoteException ex) {
+            // Ignore
+        }
+    }
 }
 ```
 
