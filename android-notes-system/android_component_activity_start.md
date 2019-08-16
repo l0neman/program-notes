@@ -461,7 +461,7 @@ final int startActivityMayWait(IApplicationThread caller, int callingUid,
 
         if (stack.mConfigWillChange) {
             // 如果 caller 还想要切换到新的配置，请立即执行此操作。这允许一个干净的切换
-            // 因为此时我们正在等待当前 activity 暂停（因为不会销毁它），并并且还没有
+            // 因为此时我们正在等待当前 activity 暂停（因为不会销毁它），并且还没有
             // 开始启动下一个 activity。
             mService.enforceCallingPermission(android.Manifest.permission.CHANGE_CONFIGURATION,
                     "updateConfiguration()");
@@ -2758,6 +2758,8 @@ public void handleMessage(Message msg) {
 }         
 ```
 
+#### ActivityThread
+
 ```java
 // ActivityThread.java
 
@@ -2846,127 +2848,141 @@ private void handleLaunchActivity(ActivityClientRecord r, Intent customIntent) {
 ```java
 // ActivityThread.java
 
-final void handleResumeActivity(IBinder token,
-        boolean clearHide, boolean isForward, boolean reallyResume) {
-    // If we are getting ready to gc after going to the background, well
-    // we are back active so skip it.
-    unscheduleGcIdler();
-    mSomeActivitiesChanged = true;
+private Activity performLaunchActivity(ActivityClientRecord r, Intent customIntent) {
+    // System.out.println("##### [" + System.currentTimeMillis() + "] ActivityThread.performLaunchActivity(" + r + ")");
 
-    // TODO Push resumeArgs into the activity for consideration
-    ActivityClientRecord r = performResumeActivity(token, clearHide);
+    ActivityInfo aInfo = r.activityInfo;
+    if (r.packageInfo == null) {
+        r.packageInfo = getPackageInfo(aInfo.applicationInfo, r.compatInfo,
+                Context.CONTEXT_INCLUDE_CODE);
+    }
 
-    if (r != null) {
-        final Activity a = r.activity;
+    ComponentName component = r.intent.getComponent();
+    if (component == null) {
+        component = r.intent.resolveActivity(
+            mInitialApplication.getPackageManager());
+        r.intent.setComponent(component);
+    }
 
-        if (localLOGV) Slog.v(
-            TAG, "Resume " + r + " started activity: " +
-            a.mStartedActivity + ", hideForNow: " + r.hideForNow
-            + ", finished: " + a.mFinished);
+    if (r.activityInfo.targetActivity != null) {
+        component = new ComponentName(r.activityInfo.packageName,
+                r.activityInfo.targetActivity);
+    }
 
-        final int forwardBit = isForward ?
-                WindowManager.LayoutParams.SOFT_INPUT_IS_FORWARD_NAVIGATION : 0;
-
-        // If the window hasn't yet been added to the window manager,
-        // and this guy didn't finish itself or start another activity,
-        // then go ahead and add the window.
-        boolean willBeVisible = !a.mStartedActivity;
-        if (!willBeVisible) {
-            try {
-                willBeVisible = ActivityManagerNative.getDefault().willActivityBeVisible(
-                        a.getActivityToken());
-            } catch (RemoteException e) {
-            }
+    Activity activity = null;
+    try {
+        java.lang.ClassLoader cl = r.packageInfo.getClassLoader();
+        // 创建 activity 实例。
+        activity = mInstrumentation.newActivity(
+                cl, component.getClassName(), r.intent);
+        StrictMode.incrementExpectedActivityCount(activity.getClass());
+        r.intent.setExtrasClassLoader(cl);
+        r.intent.prepareToEnterProcess();
+        if (r.state != null) {
+            r.state.setClassLoader(cl);
         }
-        if (r.window == null && !a.mFinished && willBeVisible) {
-            r.window = r.activity.getWindow();
-            View decor = r.window.getDecorView();
-            decor.setVisibility(View.INVISIBLE);
-            ViewManager wm = a.getWindowManager();
-            WindowManager.LayoutParams l = r.window.getAttributes();
-            a.mDecor = decor;
-            l.type = WindowManager.LayoutParams.TYPE_BASE_APPLICATION;
-            l.softInputMode |= forwardBit;
-            if (a.mVisibleFromClient) {
-                a.mWindowAdded = true;
-                wm.addView(decor, l);
-            }
-
-        // If the window has already been added, but during resume
-        // we started another activity, then don't yet make the
-        // window visible.
-        } else if (!willBeVisible) {
-            if (localLOGV) Slog.v(
-                TAG, "Launch " + r + " mStartedActivity set");
-            r.hideForNow = true;
-        }
-
-        // Get rid of anything left hanging around.
-        cleanUpPendingRemoveWindows(r);
-
-        // The window is now visible if it has been added, we are not
-        // simply finishing, and we are not starting another activity.
-        if (!r.activity.mFinished && willBeVisible
-                && r.activity.mDecor != null && !r.hideForNow) {
-            if (r.newConfig != null) {
-                r.tmpConfig.setTo(r.newConfig);
-                if (r.overrideConfig != null) {
-                    r.tmpConfig.updateFrom(r.overrideConfig);
-                }
-                if (DEBUG_CONFIGURATION) Slog.v(TAG, "Resuming activity "
-                        + r.activityInfo.name + " with newConfig " + r.tmpConfig);
-                performConfigurationChanged(r.activity, r.tmpConfig);
-                freeTextLayoutCachesIfNeeded(r.activity.mCurrentConfig.diff(r.tmpConfig));
-                r.newConfig = null;
-            }
-            if (localLOGV) Slog.v(TAG, "Resuming " + r + " with isForward="
-                    + isForward);
-            WindowManager.LayoutParams l = r.window.getAttributes();
-            if ((l.softInputMode
-                    & WindowManager.LayoutParams.SOFT_INPUT_IS_FORWARD_NAVIGATION)
-                    != forwardBit) {
-                l.softInputMode = (l.softInputMode
-                        & (~WindowManager.LayoutParams.SOFT_INPUT_IS_FORWARD_NAVIGATION))
-                        | forwardBit;
-                if (r.activity.mVisibleFromClient) {
-                    ViewManager wm = a.getWindowManager();
-                    View decor = r.window.getDecorView();
-                    wm.updateViewLayout(decor, l);
-                }
-            }
-            r.activity.mVisibleFromServer = true;
-            mNumVisibleActivities++;
-            if (r.activity.mVisibleFromClient) {
-                r.activity.makeVisible();
-            }
-        }
-
-        if (!r.onlyLocalRequest) {
-            r.nextIdle = mNewActivities;
-            mNewActivities = r;
-            if (localLOGV) Slog.v(
-                TAG, "Scheduling idle handler for " + r);
-            Looper.myQueue().addIdleHandler(new Idler());
-        }
-        r.onlyLocalRequest = false;
-
-        // Tell the activity manager we have resumed.
-        if (reallyResume) {
-            try {
-                ActivityManagerNative.getDefault().activityResumed(token);
-            } catch (RemoteException ex) {
-            }
-        }
-
-    } else {
-        // If an exception was thrown when trying to resume, then
-        // just end this activity.
-        try {
-            ActivityManagerNative.getDefault()
-                .finishActivity(token, Activity.RESULT_CANCELED, null, false);
-        } catch (RemoteException ex) {
+    } catch (Exception e) {
+        if (!mInstrumentation.onException(activity, e)) {
+            throw new RuntimeException(
+                "Unable to instantiate activity " + component
+                + ": " + e.toString(), e);
         }
     }
+
+    try {
+        // 确定 application 被创建。
+        Application app = r.packageInfo.makeApplication(false, mInstrumentation);
+
+        if (localLOGV) Slog.v(TAG, "Performing launch of " + r);
+        if (localLOGV) Slog.v(
+                TAG, r + ": app=" + app
+                + ", appName=" + app.getPackageName()
+                + ", pkg=" + r.packageInfo.getPackageName()
+                + ", comp=" + r.intent.getComponent().toShortString()
+                + ", dir=" + r.packageInfo.getAppDir());
+
+        if (activity != null) {
+            // 创建 activity Context。
+            Context appContext = createBaseContextForActivity(r, activity);
+            CharSequence title = r.activityInfo.loadLabel(appContext.getPackageManager());
+            Configuration config = new Configuration(mCompatConfiguration);
+            if (DEBUG_CONFIGURATION) Slog.v(TAG, "Launching activity "
+                    + r.activityInfo.name + " with config " + config);
+            activity.attach(appContext, this, getInstrumentation(), r.token,
+                    r.ident, app, r.intent, r.activityInfo, title, r.parent,
+                    r.embeddedID, r.lastNonConfigurationInstances, config,
+                    r.referrer, r.voiceInteractor);
+
+            if (customIntent != null) {
+                activity.mIntent = customIntent;
+            }
+            r.lastNonConfigurationInstances = null;
+            activity.mStartedActivity = false;
+            int theme = r.activityInfo.getThemeResource();
+            if (theme != 0) {
+                activity.setTheme(theme);
+            }
+
+            activity.mCalled = false;
+            if (r.isPersistable()) {
+                mInstrumentation.callActivityOnCreate(activity, r.state, r.persistentState);
+            } else {
+                // 回调 activity 的 onCreate 方法。
+                mInstrumentation.callActivityOnCreate(activity, r.state);
+            }
+            if (!activity.mCalled) {
+                throw new SuperNotCalledException(
+                    "Activity " + r.intent.getComponent().toShortString() +
+                    " did not call through to super.onCreate()");
+            }
+            r.activity = activity;
+            r.stopped = true;
+            if (!r.activity.mFinished) {
+                activity.performStart();
+                r.stopped = false;
+            }
+            if (!r.activity.mFinished) {
+                if (r.isPersistable()) {
+                    if (r.state != null || r.persistentState != null) {
+                        mInstrumentation.callActivityOnRestoreInstanceState(activity, r.state,
+                                r.persistentState);
+                    }
+                } else if (r.state != null) {
+                    mInstrumentation.callActivityOnRestoreInstanceState(activity, r.state);
+                }
+            }
+            if (!r.activity.mFinished) {
+                activity.mCalled = false;
+                if (r.isPersistable()) {
+                    mInstrumentation.callActivityOnPostCreate(activity, r.state,
+                            r.persistentState);
+                } else {
+                    mInstrumentation.callActivityOnPostCreate(activity, r.state);
+                }
+                if (!activity.mCalled) {
+                    throw new SuperNotCalledException(
+                        "Activity " + r.intent.getComponent().toShortString() +
+                        " did not call through to super.onPostCreate()");
+                }
+            }
+        }
+        r.paused = true;
+
+        // 添加到 activity 列表。
+        mActivities.put(r.token, r);
+
+    } catch (SuperNotCalledException e) {
+        throw e;
+
+    } catch (Exception e) {
+        if (!mInstrumentation.onException(activity, e)) {
+            throw new RuntimeException(
+                "Unable to start activity " + component
+                + ": " + e.toString(), e);
+        }
+    }
+
+    return activity;
 }
 
 ```
