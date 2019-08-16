@@ -2780,7 +2780,7 @@ private void handleLaunchActivity(ActivityClientRecord r, Intent customIntent) {
     // 在创建 activity 之前初始化。
     WindowManagerGlobal.initialize();
 
-    // 回调目标 activity 的 onCreate。
+    // 创建 activity 回调目标 activity 的 onCreate。
     Activity a = performLaunchActivity(r, customIntent);
 
     if (a != null) {
@@ -2839,5 +2839,135 @@ private void handleLaunchActivity(ActivityClientRecord r, Intent customIntent) {
         }
     }
 }
+```
+
+看一下 `performLaunchActivity` 方法是如何创建 activity 的。
+
+```java
+// ActivityThread.java
+
+final void handleResumeActivity(IBinder token,
+        boolean clearHide, boolean isForward, boolean reallyResume) {
+    // If we are getting ready to gc after going to the background, well
+    // we are back active so skip it.
+    unscheduleGcIdler();
+    mSomeActivitiesChanged = true;
+
+    // TODO Push resumeArgs into the activity for consideration
+    ActivityClientRecord r = performResumeActivity(token, clearHide);
+
+    if (r != null) {
+        final Activity a = r.activity;
+
+        if (localLOGV) Slog.v(
+            TAG, "Resume " + r + " started activity: " +
+            a.mStartedActivity + ", hideForNow: " + r.hideForNow
+            + ", finished: " + a.mFinished);
+
+        final int forwardBit = isForward ?
+                WindowManager.LayoutParams.SOFT_INPUT_IS_FORWARD_NAVIGATION : 0;
+
+        // If the window hasn't yet been added to the window manager,
+        // and this guy didn't finish itself or start another activity,
+        // then go ahead and add the window.
+        boolean willBeVisible = !a.mStartedActivity;
+        if (!willBeVisible) {
+            try {
+                willBeVisible = ActivityManagerNative.getDefault().willActivityBeVisible(
+                        a.getActivityToken());
+            } catch (RemoteException e) {
+            }
+        }
+        if (r.window == null && !a.mFinished && willBeVisible) {
+            r.window = r.activity.getWindow();
+            View decor = r.window.getDecorView();
+            decor.setVisibility(View.INVISIBLE);
+            ViewManager wm = a.getWindowManager();
+            WindowManager.LayoutParams l = r.window.getAttributes();
+            a.mDecor = decor;
+            l.type = WindowManager.LayoutParams.TYPE_BASE_APPLICATION;
+            l.softInputMode |= forwardBit;
+            if (a.mVisibleFromClient) {
+                a.mWindowAdded = true;
+                wm.addView(decor, l);
+            }
+
+        // If the window has already been added, but during resume
+        // we started another activity, then don't yet make the
+        // window visible.
+        } else if (!willBeVisible) {
+            if (localLOGV) Slog.v(
+                TAG, "Launch " + r + " mStartedActivity set");
+            r.hideForNow = true;
+        }
+
+        // Get rid of anything left hanging around.
+        cleanUpPendingRemoveWindows(r);
+
+        // The window is now visible if it has been added, we are not
+        // simply finishing, and we are not starting another activity.
+        if (!r.activity.mFinished && willBeVisible
+                && r.activity.mDecor != null && !r.hideForNow) {
+            if (r.newConfig != null) {
+                r.tmpConfig.setTo(r.newConfig);
+                if (r.overrideConfig != null) {
+                    r.tmpConfig.updateFrom(r.overrideConfig);
+                }
+                if (DEBUG_CONFIGURATION) Slog.v(TAG, "Resuming activity "
+                        + r.activityInfo.name + " with newConfig " + r.tmpConfig);
+                performConfigurationChanged(r.activity, r.tmpConfig);
+                freeTextLayoutCachesIfNeeded(r.activity.mCurrentConfig.diff(r.tmpConfig));
+                r.newConfig = null;
+            }
+            if (localLOGV) Slog.v(TAG, "Resuming " + r + " with isForward="
+                    + isForward);
+            WindowManager.LayoutParams l = r.window.getAttributes();
+            if ((l.softInputMode
+                    & WindowManager.LayoutParams.SOFT_INPUT_IS_FORWARD_NAVIGATION)
+                    != forwardBit) {
+                l.softInputMode = (l.softInputMode
+                        & (~WindowManager.LayoutParams.SOFT_INPUT_IS_FORWARD_NAVIGATION))
+                        | forwardBit;
+                if (r.activity.mVisibleFromClient) {
+                    ViewManager wm = a.getWindowManager();
+                    View decor = r.window.getDecorView();
+                    wm.updateViewLayout(decor, l);
+                }
+            }
+            r.activity.mVisibleFromServer = true;
+            mNumVisibleActivities++;
+            if (r.activity.mVisibleFromClient) {
+                r.activity.makeVisible();
+            }
+        }
+
+        if (!r.onlyLocalRequest) {
+            r.nextIdle = mNewActivities;
+            mNewActivities = r;
+            if (localLOGV) Slog.v(
+                TAG, "Scheduling idle handler for " + r);
+            Looper.myQueue().addIdleHandler(new Idler());
+        }
+        r.onlyLocalRequest = false;
+
+        // Tell the activity manager we have resumed.
+        if (reallyResume) {
+            try {
+                ActivityManagerNative.getDefault().activityResumed(token);
+            } catch (RemoteException ex) {
+            }
+        }
+
+    } else {
+        // If an exception was thrown when trying to resume, then
+        // just end this activity.
+        try {
+            ActivityManagerNative.getDefault()
+                .finishActivity(token, Activity.RESULT_CANCELED, null, false);
+        } catch (RemoteException ex) {
+        }
+    }
+}
+
 ```
 
