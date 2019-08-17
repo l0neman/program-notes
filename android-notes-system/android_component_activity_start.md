@@ -2735,7 +2735,7 @@ public final void scheduleLaunchActivity(Intent intent, IBinder token, int ident
 
 这里将信息打包发送给`ActivityThread` 内部 `H` 类（`Handler` 子类）的 `mH` 对象。
 
-#### H
+#### ActivityThread.H
 
 ```java
 // ActivityThread.java - class H
@@ -2908,6 +2908,7 @@ private Activity performLaunchActivity(ActivityClientRecord r, Intent customInte
             Configuration config = new Configuration(mCompatConfiguration);
             if (DEBUG_CONFIGURATION) Slog.v(TAG, "Launching activity "
                     + r.activityInfo.name + " with config " + config);
+            // 绑定 activity。
             activity.attach(appContext, this, getInstrumentation(), r.token,
                     r.ident, app, r.intent, r.activityInfo, title, r.parent,
                     r.embeddedID, r.lastNonConfigurationInstances, config,
@@ -2938,6 +2939,7 @@ private Activity performLaunchActivity(ActivityClientRecord r, Intent customInte
             r.activity = activity;
             r.stopped = true;
             if (!r.activity.mFinished) {
+                // 回调 onStart 方法。
                 activity.performStart();
                 r.stopped = false;
             }
@@ -2984,6 +2986,90 @@ private Activity performLaunchActivity(ActivityClientRecord r, Intent customInte
 
     return activity;
 }
-
 ```
 
+上面通过查询应用包信息 `packageInfo`，然后通过它的 ClassLoader 创建新的 activity 对象，初始化并回调它的生命周期方法，主要是通过此 `Instrumentation` 类型完成 activity 创建和生命周期相关工作。
+
+#### Instrumentation
+
+```java
+// Instrumentation.java
+
+public Activity newActivity(ClassLoader cl, String className,
+        Intent intent)
+        throws InstantiationException, IllegalAccessException,
+        ClassNotFoundException {
+    return (Activity)cl.loadClass(className).newInstance();
+}
+```
+
+#### Activity
+
+```java
+// Activity.java
+
+final void attach(Context context, ActivityThread aThread,
+        Instrumentation instr, IBinder token, int ident,
+        Application application, Intent intent, ActivityInfo info,
+        CharSequence title, Activity parent, String id,
+        NonConfigurationInstances lastNonConfigurationInstances,
+        Configuration config, String referrer, IVoiceInteractor voiceInteractor) {
+    attachBaseContext(context);
+
+    mFragments.attachHost(null /*parent*/);
+
+    mWindow = new PhoneWindow(this);
+    mWindow.setCallback(this);
+    mWindow.setOnWindowDismissedCallback(this);
+    mWindow.getLayoutInflater().setPrivateFactory(this);
+    if (info.softInputMode != WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED) {
+        mWindow.setSoftInputMode(info.softInputMode);
+    }
+    if (info.uiOptions != 0) {
+        mWindow.setUiOptions(info.uiOptions);
+    }
+    mUiThread = Thread.currentThread();
+
+    mMainThread = aThread;
+    mInstrumentation = instr;
+    mToken = token;
+    mIdent = ident;
+    mApplication = application;
+    mIntent = intent;
+    mReferrer = referrer;
+    mComponent = intent.getComponent();
+    mActivityInfo = info;
+    mTitle = title;
+    mParent = parent;
+    mEmbeddedID = id;
+    mLastNonConfigurationInstances = lastNonConfigurationInstances;
+    if (voiceInteractor != null) {
+        if (lastNonConfigurationInstances != null) {
+            mVoiceInteractor = lastNonConfigurationInstances.voiceInteractor;
+        } else {
+            mVoiceInteractor = new VoiceInteractor(voiceInteractor, this, this,
+                    Looper.myLooper());
+        }
+    }
+
+    mWindow.setWindowManager(
+            (WindowManager)context.getSystemService(Context.WINDOW_SERVICE),
+            mToken, mComponent.flattenToString(),
+            (info.flags & ActivityInfo.FLAG_HARDWARE_ACCELERATED) != 0);
+    if (mParent != null) {
+        mWindow.setContainer(mParent.getWindow());
+    }
+    mWindowManager = mWindow.getWindowManager();
+    mCurrentConfig = config;
+}
+```
+
+至此，activity 的整个启动流程已经走完，其中有很多细节不能一一列举，还需要到具体源码中探究。
+
+activity 的启动流程是应用进程 -> 服务进程 -> 应用进程的这样一个过程。
+
+使用时序图表示为：
+
+## 时序图
+
+todo
