@@ -1,6 +1,35 @@
 # Android Activity 启动流程分析
 
-[TOC]
+- [前言](#前言)
+- [启动方式](#启动方式)
+  - [Activity](#activity)
+  - [ContextImpl](#contextimpl)
+- [启动流程](#启动流程)
+  - [Client](#client)
+    - [Instrumentation](#instrumentation)
+    - [ActivityManagerProxy](#activitymanagerproxy)
+    - [ActivityManagerNative](#activitymanagernative)
+  - [Server](#server)
+    - [ActivityManagerService](#activitymanagerservice)
+    - [ActivityStackSupervisor](#activitystacksupervisor)
+    - [PackageManagerService](#packagemanagerservice)
+    - [ActivityStackSupervisor](#activitystacksupervisor)
+    - [ActivityStack](#activitystack)
+    - [ActivityStackSupervisor](#activitystacksupervisor)
+    - [ActivityStack](#activitystack)
+    - [ActivityStackSupervisor](#activitystacksupervisor)
+    - [ActivityStack](#activitystack)
+    - [ActivityStackSupervisor](#activitystacksupervisor)
+    - [ApplicationThreadProxy](#applicationthreadproxy)
+  - [Client](#client)
+    - [ApplicationThreadNative](#applicationthreadnative)
+    - [ApplicationThread](#applicationthread)
+    - [ActivityThread.H](#activitythread.h)
+    - [ActivityThread](#activitythread)
+    - [Instrumentation](#instrumentation)
+    - [Activity](#activity)
+  - [时序图](#时序图)
+  - [总结](#总结)
 
 ## 前言
 
@@ -79,7 +108,7 @@ public void startActivityForResult(Intent intent, int requestCode, @Nullable Bun
 }
 ```
 
-### Context
+### ContextImpl
 
 ```java
 // ContextImpl.java
@@ -2647,6 +2676,8 @@ public final void scheduleLaunchActivity(Intent intent, IBinder token, int ident
 }
 ```
 
+### Client
+
 #### ApplicationThreadNative
 
 ```java
@@ -2687,8 +2718,6 @@ public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
     ...
 }
 ```
-
-### Client
 
 #### ApplicationThread
 
@@ -3072,4 +3101,14 @@ activity 的启动流程是应用进程 -> 服务进程 -> 应用进程的这样
 
 ## 时序图
 
-todo
+时序图分为两部分，首先是客户端（应用进程）的处理流程，`Server` 表示 `ActivityManagerService` 系统服务端的处理流程。
+
+![activity_start_client](./image/android_component_activity_start/activity_start_client.png)
+
+然后是服务端的处理流程，`Client` 端表示客户端处理流程，即上图。
+
+![activity_start_server](./image/android_component_activity_start/activity_start_server.png)
+
+## 总结
+
+通过分析 Activity 启动流程的源码，了解到 Android 系统处理组件启动的方法，以及系统服务进程和应用进程之间的交互方式和整体 IPC 架构，这对于理解 Android 系统对于其它四大组件的处理，和其他相关系统服务与应用进程的交互方式有重要意义。
