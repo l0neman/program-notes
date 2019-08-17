@@ -19,3 +19,9 @@ Binder 分析
 系统服务分析
 
 [ActivityManagerService 初始化分析](android_service_ams_init.md)
+
+## component
+
+四大组件分析
+
+[Android Activity 启动流程分析](./android_component_activity_start.md)
