@@ -177,6 +177,7 @@ ComponentName startServiceLocked(IApplicationThread caller, Intent service, Stri
 
     final boolean callerFg;
     if (caller != null) {
+        // 获得调用者进程记录。
         final ProcessRecord callerApp = mAm.getRecordForAppLocked(caller);
         if (callerApp == null) {
             throw new SecurityException(
@@ -188,8 +189,8 @@ ComponentName startServiceLocked(IApplicationThread caller, Intent service, Stri
     } else {
         callerFg = true;
     }
-
-
+    
+    // 查询 service 信息。
     ServiceLookupResult res =
         retrieveServiceLocked(service, resolvedType, callingPackage,
                 callingPid, callingUid, userId, true, callerFg);
@@ -203,6 +204,7 @@ ComponentName startServiceLocked(IApplicationThread caller, Intent service, Stri
 
     ServiceRecord r = res.record;
 
+    // 检查是否存在服务对应 user。
     if (!mAm.getUserManagerLocked().exists(r.userId)) {
         Slog.d(TAG, "Trying to start service with non-existent user! " + r.userId);
         return null;
@@ -213,27 +215,22 @@ ComponentName startServiceLocked(IApplicationThread caller, Intent service, Stri
     if (unscheduleServiceRestartLocked(r, callingUid, false)) {
         if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "START SERVICE WHILE RESTART PENDING: " + r);
     }
+    // 记录最后活动时间。
     r.lastActivity = SystemClock.uptimeMillis();
     r.startRequested = true;
     r.delayedStop = false;
+    // 添加到待启动列表。
     r.pendingStarts.add(new ServiceRecord.StartItem(r, false, r.makeNextStartId(),
             service, neededGrants));
 
     final ServiceMap smap = getServiceMap(r.userId);
     boolean addToStarting = false;
     if (!callerFg && r.app == null && mAm.mStartedUsers.get(r.userId) != null) {
+        // 获得目标 service 所在进程记录。
         ProcessRecord proc = mAm.getProcessRecordLocked(r.processName, r.appInfo.uid, false);
         if (proc == null || proc.curProcState > ActivityManager.PROCESS_STATE_RECEIVER) {
-            // If this is not coming from a foreground caller, then we may want
-            // to delay the start if there are already other background services
-            // that are starting.  This is to avoid process start spam when lots
-            // of applications are all handling things like connectivity broadcasts.
-            // We only do this for cached processes, because otherwise an application
-            // can have assumptions about calling startService() for a service to run
-            // in its own process, and for that process to not be killed before the
-            // service is started.  This is especially the case for receivers, which
-            // may start a service in onReceive() to do some additional work and have
-            // initialized some global state as part of that.
+            // 如果这不是来自前台的调用者，如果已经有其他后台服务正在启动，我们可能希望延迟启动。
+            // 
             if (DEBUG_DELAYED_SERVICE) Slog.v(TAG_SERVICE, "Potential start delay of "
                     + r + " in " + proc);
             if (r.delayed) {
@@ -285,5 +282,122 @@ ComponentName startServiceLocked(IApplicationThread caller, Intent service, Stri
 
     return startServiceInnerLocked(smap, service, r, callerFg, addToStarting);
 }
+```
+
+```java
+// ActiveServices.java
+
+private ServiceLookupResult retrieveServiceLocked(Intent service,
+        String resolvedType, String callingPackage, int callingPid, int callingUid, int userId,
+        boolean createIfNeeded, boolean callingFromFg) {
+    ServiceRecord r = null;
+    if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "retrieveServiceLocked: " + service
+            + " type=" + resolvedType + " callingUid=" + callingUid);
+
+    userId = mAm.handleIncomingUser(callingPid, callingUid, userId,
+            false, ActivityManagerService.ALLOW_NON_FULL_IN_PROFILE, "service", null);
+
+    ServiceMap smap = getServiceMap(userId);
+    final ComponentName comp = service.getComponent();
+    if (comp != null) {
+        r = smap.mServicesByName.get(comp);
+    }
+    if (r == null) {
+        Intent.FilterComparison filter = new Intent.FilterComparison(service);
+        r = smap.mServicesByIntent.get(filter);
+    }
+    if (r == null) {
+        try {
+            ResolveInfo rInfo =
+                AppGlobals.getPackageManager().resolveService(
+                            service, resolvedType,
+                            ActivityManagerService.STOCK_PM_FLAGS, userId);
+            ServiceInfo sInfo =
+                rInfo != null ? rInfo.serviceInfo : null;
+            if (sInfo == null) {
+                Slog.w(TAG_SERVICE, "Unable to start service " + service + " U=" + userId +
+                      ": not found");
+                return null;
+            }
+            ComponentName name = new ComponentName(
+                    sInfo.applicationInfo.packageName, sInfo.name);
+            if (userId > 0) {
+                if (mAm.isSingleton(sInfo.processName, sInfo.applicationInfo,
+                        sInfo.name, sInfo.flags)
+                        && mAm.isValidSingletonCall(callingUid, sInfo.applicationInfo.uid)) {
+                    userId = 0;
+                    smap = getServiceMap(0);
+                }
+                sInfo = new ServiceInfo(sInfo);
+                sInfo.applicationInfo = mAm.getAppInfoForUser(sInfo.applicationInfo, userId);
+            }
+            r = smap.mServicesByName.get(name);
+            if (r == null && createIfNeeded) {
+                Intent.FilterComparison filter
+                        = new Intent.FilterComparison(service.cloneFilter());
+                ServiceRestarter res = new ServiceRestarter();
+                BatteryStatsImpl.Uid.Pkg.Serv ss = null;
+                BatteryStatsImpl stats = mAm.mBatteryStatsService.getActiveStatistics();
+                synchronized (stats) {
+                    ss = stats.getServiceStatsLocked(
+                            sInfo.applicationInfo.uid, sInfo.packageName,
+                            sInfo.name);
+                }
+                r = new ServiceRecord(mAm, ss, name, filter, sInfo, callingFromFg, res);
+                res.setService(r);
+                smap.mServicesByName.put(name, r);
+                smap.mServicesByIntent.put(filter, r);
+
+                // Make sure this component isn't in the pending list.
+                for (int i=mPendingServices.size()-1; i>=0; i--) {
+                    ServiceRecord pr = mPendingServices.get(i);
+                    if (pr.serviceInfo.applicationInfo.uid == sInfo.applicationInfo.uid
+                            && pr.name.equals(name)) {
+                        mPendingServices.remove(i);
+                    }
+                }
+            }
+        } catch (RemoteException ex) {
+            // pm is in same process, this will never happen.
+        }
+    }
+    if (r != null) {
+        if (mAm.checkComponentPermission(r.permission,
+                callingPid, callingUid, r.appInfo.uid, r.exported)
+                != PackageManager.PERMISSION_GRANTED) {
+            if (!r.exported) {
+                Slog.w(TAG, "Permission Denial: Accessing service " + r.name
+                        + " from pid=" + callingPid
+                        + ", uid=" + callingUid
+                        + " that is not exported from uid " + r.appInfo.uid);
+                return new ServiceLookupResult(null, "not exported from uid "
+                        + r.appInfo.uid);
+            }
+            Slog.w(TAG, "Permission Denial: Accessing service " + r.name
+                    + " from pid=" + callingPid
+                    + ", uid=" + callingUid
+                    + " requires " + r.permission);
+            return new ServiceLookupResult(null, r.permission);
+        } else if (r.permission != null && callingPackage != null) {
+            final int opCode = AppOpsManager.permissionToOpCode(r.permission);
+            if (opCode != AppOpsManager.OP_NONE && mAm.mAppOpsService.noteOperation(
+                    opCode, callingUid, callingPackage) != AppOpsManager.MODE_ALLOWED) {
+                Slog.w(TAG, "Appop Denial: Accessing service " + r.name
+                        + " from pid=" + callingPid
+                        + ", uid=" + callingUid
+                        + " requires appop " + AppOpsManager.opToName(opCode));
+                return null;
+            }
+        }
+
+        if (!mAm.mIntentFirewall.checkService(r.name, service, callingUid, callingPid,
+                resolvedType, r.appInfo)) {
+            return null;
+        }
+        return new ServiceLookupResult(r, null);
+    }
+    return null;
+}
+
 ```
 
