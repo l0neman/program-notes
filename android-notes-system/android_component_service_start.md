@@ -583,4 +583,98 @@ private final String bringUpServiceLocked(ServiceRecord r, int intentFlags, bool
 }
 ```
 
-如果 Service 所在进程已启动，则进入下一步 `realStartServiceLocked` 启动 Service。否则使用 `mAm.startProcessLocked` 方法启动进程，进程启动后，会辗转调用到 `ActivityManagerService` 的 `attachApplicationLocked` 方法，它会通知目标进程绑定 Application，如果检查到有等待启动的 
+如果 Service 所在进程已启动，则进入下一步 `realStartServiceLocked` 启动 Service。否则使用 `mAm.startProcessLocked` 方法启动进程，进程启动后，会辗转调用到 `ActivityManagerService` 的 `attachApplicationLocked` 方法，它会通知目标进程绑定 Application，如果检查到有等待启动的 Service，则进入 `ActiveServices` 的 `attachApplicationLocked` 方法中，最终会进入 `realStartServiceLocked` 方法启动。
+
+```java
+// ActiveServices.java
+
+private final void realStartServiceLocked(ServiceRecord r,
+        ProcessRecord app, boolean execInFg) throws RemoteException {
+    if (app.thread == null) {
+        throw new RemoteException();
+    }
+    if (DEBUG_MU)
+        Slog.v(TAG_MU, "realStartServiceLocked, ServiceRecord.uid = " + r.appInfo.uid
+                + ", ProcessRecord.uid = " + app.uid);
+    r.app = app;
+    r.restartTime = r.lastActivity = SystemClock.uptimeMillis();
+
+    final boolean newService = app.services.add(r);
+    bumpServiceExecutingLocked(r, execInFg, "create");
+    mAm.updateLruProcessLocked(app, false, null);
+    mAm.updateOomAdjLocked();
+
+    boolean created = false;
+    try {
+        if (LOG_SERVICE_START_STOP) {
+            String nameTerm;
+            int lastPeriod = r.shortName.lastIndexOf('.');
+            nameTerm = lastPeriod >= 0 ? r.shortName.substring(lastPeriod) : r.shortName;
+            EventLogTags.writeAmCreateService(
+                    r.userId, System.identityHashCode(r), nameTerm, r.app.uid, r.app.pid);
+        }
+        synchronized (r.stats.getBatteryStats()) {
+            r.stats.startLaunchedLocked();
+        }
+        mAm.ensurePackageDexOpt(r.serviceInfo.packageName);
+        app.forceProcessStateUpTo(ActivityManager.PROCESS_STATE_SERVICE);
+        app.thread.scheduleCreateService(r, r.serviceInfo,
+                mAm.compatibilityInfoForPackageLocked(r.serviceInfo.applicationInfo),
+                app.repProcState);
+        r.postNotification();
+        created = true;
+    } catch (DeadObjectException e) {
+        Slog.w(TAG, "Application dead when creating service " + r);
+        mAm.appDiedLocked(app);
+        throw e;
+    } finally {
+        if (!created) {
+            // Keep the executeNesting count accurate.
+            final boolean inDestroying = mDestroyingServices.contains(r);
+            serviceDoneExecutingLocked(r, inDestroying, inDestroying);
+
+            // Cleanup.
+            if (newService) {
+                app.services.remove(r);
+                r.app = null;
+            }
+
+            // Retry.
+            if (!inDestroying) {
+                scheduleServiceRestartLocked(r, false);
+            }
+        }
+    }
+
+    requestServiceBindingsLocked(r, execInFg);
+
+    updateServiceClientActivitiesLocked(app, null, true);
+
+    // If the service is in the started state, and there are no
+    // pending arguments, then fake up one so its onStartCommand() will
+    // be called.
+    if (r.startRequested && r.callStart && r.pendingStarts.size() == 0) {
+        r.pendingStarts.add(new ServiceRecord.StartItem(r, false, r.makeNextStartId(),
+                null, null));
+    }
+
+    sendServiceArgsLocked(r, execInFg, true);
+
+    if (r.delayed) {
+        if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE, "REM FR DELAY LIST (new proc): " + r);
+        getServiceMap(r.userId).mDelayedStartList.remove(r);
+        r.delayed = false;
+    }
+
+    if (r.delayedStop) {
+        // Oh and hey we've already been asked to stop!
+        r.delayedStop = false;
+        if (r.startRequested) {
+            if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE,
+                    "Applying delayed stop (from start): " + r);
+            stopServiceLocked(r);
+        }
+    }
+} 
+```
+
