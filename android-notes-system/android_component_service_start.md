@@ -40,6 +40,8 @@ public boolean bindService(Intent service, ServiceConnection conn,
 
 下面开始分析，首先分析 `startService` 方法，它调用了内部的 `startServiceCommon` 方法。
 
+## 启动流程
+
 ### ContextImpl
 
 ```java
@@ -175,6 +177,7 @@ ComponentName startServiceLocked(IApplicationThread caller, Intent service, Stri
     if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE, "startService: " + service
             + " type=" + resolvedType + " args=" + service.getExtras());
 
+    // 是否在前台启动。
     final boolean callerFg;
     if (caller != null) {
         // 获得调用者进程记录。
@@ -230,17 +233,20 @@ ComponentName startServiceLocked(IApplicationThread caller, Intent service, Stri
         ProcessRecord proc = mAm.getProcessRecordLocked(r.processName, r.appInfo.uid, false);
         if (proc == null || proc.curProcState > ActivityManager.PROCESS_STATE_RECEIVER) {
             // 如果这不是来自前台的调用者，如果已经有其他后台服务正在启动，我们可能希望延迟启动。
-            // 
+            // 这是为了避免在许多应用程序都处理诸如广播连接之类的事情时进程启动 spam。
+            // 我们只只针对缓存进程执行此操作，因为不这样的话程序假设可以调用，startService() 以
+            // 使 Service 在自己的进程中运行，并且该进程在启动之前不会被终止。Reveicer 尤其如此，
+            // 它可以在 onReceiver() 中启动 Service 以执行额外的工作，并初始化一些全局状态作为
+            // 其中的一部分。
             if (DEBUG_DELAYED_SERVICE) Slog.v(TAG_SERVICE, "Potential start delay of "
                     + r + " in " + proc);
             if (r.delayed) {
-                // This service is already scheduled for a delayed start; just leave
-                // it still waiting.
+                // 此 service 已安排延迟启动，只是还让它继续等待。
                 if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE, "Continuing to delay: " + r);
                 return r.name;
             }
             if (smap.mStartingBackground.size() >= mMaxStartingBackground) {
-                // Something else is starting, delay!
+                // 有别的事情要开始了，需要延迟。
                 Slog.i(TAG_SERVICE, "Delaying start of: " + r);
                 smap.mDelayedStartList.add(r);
                 r.delayed = true;
@@ -249,9 +255,8 @@ ComponentName startServiceLocked(IApplicationThread caller, Intent service, Stri
             if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE, "Not delaying: " + r);
             addToStarting = true;
         } else if (proc.curProcState >= ActivityManager.PROCESS_STATE_SERVICE) {
-            // We slightly loosen when we will enqueue this new service as a background
-            // starting service we are waiting for, to also include processes that are
-            // currently running other services or receivers.
+            // 当我们将这项新 Service 排入我们正在等待启动的后台 Service 时，
+            // 我们稍微休眠一下，还包括当前正在运行其他 Service 或 Receiver 的进程。
             addToStarting = true;
             if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE,
                     "Not delaying, but counting as bg: " + r);
@@ -284,6 +289,8 @@ ComponentName startServiceLocked(IApplicationThread caller, Intent service, Stri
 }
 ```
 
+上面首先查询现有服务记录，判断是否延迟启动，然后进入下一步 `startServiceInnerLocked`，这里先看下是如何查询的。
+
 ```java
 // ActiveServices.java
 
@@ -297,17 +304,21 @@ private ServiceLookupResult retrieveServiceLocked(Intent service,
     userId = mAm.handleIncomingUser(callingPid, callingUid, userId,
             false, ActivityManagerService.ALLOW_NON_FULL_IN_PROFILE, "service", null);
 
+    // 获取 SerivceMap 结构。
     ServiceMap smap = getServiceMap(userId);
     final ComponentName comp = service.getComponent();
     if (comp != null) {
+        // 通过 componetName 查询 ServiceRecord。
         r = smap.mServicesByName.get(comp);
     }
     if (r == null) {
+        // // 通过 FilterComparison 查询 ServiceRecord。
         Intent.FilterComparison filter = new Intent.FilterComparison(service);
         r = smap.mServicesByIntent.get(filter);
     }
     if (r == null) {
         try {
+            // 通过 Intente 提供的信息从已安装应用中查询。
             ResolveInfo rInfo =
                 AppGlobals.getPackageManager().resolveService(
                             service, resolvedType,
@@ -319,6 +330,7 @@ private ServiceLookupResult retrieveServiceLocked(Intent service,
                       ": not found");
                 return null;
             }
+            // 构造新的 ServiceInfo。
             ComponentName name = new ComponentName(
                     sInfo.applicationInfo.packageName, sInfo.name);
             if (userId > 0) {
@@ -343,12 +355,14 @@ private ServiceLookupResult retrieveServiceLocked(Intent service,
                             sInfo.applicationInfo.uid, sInfo.packageName,
                             sInfo.name);
                 }
+                // 构造新的 ServiceRecord。
                 r = new ServiceRecord(mAm, ss, name, filter, sInfo, callingFromFg, res);
                 res.setService(r);
+                // 写入记录结构。
                 smap.mServicesByName.put(name, r);
                 smap.mServicesByIntent.put(filter, r);
 
-                // Make sure this component isn't in the pending list.
+                // 确认不在待启动列表中。
                 for (int i=mPendingServices.size()-1; i>=0; i--) {
                     ServiceRecord pr = mPendingServices.get(i);
                     if (pr.serviceInfo.applicationInfo.uid == sInfo.applicationInfo.uid
@@ -358,10 +372,11 @@ private ServiceLookupResult retrieveServiceLocked(Intent service,
                 }
             }
         } catch (RemoteException ex) {
-            // pm is in same process, this will never happen.
+            // pm 在同一个进程中，这永远不会发生。
         }
     }
     if (r != null) {
+        // 权限检查。
         if (mAm.checkComponentPermission(r.permission,
                 callingPid, callingUid, r.appInfo.uid, r.exported)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -398,6 +413,174 @@ private ServiceLookupResult retrieveServiceLocked(Intent service,
     }
     return null;
 }
-
 ```
 
+继续往下看：
+
+```java
+// ActiveServices.java
+
+ComponentName startServiceInnerLocked(ServiceMap smap, Intent service, ServiceRecord r,
+        boolean callerFg, boolean addToStarting) throws TransactionTooLargeException {
+    ProcessStats.ServiceState stracker = r.getTracker();
+    if (stracker != null) {
+        // 跟踪 service 状态。
+        stracker.setStarted(true, mAm.mProcessStats.getMemFactorLocked(), r.lastActivity);
+    }
+    r.callStart = false;
+    synchronized (r.stats.getBatteryStats()) {
+        // 电池统计。
+        r.stats.startRunningLocked();
+    }
+    // 启动服务。
+    String error = bringUpServiceLocked(r, service.getFlags(), callerFg, false);
+    if (error != null) {
+        return new ComponentName("!!", error);
+    }
+
+    if (r.startRequested && addToStarting) {
+        boolean first = smap.mStartingBackground.size() == 0;
+        // 加入后台启动列表。
+        smap.mStartingBackground.add(r);
+        r.startingBgTimeout = SystemClock.uptimeMillis() + BG_START_TIMEOUT;
+        if (DEBUG_DELAYED_SERVICE) {
+            RuntimeException here = new RuntimeException("here");
+            here.fillInStackTrace();
+            Slog.v(TAG_SERVICE, "Starting background (first=" + first + "): " + r, here);
+        } else if (DEBUG_DELAYED_STARTS) {
+            Slog.v(TAG_SERVICE, "Starting background (first=" + first + "): " + r);
+        }
+        if (first) {
+            smap.rescheduleDelayedStarts();
+        }
+    } else if (callerFg) {
+        smap.ensureNotStartingBackground(r);
+    }
+
+    return r.name;
+}
+```
+
+继续往下看。
+
+```java
+// ActiveServices.java
+
+private final String bringUpServiceLocked(ServiceRecord r, int intentFlags, boolean execInFg,
+        boolean whileRestarting) throws TransactionTooLargeException {
+    //Slog.i(TAG, "Bring up service:");
+    //r.dump("  ");
+
+    if (r.app != null && r.app.thread != null) {
+        // 通知 service 进程回调 Service 的 onStartCommand 方法。
+        sendServiceArgsLocked(r, execInFg, false);
+        return null;
+    }
+
+    if (!whileRestarting && r.restartDelay > 0) {
+        // 如果等待重启，则什么也不做。
+        return null;
+    }
+
+    if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Bringing up " + r + " " + r.intent);
+
+    // 我们现在正在启动 Service，所以不再处于重启状态。
+    if (mRestartingServices.remove(r)) {
+        r.resetRestartCounter();
+        clearRestartingIfNeededLocked(r);
+    }
+
+    // 确保此 Service 不再被视为延迟，我们现在就开始启动。
+    if (r.delayed) {
+        if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE, "REM FR DELAY LIST (bring up): " + r);
+        getServiceMap(r.userId).mDelayedStartList.remove(r);
+        r.delayed = false;
+    }
+
+    // 确保已启动拥有此服务的用户，如果没有，那我们不希望允许它运行。
+    if (mAm.mStartedUsers.get(r.userId) == null) {
+        String msg = "Unable to launch app "
+                + r.appInfo.packageName + "/"
+                + r.appInfo.uid + " for service "
+                + r.intent.getIntent() + ": user " + r.userId + " is stopped";
+        Slog.w(TAG, msg);
+        bringDownServiceLocked(r);
+        return msg;
+    }
+
+    // Service 现在正在启动，Package 现在不能被停止。
+    try {
+        AppGlobals.getPackageManager().setPackageStoppedState(
+                r.packageName, false, r.userId);
+    } catch (RemoteException e) {
+    } catch (IllegalArgumentException e) {
+        Slog.w(TAG, "Failed trying to unstop package "
+                + r.packageName + ": " + e);
+    }
+
+    final boolean isolated = (r.serviceInfo.flags&ServiceInfo.FLAG_ISOLATED_PROCESS) != 0;
+    final String procName = r.processName;
+    ProcessRecord app;
+
+    if (!isolated) {
+        // 查询 Service 所在进程记录。
+        app = mAm.getProcessRecordLocked(procName, r.appInfo.uid, false);
+        if (DEBUG_MU) Slog.v(TAG_MU, "bringUpServiceLocked: appInfo.uid=" + r.appInfo.uid
+                    + " app=" + app);
+        if (app != null && app.thread != null) {
+            try {
+                app.addPackage(r.appInfo.packageName, r.appInfo.versionCode, mAm.mProcessStats);
+                // 1. 下一步启动。
+                realStartServiceLocked(r, app, execInFg);
+                return null;
+            } catch (TransactionTooLargeException e) {
+                throw e;
+            } catch (RemoteException e) {
+                Slog.w(TAG, "Exception when starting service " + r.shortName, e);
+            }
+
+            // 如果抛出了 DeadObjectException - 请重新启动应用程序。
+        }
+    } else {
+        // 如果此 Service 在一个独立的进程中运行，那么每次调用 startProcessLocked() 时，
+        // 我们将获得一个新的隔离进程，如果我们正在等待一个进程出现，则启动另一个进程。
+        // 为了解决这个问题，我们在服务中存储它正在运行或等待出现的任何当前隔离进程。
+        app = r.isolatedProc;
+    }
+
+    // 没有运行 - 则启动它，并将此 ServiceRecord 加入队列，以便在应用程序启动时执行。
+    if (app == null) {
+        if ((app=mAm.startProcessLocked(procName, r.appInfo, true, intentFlags,
+                "service", r.name, false, isolated, false)) == null) {
+            String msg = "Unable to launch app "
+                    + r.appInfo.packageName + "/"
+                    + r.appInfo.uid + " for service "
+                    + r.intent.getIntent() + ": process is bad";
+            Slog.w(TAG, msg);
+            bringDownServiceLocked(r);
+            return msg;
+        }
+        if (isolated) {
+            r.isolatedProc = app;
+        }
+    }
+
+    if (!mPendingServices.contains(r)) {
+        mPendingServices.add(r);
+    }
+
+    if (r.delayedStop) {
+        // 哦，嘿，我们被要求被停止！
+        r.delayedStop = false;
+        if (r.startRequested) {
+            if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE,
+                    "Applying delayed stop (in bring up): " + r);
+            stopServiceLocked(r);
+        }
+    }
+
+    return null;
+}
+```
+
+如果 Service 所在进程已启动，则进入下一步 `realStartServiceLocked` 启动 Service。否则使用 `mAm.startProcessLocked` 方法启动进程，进程启动后，会辗转调用到 `ActivityManagerService` 的 `attachApplicationLocked` 方法，它会通知目标进程绑定 Application，如果检查到有等待启动的 
