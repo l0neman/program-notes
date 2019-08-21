@@ -600,6 +600,7 @@ private final void realStartServiceLocked(ServiceRecord r,
     r.restartTime = r.lastActivity = SystemClock.uptimeMillis();
 
     final boolean newService = app.services.add(r);
+    // 1. 检查 Service 启动延迟。
     bumpServiceExecutingLocked(r, execInFg, "create");
     mAm.updateLruProcessLocked(app, false, null);
     mAm.updateOomAdjLocked();
@@ -618,6 +619,7 @@ private final void realStartServiceLocked(ServiceRecord r,
         }
         mAm.ensurePackageDexOpt(r.serviceInfo.packageName);
         app.forceProcessStateUpTo(ActivityManager.PROCESS_STATE_SERVICE);
+        // 2. 安排 Service 所在进程执行创建服务的任务。
         app.thread.scheduleCreateService(r, r.serviceInfo,
                 mAm.compatibilityInfoForPackageLocked(r.serviceInfo.applicationInfo),
                 app.repProcState);
@@ -629,35 +631,34 @@ private final void realStartServiceLocked(ServiceRecord r,
         throw e;
     } finally {
         if (!created) {
-            // Keep the executeNesting count accurate.
             final boolean inDestroying = mDestroyingServices.contains(r);
             serviceDoneExecutingLocked(r, inDestroying, inDestroying);
 
-            // Cleanup.
+            // 清理.
             if (newService) {
                 app.services.remove(r);
                 r.app = null;
             }
 
-            // Retry.
+            // 重启。
             if (!inDestroying) {
                 scheduleServiceRestartLocked(r, false);
             }
         }
     }
 
+    // 请求绑定绑定服务。
     requestServiceBindingsLocked(r, execInFg);
 
     updateServiceClientActivitiesLocked(app, null, true);
 
-    // If the service is in the started state, and there are no
-    // pending arguments, then fake up one so its onStartCommand() will
-    // be called.
+    // 如果服务处于启动状态，并且没有挂起的参数，则伪造一个，以便调用其 onStartCommand()。
     if (r.startRequested && r.callStart && r.pendingStarts.size() == 0) {
         r.pendingStarts.add(new ServiceRecord.StartItem(r, false, r.makeNextStartId(),
                 null, null));
     }
 
+    // 4. 发送参数至 onServiceCommand()
     sendServiceArgsLocked(r, execInFg, true);
 
     if (r.delayed) {
@@ -667,7 +668,7 @@ private final void realStartServiceLocked(ServiceRecord r,
     }
 
     if (r.delayedStop) {
-        // Oh and hey we've already been asked to stop!
+        // 哦，嘿，我们已被要求停止！
         r.delayedStop = false;
         if (r.startRequested) {
             if (DEBUG_DELAYED_STARTS) Slog.v(TAG_SERVICE,
@@ -678,3 +679,487 @@ private final void realStartServiceLocked(ServiceRecord r,
 } 
 ```
 
+这里就开始通知应用端进程创建 Service 了，首先看 `bumpServiceExecutingLocked` 做了什么：
+
+```java
+// ActiveServices.java
+
+private final void bumpServiceExecutingLocked(ServiceRecord r, boolean fg, String why) {
+    if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, ">>> EXECUTING "
+            + why + " of " + r + " in app " + r.app);
+    else if (DEBUG_SERVICE_EXECUTING) Slog.v(TAG_SERVICE_EXECUTING, ">>> EXECUTING "
+            + why + " of " + r.shortName);
+    long now = SystemClock.uptimeMillis();
+    if (r.executeNesting == 0) {
+        r.executeFg = fg;
+        ProcessStats.ServiceState stracker = r.getTracker();
+        if (stracker != null) {
+            stracker.setExecuting(true, mAm.mProcessStats.getMemFactorLocked(), now);
+        }
+        if (r.app != null) {
+            r.app.executingServices.add(r);
+            r.app.execServicesFg |= fg;
+            if (r.app.executingServices.size() == 1) {
+                // 安排 Service 延时通知。
+                scheduleServiceTimeoutLocked(r.app);
+            }
+        }
+    } else if (r.app != null && fg && !r.app.execServicesFg) {
+        r.app.execServicesFg = true;
+        // 安排 Service 延时通知。
+        scheduleServiceTimeoutLocked(r.app);
+    }
+    r.executeFg |= fg;
+    r.executeNesting++;
+    r.executingStart = now;
+}
+```
+
+```java
+// ActiveServices.java
+
+void scheduleServiceTimeoutLocked(ProcessRecord proc) {
+    if (proc.executingServices.size() == 0 || proc.thread == null) {
+        return;
+    }
+    
+    long now = SystemClock.uptimeMillis();
+    Message msg = mAm.mHandler.obtainMessage(
+            ActivityManagerService.SERVICE_TIMEOUT_MSG);
+    msg.obj = proc;
+    // 发送超时 msg，如果在发送时间之前没有移除此消息，
+    // 则会执行 SERVICE_TIMEOUT_MSG 任务。
+    mAm.mHandler.sendMessageAtTime(msg,
+            proc.execServicesFg ? (now+SERVICE_TIMEOUT) : (now+ SERVICE_BACKGROUND_TIMEOUT));
+}
+```
+
+看一下启动超时会做什么：
+
+### ActivityManagerService
+
+```java
+// ActivityManagerService.java - class MainHandler
+
+@Override
+public void handleMessage(Message msg) {
+    switch (msg.what) {
+    ...
+    case SERVICE_TIMEOUT_MSG: {
+        if (mDidDexOpt) {
+            mDidDexOpt = false;
+            Message nmsg = mHandler.obtainMessage(SERVICE_TIMEOUT_MSG);
+            nmsg.obj = msg.obj;
+            mHandler.sendMessageDelayed(nmsg, ActiveServices.SERVICE_TIMEOUT);
+            return;
+        }
+        mServices.serviceTimeout((ProcessRecord)msg.obj);
+    } break;
+    ...
+}
+```
+
+### ActiveServices
+
+```java
+// ActiveServices.java
+
+void serviceTimeout(ProcessRecord proc) {
+    String anrMessage = null;
+
+    synchronized(mAm) {
+        if (proc.executingServices.size() == 0 || proc.thread == null) {
+            return;
+        }
+        final long now = SystemClock.uptimeMillis();
+        final long maxTime =  now -
+                (proc.execServicesFg ? SERVICE_TIMEOUT : SERVICE_BACKGROUND_TIMEOUT);
+        ServiceRecord timeout = null;
+        long nextTime = 0;
+        for (int i=proc.executingServices.size()-1; i>=0; i--) {
+            ServiceRecord sr = proc.executingServices.valueAt(i);
+            if (sr.executingStart < maxTime) {
+                timeout = sr;
+                break;
+            }
+            if (sr.executingStart > nextTime) {
+                nextTime = sr.executingStart;
+            }
+        }
+        if (timeout != null && mAm.mLruProcesses.contains(proc)) {
+            Slog.w(TAG, "Timeout executing service: " + timeout);
+            // 记录相关日志。
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new FastPrintWriter(sw, false, 1024);
+            pw.println(timeout);
+            timeout.dump(pw, "    ");
+            pw.close();
+            mLastAnrDump = sw.toString();
+            mAm.mHandler.removeCallbacks(mLastAnrDumpClearer);
+            mAm.mHandler.postDelayed(mLastAnrDumpClearer, LAST_ANR_LIFETIME_DURATION_MSECS);
+            anrMessage = "executing service " + timeout.shortName;
+        } else {
+            Message msg = mAm.mHandler.obtainMessage(
+                    ActivityManagerService.SERVICE_TIMEOUT_MSG);
+            msg.obj = proc;
+            mAm.mHandler.sendMessageAtTime(msg, proc.execServicesFg
+                    ? (nextTime+SERVICE_TIMEOUT) : (nextTime + SERVICE_BACKGROUND_TIMEOUT));
+        }
+    }
+
+    if (anrMessage != null) {
+        // 通知 app 未响应。
+        mAm.appNotResponding(proc, null, null, false, anrMessage);
+    }
+}
+```
+
+回到上面，`app.thread.scheduleCreateService(...)`，继续看是如何安排客户端创建 Service 实例的：
+
+这里会和应用进程进行 IPC 沟通。
+
+### ApplicationThreadProxy
+
+```java
+// ApplicationThreadNative.java - class ApplicationThreadProxy
+
+public final void scheduleCreateService(IBinder token, ServiceInfo info,
+         CompatibilityInfo compatInfo, int processState) throws RemoteException {
+     Parcel data = Parcel.obtain();
+     data.writeInterfaceToken(IApplicationThread.descriptor);
+     data.writeStrongBinder(token);
+     info.writeToParcel(data, 0);
+     compatInfo.writeToParcel(data, 0);
+     data.writeInt(processState);
+     try {
+         // 发送 SCHEDULE_CREATE_SERVICE_TRANSACTION 指令。
+         mRemote.transact(SCHEDULE_CREATE_SERVICE_TRANSACTION, data, null,
+         IBinder.FLAG_ONEWAY);
+     } catch (TransactionTooLargeException e) {
+         Log.e("CREATE_SERVICE", "Binder failure starting service; service=" + info);
+         throw e;
+     }
+     data.recycle();
+}
+```
+
+### ApplicationThreadNative
+
+```java
+// ApplicationThreadNative.java
+
+public boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
+    switch (code) {
+    case SCHEDULE_CREATE_SERVICE_TRANSACTION: {
+        data.enforceInterface(IApplicationThread.descriptor);
+        IBinder token = data.readStrongBinder();
+        ServiceInfo info = ServiceInfo.CREATOR.createFromParcel(data);
+        CompatibilityInfo compatInfo = CompatibilityInfo.CREATOR.createFromParcel(data);
+        int processState = data.readInt();
+        scheduleCreateService(token, info, compatInfo, processState);
+        return true;
+    }
+    ...
+}
+```
+
+### ApplicationThread
+
+```java
+// ActivityThread.java - class ApplicationThread
+
+public final void scheduleCreateService(IBinder token,
+        ServiceInfo info, CompatibilityInfo compatInfo, int processState) {
+    updateProcessState(processState, false);
+    CreateServiceData s = new CreateServiceData();
+    s.token = token;
+    s.info = info;
+    s.compatInfo = compatInfo;
+
+    sendMessage(H.CREATE_SERVICE, s);
+}
+```
+
+### ActivityThread.H
+
+```java
+// ActivityThread.java - class H
+
+public void handleMessage(Message msg) {
+    if (DEBUG_MESSAGES) Slog.v(TAG, ">>> handling: " + codeToString(msg.what));
+    switch (msg.what) {
+    ...
+    case CREATE_SERVICE:
+        Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "serviceCreate");
+        handleCreateService((CreateServiceData)msg.obj);
+        Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+        break;
+    ...
+}
+```
+
+### ActivityThread
+
+```java
+// ActivityThread.java
+
+private void handleCreateService(CreateServiceData data) {
+    // 如果我们在转到后台后准备好 gc，我们又回来了，那么跳过它。
+    unscheduleGcIdler();
+
+    // 获取 Apk 信息。
+    LoadedApk packageInfo = getPackageInfoNoCheck(
+            data.info.applicationInfo, data.compatInfo);
+    Service service = null;
+    try {
+        // 创建 service 实例。
+        java.lang.ClassLoader cl = packageInfo.getClassLoader();
+        service = (Service) cl.loadClass(data.info.name).newInstance();
+    } catch (Exception e) {
+        if (!mInstrumentation.onException(service, e)) {
+            throw new RuntimeException(
+                "Unable to instantiate service " + data.info.name
+                + ": " + e.toString(), e);
+        }
+    }
+
+    try {
+        if (localLOGV) Slog.v(TAG, "Creating service " + data.info.name);
+
+        // 创建 Context。
+        ContextImpl context = ContextImpl.createAppContext(this, packageInfo);
+        context.setOuterContext(service);
+
+        // 确保创建 Application。
+        Application app = packageInfo.makeApplication(false, mInstrumentation);
+        service.attach(context, this, data.info.name, data.token, app,
+                ActivityManagerNative.getDefault());
+        // 回调 Service 的 onCreate 方法。
+        service.onCreate();
+        mServices.put(data.token, service);
+        try {
+            // 通知完成启动，将结束前面发送的启动延迟的消息。
+            ActivityManagerNative.getDefault().serviceDoneExecuting(
+                    data.token, SERVICE_DONE_EXECUTING_ANON, 0, 0);
+        } catch (RemoteException e) {
+            // nothing to do.
+        }
+    } catch (Exception e) {
+        if (!mInstrumentation.onException(service, e)) {
+            throw new RuntimeException(
+                "Unable to create service " + data.info.name
+                + ": " + e.toString(), e);
+        }
+    }
+}
+```
+
+可以看到，逻辑还是比较清晰的。
+
+看一下 `ActivityManagerNative.getDefault().serviceDoneExecuting` 方法，它会通过 IPC 进入 AMS。
+
+```java
+ActivityManagerProxy -> ActivityManagerNative -> ActivityManagerService
+```
+
+### ActivityManagerService
+
+```java
+// ActivityManagerService.java
+
+public void serviceDoneExecuting(IBinder token, int type, int startId, int res) {
+    synchronized(this) {
+        if (!(token instanceof ServiceRecord)) {
+            Slog.e(TAG, "serviceDoneExecuting: Invalid service token=" + token);
+            throw new IllegalArgumentException("Invalid service token");
+        }
+        mServices.serviceDoneExecutingLocked((ServiceRecord)token, type, startId, res);
+    }
+}
+
+```
+
+### ActivityServices
+
+```java
+// ActivityServices.java
+
+void serviceDoneExecutingLocked(ServiceRecord r, int type, int startId, int res) {
+    boolean inDestroying = mDestroyingServices.contains(r);
+    if (r != null) {
+        if (type == ActivityThread.SERVICE_DONE_EXECUTING_START) {
+            r.callStart = true;
+            switch (res) {
+                case Service.START_STICKY_COMPATIBILITY:
+                case Service.START_STICKY: {
+                    ...
+                }
+                case Service.START_NOT_STICKY: {
+                    ...
+                }
+                case Service.START_REDELIVER_INTENT: {
+                    ...
+                }
+                case Service.START_TASK_REMOVED_COMPLETE: {
+                    ...
+                }
+                default:
+                    throw new IllegalArgumentException(
+                            "Unknown service start result: " + res);
+            }
+            if (res == Service.START_STICKY_COMPATIBILITY) {
+                r.callStart = false;
+            }
+        } else if (type == ActivityThread.SERVICE_DONE_EXECUTING_STOP) {
+            ...
+        }
+        final long origId = Binder.clearCallingIdentity();
+        // 看这里。
+        serviceDoneExecutingLocked(r, inDestroying, inDestroying);
+        Binder.restoreCallingIdentity(origId);
+    } else {
+        Slog.w(TAG, "Done executing unknown service from pid "
+                + Binder.getCallingPid());
+    }
+}
+```
+
+```java
+// ActiveServices.java
+
+private void serviceDoneExecutingLocked(ServiceRecord r, boolean inDestroying,
+        boolean finishing) {
+    if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "<<< DONE EXECUTING " + r
+            + ": nesting=" + r.executeNesting
+            + ", inDestroying=" + inDestroying + ", app=" + r.app);
+    else if (DEBUG_SERVICE_EXECUTING) Slog.v(TAG_SERVICE_EXECUTING,
+            "<<< DONE EXECUTING " + r.shortName);
+    r.executeNesting--;
+    if (r.executeNesting <= 0) {
+        if (r.app != null) {
+            if (DEBUG_SERVICE) Slog.v(TAG_SERVICE,
+                    "Nesting at 0 of " + r.shortName);
+            r.app.execServicesFg = false;
+            r.app.executingServices.remove(r);
+            if (r.app.executingServices.size() == 0) {
+                if (DEBUG_SERVICE || DEBUG_SERVICE_EXECUTING) Slog.v(TAG_SERVICE_EXECUTING,
+                        "No more executingServices of " + r.shortName);
+                // 移除了延时任务执行的消息。
+                mAm.mHandler.removeMessages(ActivityManagerService.SERVICE_TIMEOUT_MSG, r.app);
+            } else if (r.executeFg) {
+                // 需要重新评估应用程序是否仍需要处于前台。
+                for (int i=r.app.executingServices.size()-1; i>=0; i--) {
+                    if (r.app.executingServices.valueAt(i).executeFg) {
+                        r.app.execServicesFg = true;
+                        break;
+                    }
+                }
+            }
+            if (inDestroying) {
+                if (DEBUG_SERVICE) Slog.v(TAG_SERVICE,
+                        "doneExecuting remove destroying " + r);
+                mDestroyingServices.remove(r);
+                r.bindings.clear();
+            }
+            mAm.updateOomAdjLocked(r.app);
+        }
+        r.executeFg = false;
+        if (r.tracker != null) {
+            r.tracker.setExecuting(false, mAm.mProcessStats.getMemFactorLocked(),
+                    SystemClock.uptimeMillis());
+            if (finishing) {
+                r.tracker.clearCurrentOwner(r, false);
+                r.tracker = null;
+            }
+        }
+        if (finishing) {
+            if (r.app != null && !r.app.persistent) {
+                r.app.services.remove(r);
+            }
+            r.app = null;
+        }
+    }
+}
+```
+
+这里如果在启动允许的延时时间内移除，就不会执行应用启动延迟的任务，系统不会弹出应用未响应的提示。
+
+最后回到上面，看 `sendServiceArgsLocked` 如何通知 Service 的 `onCreateCommond` 方法：
+
+### ActiveServices
+
+```java
+// ActiveServices.java
+
+private final void sendServiceArgsLocked(ServiceRecord r, boolean execInFg,
+        boolean oomAdjusted) throws TransactionTooLargeException {
+    final int N = r.pendingStarts.size();
+    if (N == 0) {
+        return;
+    }
+
+    while (r.pendingStarts.size() > 0) {
+        Exception caughtException = null;
+        ServiceRecord.StartItem si;
+        try {
+            si = r.pendingStarts.remove(0);
+            if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Sending arguments to: "
+                    + r + " " + r.intent + " args=" + si.intent);
+            if (si.intent == null && N > 1) {
+                // If somehow we got a dummy null intent in the middle,
+                // then skip it.  DO NOT skip a null intent when it is
+                // the only one in the list -- this is to support the
+                // onStartCommand(null) case.
+                continue;
+            }
+            si.deliveredTime = SystemClock.uptimeMillis();
+            r.deliveredStarts.add(si);
+            si.deliveryCount++;
+            if (si.neededGrants != null) {
+                mAm.grantUriPermissionUncheckedFromIntentLocked(si.neededGrants,
+                        si.getUriPermissionsLocked());
+            }
+            bumpServiceExecutingLocked(r, execInFg, "start");
+            if (!oomAdjusted) {
+                oomAdjusted = true;
+                mAm.updateOomAdjLocked(r.app);
+            }
+            int flags = 0;
+            if (si.deliveryCount > 1) {
+                flags |= Service.START_FLAG_RETRY;
+            }
+            if (si.doneExecutingCount > 0) {
+                flags |= Service.START_FLAG_REDELIVERY;
+            }
+            r.app.thread.scheduleServiceArgs(r, si.taskRemoved, si.id, flags, si.intent);
+        } catch (TransactionTooLargeException e) {
+            if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Transaction too large: intent="
+                    + si.intent);
+            caughtException = e;
+        } catch (RemoteException e) {
+            // Remote process gone...  we'll let the normal cleanup take care of this.
+            if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Crashed while sending args: " + r);
+            caughtException = e;
+        } catch (Exception e) {
+            Slog.w(TAG, "Unexpected exception", e);
+            caughtException = e;
+        }
+
+        if (caughtException != null) {
+            // Keep nesting count correct
+            final boolean inDestroying = mDestroyingServices.contains(r);
+            serviceDoneExecutingLocked(r, inDestroying, inDestroying);
+            if (caughtException instanceof TransactionTooLargeException) {
+                throw (TransactionTooLargeException)caughtException;
+            }
+            break;
+        }
+    }
+}
+```
+
+todo
+
+## 时序图
+
+todo
