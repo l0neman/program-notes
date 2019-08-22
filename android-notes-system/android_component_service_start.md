@@ -1085,7 +1085,7 @@ private void serviceDoneExecutingLocked(ServiceRecord r, boolean inDestroying,
 
 这里如果在启动允许的延时时间内移除，就不会执行应用启动延迟的任务，系统不会弹出应用未响应的提示。
 
-最后回到上面，看 `sendServiceArgsLocked` 如何通知 Service 的 `onCreateCommond` 方法：
+最后回到上面，看 `sendServiceArgsLocked` 如何通知 Service 的 `onStartCommond` 方法：
 
 ```java
 // ActiveServices.java
@@ -1130,6 +1130,7 @@ private final void sendServiceArgsLocked(ServiceRecord r, boolean execInFg,
             if (si.doneExecutingCount > 0) {
                 flags |= Service.START_FLAG_REDELIVERY;
             }
+            // 安排应用进程执行 onStartCommond 的回调任务。
             r.app.thread.scheduleServiceArgs(r, si.taskRemoved, si.id, flags, si.intent);
         } catch (TransactionTooLargeException e) {
             if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Transaction too large: intent="
@@ -1157,8 +1158,51 @@ private final void sendServiceArgsLocked(ServiceRecord r, boolean execInFg,
 }
 ```
 
-todo
+上面的 `app.thread.scheduleServiceArgs` 最终会到达 `ActivityThread` 的 `handleServiceArgs` 方法执行 `onStartCommond` 的回调。
+
+### ActivityThread
+
+```java
+// ActivityThread.java
+
+private void handleServiceArgs(ServiceArgsData data) {
+    Service s = mServices.get(data.token);
+    if (s != null) {
+        try {
+            if (data.args != null) {
+                data.args.setExtrasClassLoader(s.getClassLoader());
+                data.args.prepareToEnterProcess();
+            }
+            int res;
+            if (!data.taskRemoved) {
+                // 回调 Service 的 onStartCommond 方法。
+                res = s.onStartCommand(data.args, data.flags, data.startId);
+            } else {
+                s.onTaskRemoved(data.args);
+                res = Service.START_TASK_REMOVED_COMPLETE;
+            }
+
+            QueuedWork.waitToFinish();
+
+            try {
+                ActivityManagerNative.getDefault().serviceDoneExecuting(
+                        data.token, SERVICE_DONE_EXECUTING_START, data.startId, res);
+            } catch (RemoteException e) {
+                // nothing to do.
+            }
+            ensureJitEnabled();
+        } catch (Exception e) {
+            if (!mInstrumentation.onException(s, e)) {
+                throw new RuntimeException(
+                        "Unable to start service " + s
+                        + " with " + data.args + ": " + e.toString(), e);
+            }
+        }
+    }
+}
+```
+
+到这里就走完了启动服务的流程，Service 的启动流程相比 Activtiy 的启动流程要简单，因为不需要 UI 的支持，不过 Service 还有一个绑定的流程。
 
 ## 时序图
 
-todo
