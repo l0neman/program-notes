@@ -936,6 +936,7 @@ private void handleCreateService(CreateServiceData data) {
                 ActivityManagerNative.getDefault());
         // 回调 Service 的 onCreate 方法。
         service.onCreate();
+        // 记录 Service。
         mServices.put(data.token, service);
         try {
             // 通知完成启动，将结束前面发送的启动延迟的消息。
@@ -979,10 +980,10 @@ public void serviceDoneExecuting(IBinder token, int type, int startId, int res) 
 
 ```
 
-### ActivityServices
+### ActiveServices
 
 ```java
-// ActivityServices.java
+// ActiveServices.java
 
 void serviceDoneExecutingLocked(ServiceRecord r, int type, int startId, int res) {
     boolean inDestroying = mDestroyingServices.contains(r);
@@ -1085,8 +1086,6 @@ private void serviceDoneExecutingLocked(ServiceRecord r, boolean inDestroying,
 这里如果在启动允许的延时时间内移除，就不会执行应用启动延迟的任务，系统不会弹出应用未响应的提示。
 
 最后回到上面，看 `sendServiceArgsLocked` 如何通知 Service 的 `onCreateCommond` 方法：
-
-### ActiveServices
 
 ```java
 // ActiveServices.java
