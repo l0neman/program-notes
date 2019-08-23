@@ -1206,3 +1206,10 @@ private void handleServiceArgs(ServiceArgsData data) {
 
 ## 时序图
 
+时序图分为两部分，首先是客户端（应用进程）的处理流程，`Server` 表示 `ActivityManagerService` 系统服务端的处理流程。
+
+![service_start_client](./image/android_component_service_start/service_start_client.png)
+
+然后是服务端的处理流程，`Client` 端表示客户端处理流程，即上图。
+
+![service_start_server](./image/android_component_service_start/service_start_server.png)
