@@ -5,21 +5,26 @@
   - [startService](#startservice)
   - [bindService](#bindservice)
 - [启动流程](#启动流程)
-  - [ContextImpl](#contextimpl)
-  - [ActivityManagerProxy](#activitymanagerproxy)
-  - [ActivityManagerNative](#activitymanagernative)
-  - [ActivityManagerService](#activitymanagerservice)
-  - [ActiveServices](#activeservices)
-  - [ActivityManagerService](#activitymanagerservice)
-  - [ActiveServices](#activeservices)
-  - [ApplicationThreadProxy](#applicationthreadproxy)
-  - [ApplicationThreadNative](#applicationthreadnative)
-  - [ApplicationThread](#applicationthread)
-  - [ActivityThread.H](#activitythread.h)
-  - [ActivityThread](#activitythread)
-  - [ActivityManagerService](#activitymanagerservice)
-  - [ActiveServices](#activeservices)
-  - [ActivityThread](#activitythread)
+  - [Client](#client)
+    - [ContextImpl](#contextimpl)
+    - [ActivityManagerProxy](#activitymanagerproxy)
+  - [Server](#server)
+    - [ActivityManagerNative](#activitymanagernative)
+    - [ActivityManagerService](#activitymanagerservice)
+    - [ActiveServices](#activeservices)
+    - [ActivityManagerService](#activitymanagerservice)
+    - [ActiveServices](#activeservices)
+    - [ApplicationThreadProxy](#applicationthreadproxy)
+  - [Client](#client)
+    - [ApplicationThreadNative](#applicationthreadnative)
+    - [ApplicationThread](#applicationthread)
+    - [ActivityThread.H](#activitythread.h)
+    - [ActivityThread](#activitythread)
+  - [Server](#server)
+    - [ActivityManagerService](#activitymanagerservice)
+    - [ActiveServices](#activeservices)
+  - [Client](#client)
+    - [ActivityThread](#activitythread)
 - [时序图](#时序图)
 
 ## 前言
@@ -62,7 +67,9 @@ public boolean bindService(Intent service, ServiceConnection conn,
 
 ## 启动流程
 
-### ContextImpl
+### Client
+
+#### ContextImpl
 
 ```java
 // ContextImpl.java
@@ -94,7 +101,7 @@ private ComponentName startServiceCommon(Intent service, UserHandle user) {
 
 直接进入了 `ActivityManagerProxy` 的方法：
 
-### ActivityManagerProxy
+#### ActivityManagerProxy
 
 ```java
 // ActivityManagerNative.java - class ActivityManagerProxy
@@ -121,7 +128,9 @@ public ComponentName startService(IApplicationThread caller, Intent service,
 
 发送至 `ActivityManagerNative`：
 
-### ActivityManagerNative
+### Server
+
+#### ActivityManagerNative
 
 ```java
 // ActivityManagerNative.java
@@ -150,7 +159,7 @@ public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
 
 进入 `ActivityManagerService`：
 
-### ActivityManagerService
+#### ActivityManagerService
 
 ```java
 // ActivityManagerService.java
@@ -186,7 +195,7 @@ public ComponentName startService(IApplicationThread caller, Intent service,
 
 直接调用了 `ActiveServices` 的 `startServiceLocked` 方法。
 
-### ActiveServices
+#### ActiveServices
 
 ```java
 // ActiveServices.java
@@ -756,7 +765,7 @@ void scheduleServiceTimeoutLocked(ProcessRecord proc) {
 
 看一下启动超时会做什么：
 
-### ActivityManagerService
+#### ActivityManagerService
 
 ```java
 // ActivityManagerService.java - class MainHandler
@@ -779,7 +788,7 @@ public void handleMessage(Message msg) {
 }
 ```
 
-### ActiveServices
+#### ActiveServices
 
 ```java
 // ActiveServices.java
@@ -838,7 +847,7 @@ void serviceTimeout(ProcessRecord proc) {
 
 这里会和应用进程进行 IPC 沟通。
 
-### ApplicationThreadProxy
+#### ApplicationThreadProxy
 
 ```java
 // ApplicationThreadNative.java - class ApplicationThreadProxy
@@ -863,7 +872,9 @@ public final void scheduleCreateService(IBinder token, ServiceInfo info,
 }
 ```
 
-### ApplicationThreadNative
+### Client
+
+#### ApplicationThreadNative
 
 ```java
 // ApplicationThreadNative.java
@@ -883,7 +894,7 @@ public boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws
 }
 ```
 
-### ApplicationThread
+#### ApplicationThread
 
 ```java
 // ActivityThread.java - class ApplicationThread
@@ -900,7 +911,7 @@ public final void scheduleCreateService(IBinder token,
 }
 ```
 
-### ActivityThread.H
+#### ActivityThread.H
 
 ```java
 // ActivityThread.java - class H
@@ -918,7 +929,7 @@ public void handleMessage(Message msg) {
 }
 ```
 
-### ActivityThread
+#### ActivityThread
 
 ```java
 // ActivityThread.java
@@ -983,7 +994,9 @@ private void handleCreateService(CreateServiceData data) {
 ActivityManagerProxy -> ActivityManagerNative -> ActivityManagerService
 ```
 
-### ActivityManagerService
+### Server
+
+#### ActivityManagerService
 
 ```java
 // ActivityManagerService.java
@@ -1000,7 +1013,7 @@ public void serviceDoneExecuting(IBinder token, int type, int startId, int res) 
 
 ```
 
-### ActiveServices
+#### ActiveServices
 
 ```java
 // ActiveServices.java
@@ -1180,7 +1193,9 @@ private final void sendServiceArgsLocked(ServiceRecord r, boolean execInFg,
 
 上面的 `app.thread.scheduleServiceArgs` 最终会到达 `ActivityThread` 的 `handleServiceArgs` 方法执行 `onStartCommond` 的回调。
 
-### ActivityThread
+### Client
+
+#### ActivityThread
 
 ```java
 // ActivityThread.java
