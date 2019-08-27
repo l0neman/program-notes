@@ -1,2 +1,423 @@
-Android Service 绑定流程分析
+# Android Service 绑定流程分析
+
+## 前言
+
+启动服务的方式有两种，`startService` 和 `bindService`，其中绑定服务后，可获得服务端返回的 Binder 引用，通过持有 Service 端 Binder 可向 Service 端发送请求，这里基于 Android 6.0.1 系统源码继续分析 Service 的绑定流程。
+
+## 入口
+
+绑定 Service 的入口在 ContextImpl。
+
+### ContextImpl
+
+```java
+// ContextImpl.java
+
+@Override
+public boolean bindService(Intent service, ServiceConnection conn, int flags) {
+    warnIfCallingFromSystemProcess();
+    return bindServiceCommon(service, conn, flags, Process.myUserHandle());
+}
+```
+
+下面开始跟踪绑定流程。
+
+## 流程分析
+
+### Client
+
+### ContextImpl
+
+```java
+// ContextImpl.java
+
+private boolean bindServiceCommon(Intent service, ServiceConnection conn, int flags,
+        UserHandle user) {
+    IServiceConnection sd;
+    if (conn == null) {
+        throw new IllegalArgumentException("connection is null");
+    }
+    if (mPackageInfo != null) {
+        // 获得服务分发器。
+        sd = mPackageInfo.getServiceDispatcher(conn, getOuterContext(),
+                mMainThread.getHandler(), flags);
+    } else {
+        throw new RuntimeException("Not supported in system context");
+    }
+    validateServiceIntent(service);
+    try {
+        // token 为 null 则不是 activity contenxt。
+        IBinder token = getActivityToken();
+        if (token == null && (flags&BIND_AUTO_CREATE) == 0 && mPackageInfo != null
+                && mPackageInfo.getApplicationInfo().targetSdkVersion
+                < android.os.Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
+            flags |= BIND_WAIVE_PRIORITY;
+        }
+        service.prepareToLeaveProcess();
+        int res = ActivityManagerNative.getDefault().bindService(
+            mMainThread.getApplicationThread(), getActivityToken(), service,
+            service.resolveTypeIfNeeded(getContentResolver()),
+            sd, flags, getOpPackageName(), user.getIdentifier());
+        if (res < 0) {
+            throw new SecurityException(
+                    "Not allowed to bind to service " + service);
+        }
+        return res != 0;
+    } catch (RemoteException e) {
+        throw new RuntimeException("Failure from system", e);
+    }
+}
+```
+
+首先看获取的 Service 分发器实现：
+
+### LoadedApk
+
+```java
+// ContextImpl.java
+
+public final IServiceConnection getServiceDispatcher(ServiceConnection c,
+        Context context, Handler handler, int flags) {
+    synchronized (mServices) {
+        LoadedApk.ServiceDispatcher sd = null;
+        ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher> map = mServices.get(context);
+        if (map != null) {
+            sd = map.get(c);
+        }
+        if (sd == null) {
+            // 创建 Service 分发对象。
+            sd = new ServiceDispatcher(c, context, handler, flags);
+            if (map == null) {
+                map = new ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher>();
+                // 存入此 Context 对应的服务连接对象和分发对象的 map 中。
+                mServices.put(context, map);
+            }
+            map.put(c, sd);
+        } else {
+            sd.validate(context, handler);
+        }
+        return sd.getIServiceConnection();
+    }
+}
+```
+
+看一下 `ServuceDispatcher` 的实现。
+
+### ServiceDispatcher
+
+```java
+// LoadedApk.java - class ServiceDIspatcher
+
+static final class ServiceDispatcher {
+    private final ServiceDispatcher.InnerConnection mIServiceConnection;
+    // Service 连接对象。
+    private final ServiceConnection mConnection;
+    private final Context mContext;
+    // 主线程 H 类。
+    private final Handler mActivityThread;
+    private final ServiceConnectionLeaked mLocation;
+    // 参数 Flags。
+    private final int mFlags;
+
+    private RuntimeException mUnbindLocation;
+
+    private boolean mDied;
+    private boolean mForgotten;
+
+    private static class InnerConnection extends IServiceConnection.Stub {
+        final WeakReference<LoadedApk.ServiceDispatcher> mDispatcher;
+
+        InnerConnection(LoadedApk.ServiceDispatcher sd) {
+            mDispatcher = new WeakReference<LoadedApk.ServiceDispatcher>(sd);
+        }
+
+        public void connected(ComponentName name, IBinder service) throws RemoteException {
+            LoadedApk.ServiceDispatcher sd = mDispatcher.get();
+            if (sd != null) {
+                sd.connected(name, service);
+            }
+        }
+    }
+
+    private final ArrayMap<ComponentName, ServiceDispatcher.ConnectionInfo> mActiveConnections
+        = new ArrayMap<ComponentName, ServiceDispatcher.ConnectionInfo>();
+
+    ServiceDispatcher(ServiceConnection conn,
+            Context context, Handler activityThread, int flags) {
+        mIServiceConnection = new InnerConnection(this);
+        mConnection = conn;
+        mContext = context;
+        mActivityThread = activityThread;
+        mLocation = new ServiceConnectionLeaked(null);
+        mLocation.fillInStackTrace();
+        mFlags = flags;
+    }
+    
+    IServiceConnection getIServiceConnection() {
+        return mIServiceConnection;
+    }
+    ...
+}
+```
+
+可以看到，`getIServiceConnection` 最终返回的是 `ServiceDispatcher` 的内部类 `InnerConnection`  的对象，它是一个 Binder 服务端对象，内部持有 `ServiceDispatcher` 的弱引用，并在自身的 `connected` 方法被调用时立即调用 `ServiceDispatcher` 的 `connected` 方法，这里先回到上面。
+
+下一步就是通过 `ActivityManagerNative` 向 AMS 发送 `bindeService` 请求了。
+
+### ActivityManagerProxy
+
+```java
+// ActivityManagerNative.java - class ActivityManagerProxy
+
+public int bindService(IApplicationThread caller, IBinder token,
+        Intent service, String resolvedType, IServiceConnection connection,
+        int flags,  String callingPackage, int userId) throws RemoteException {
+    Parcel data = Parcel.obtain();
+    Parcel reply = Parcel.obtain();
+    data.writeInterfaceToken(IActivityManager.descriptor);
+    data.writeStrongBinder(caller != null ? caller.asBinder() : null);
+    data.writeStrongBinder(token);
+    service.writeToParcel(data, 0);
+    data.writeString(resolvedType);
+    data.writeStrongBinder(connection.asBinder());
+    data.writeInt(flags);
+    data.writeString(callingPackage);
+    data.writeInt(userId);
+    mRemote.transact(BIND_SERVICE_TRANSACTION, data, reply, 0);
+    reply.readException();
+    int res = reply.readInt();
+    data.recycle();
+    reply.recycle();
+    return res;
+}
+```
+
+## Server
+
+### ActivityManagerNative
+
+```java
+// ActivityManagerNative.java
+
+@Override
+public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
+        throws RemoteException {
+    switch (code) {
+    ...
+    case BIND_SERVICE_TRANSACTION: {
+        data.enforceInterface(IActivityManager.descriptor);
+        IBinder b = data.readStrongBinder();
+        IApplicationThread app = ApplicationThreadNative.asInterface(b);
+        IBinder token = data.readStrongBinder();
+        Intent service = Intent.CREATOR.createFromParcel(data);
+        String resolvedType = data.readString();
+        b = data.readStrongBinder();
+        int fl = data.readInt();
+        String callingPackage = data.readString();
+        int userId = data.readInt();
+        IServiceConnection conn = IServiceConnection.Stub.asInterface(b);
+        int res = bindService(app, token, service, resolvedType, conn, fl,
+                callingPackage, userId);
+        reply.writeNoException();
+        reply.writeInt(res);
+        return true;
+    }
+    ...
+}
+```
+
+### ActivityManagerService
+
+```java
+// ActivityManagerService.java
+
+public int bindService(IApplicationThread caller, IBinder token, Intent service,
+        String resolvedType, IServiceConnection connection, int flags, String callingPackage,
+        int userId) throws TransactionTooLargeException {
+    enforceNotIsolatedCaller("bindService");
+
+    // 拒接 Intent 携带文件描述符。
+    if (service != null && service.hasFileDescriptors() == true) {
+        throw new IllegalArgumentException("File descriptors passed in Intent");
+    }
+
+    if (callingPackage == null) {
+        throw new IllegalArgumentException("callingPackage cannot be null");
+    }
+
+    synchronized(this) {
+        // 调用 ActiveServices 方法。
+        return mServices.bindServiceLocked(caller, token, service,
+                resolvedType, connection, flags, callingPackage, userId);
+    }
+}
+```
+
+### ActiveServices
+
+```java
+// ActiveServices.java
+
+int bindServiceLocked(IApplicationThread caller, IBinder token, Intent service,
+        String resolvedType, IServiceConnection connection, int flags,
+        String callingPackage, int userId) throws TransactionTooLargeException {
+    if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "bindService: " + service
+            + " type=" + resolvedType + " conn=" + connection.asBinder()
+            + " flags=0x" + Integer.toHexString(flags));
+    // 获得调用者进程记录。
+    final ProcessRecord callerApp = mAm.getRecordForAppLocked(caller);
+    if (callerApp == null) {
+        throw new SecurityException(
+                "Unable to find app for caller " + caller
+                + " (pid=" + Binder.getCallingPid()
+                + ") when binding service " + service);
+    }
+
+    ActivityRecord activity = null;
+    // token 不为空，则启动者 context 为 Activity。
+    if (token != null) {
+        activity = ActivityRecord.isInStackLocked(token);
+        if (activity == null) {
+            Slog.w(TAG, "Binding with unknown activity: " + token);
+            return 0;
+        }
+    }
+
+    int clientLabel = 0;
+    PendingIntent clientIntent = null;
+
+    if (callerApp.info.uid == Process.SYSTEM_UID) {
+        ...
+    }
+
+    if ((flags&Context.BIND_TREAT_LIKE_ACTIVITY) != 0) {
+        mAm.enforceCallingPermission(android.Manifest.permission.MANAGE_ACTIVITY_STACKS,
+                "BIND_TREAT_LIKE_ACTIVITY");
+    }
+
+    // 前台执行。
+    final boolean callerFg = callerApp.setSchedGroup != Process.THREAD_GROUP_BG_NONINTERACTIVE;
+
+    // 查询目标 ServiceRecord。
+    ServiceLookupResult res =
+        retrieveServiceLocked(service, resolvedType, callingPackage,
+                Binder.getCallingPid(), Binder.getCallingUid(), userId, true, callerFg);
+    if (res == null) {
+        return 0;
+    }
+    if (res.record == null) {
+        return -1;
+    }
+    // 目标 Service 记录。
+    ServiceRecord s = res.record;
+
+    final long origId = Binder.clearCallingIdentity();
+
+    try {
+        // 取消服务重启的安排。
+        if (unscheduleServiceRestartLocked(s, callerApp.info.uid, false)) {
+            if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "BIND SERVICE WHILE RESTART PENDING: "
+                    + s);
+        }
+
+        if ((flags&Context.BIND_AUTO_CREATE) != 0) {
+            // 更新最后活动时间。
+            s.lastActivity = SystemClock.uptimeMillis();
+            if (!s.hasAutoCreateConnections()) {
+                // 这里是首次绑定，所以让跟踪器知晓。
+                ProcessStats.ServiceState stracker = s.getTracker();
+                if (stracker != null) {
+                    stracker.setBound(true, mAm.mProcessStats.getMemFactorLocked(),
+                            s.lastActivity);
+                }
+            }
+        }
+
+        mAm.startAssociationLocked(callerApp.uid, callerApp.processName,
+                s.appInfo.uid, s.name, s.processName);
+
+        AppBindRecord b = s.retrieveAppBindingLocked(service, callerApp);
+        ConnectionRecord c = new ConnectionRecord(b, activity,
+                connection, flags, clientLabel, clientIntent);
+
+        IBinder binder = connection.asBinder();
+        ArrayList<ConnectionRecord> clist = s.connections.get(binder);
+        if (clist == null) {
+            clist = new ArrayList<ConnectionRecord>();
+            s.connections.put(binder, clist);
+        }
+        clist.add(c);
+        b.connections.add(c);
+        if (activity != null) {
+            if (activity.connections == null) {
+                activity.connections = new HashSet<ConnectionRecord>();
+            }
+            activity.connections.add(c);
+        }
+        b.client.connections.add(c);
+        if ((c.flags&Context.BIND_ABOVE_CLIENT) != 0) {
+            b.client.hasAboveClient = true;
+        }
+        if (s.app != null) {
+            updateServiceClientActivitiesLocked(s.app, c, true);
+        }
+        clist = mServiceConnections.get(binder);
+        if (clist == null) {
+            clist = new ArrayList<ConnectionRecord>();
+            mServiceConnections.put(binder, clist);
+        }
+        clist.add(c);
+
+        if ((flags&Context.BIND_AUTO_CREATE) != 0) {
+            s.lastActivity = SystemClock.uptimeMillis();
+            if (bringUpServiceLocked(s, service.getFlags(), callerFg, false) != null) {
+                return 0;
+            }
+        }
+
+        if (s.app != null) {
+            if ((flags&Context.BIND_TREAT_LIKE_ACTIVITY) != 0) {
+                s.app.treatLikeActivity = true;
+            }
+            // This could have made the service more important.
+            mAm.updateLruProcessLocked(s.app, s.app.hasClientActivities
+                    || s.app.treatLikeActivity, b.client);
+            mAm.updateOomAdjLocked(s.app);
+        }
+
+        if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Bind " + s + " with " + b
+                + ": received=" + b.intent.received
+                + " apps=" + b.intent.apps.size()
+                + " doRebind=" + b.intent.doRebind);
+
+        if (s.app != null && b.intent.received) {
+            // Service is already running, so we can immediately
+            // publish the connection.
+            try {
+                c.conn.connected(s.name, b.intent.binder);
+            } catch (Exception e) {
+                Slog.w(TAG, "Failure sending service " + s.shortName
+                        + " to connection " + c.conn.asBinder()
+                        + " (in " + c.binding.client.processName + ")", e);
+            }
+
+            // If this is the first app connected back to this binding,
+            // and the service had previously asked to be told when
+            // rebound, then do so.
+            if (b.intent.apps.size() == 1 && b.intent.doRebind) {
+                requestServiceBindingLocked(s, b.intent, callerFg, true);
+            }
+        } else if (!b.intent.requested) {
+            requestServiceBindingLocked(s, b.intent, callerFg, false);
+        }
+
+        getServiceMap(s.userId).ensureNotStartingBackground(s);
+
+    } finally {
+        Binder.restoreCallingIdentity(origId);
+    }
+
+    return 1;
+}
+```
 
