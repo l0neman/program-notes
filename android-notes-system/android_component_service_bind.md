@@ -287,6 +287,7 @@ int bindServiceLocked(IApplicationThread caller, IBinder token, Intent service,
     PendingIntent clientIntent = null;
 
     if (callerApp.info.uid == Process.SYSTEM_UID) {
+        // 系统进程处理。
         ...
     }
 
@@ -295,7 +296,7 @@ int bindServiceLocked(IApplicationThread caller, IBinder token, Intent service,
                 "BIND_TREAT_LIKE_ACTIVITY");
     }
 
-    // 前台执行。
+    // 是否前台执行。
     final boolean callerFg = callerApp.setSchedGroup != Process.THREAD_GROUP_BG_NONINTERACTIVE;
 
     // 查询目标 ServiceRecord。
@@ -336,17 +337,21 @@ int bindServiceLocked(IApplicationThread caller, IBinder token, Intent service,
         mAm.startAssociationLocked(callerApp.uid, callerApp.processName,
                 s.appInfo.uid, s.name, s.processName);
 
+        // 1. 获得应用绑定记录。
         AppBindRecord b = s.retrieveAppBindingLocked(service, callerApp);
+        // 创建服务连接记录。
         ConnectionRecord c = new ConnectionRecord(b, activity,
                 connection, flags, clientLabel, clientIntent);
 
         IBinder binder = connection.asBinder();
+        // s.connection 是 IBinder -> List<ConnectionRecord>（表示所有绑定的客户端）。
         ArrayList<ConnectionRecord> clist = s.connections.get(binder);
         if (clist == null) {
             clist = new ArrayList<ConnectionRecord>();
             s.connections.put(binder, clist);
         }
         clist.add(c);
+        // b.connection 是 List<ConnectionRecord>（表示所有绑定的客户端）。
         b.connections.add(c);
         if (activity != null) {
             if (activity.connections == null) {
@@ -370,6 +375,7 @@ int bindServiceLocked(IApplicationThread caller, IBinder token, Intent service,
 
         if ((flags&Context.BIND_AUTO_CREATE) != 0) {
             s.lastActivity = SystemClock.uptimeMillis();
+            // 启动 service 流程。
             if (bringUpServiceLocked(s, service.getFlags(), callerFg, false) != null) {
                 return 0;
             }
@@ -379,7 +385,7 @@ int bindServiceLocked(IApplicationThread caller, IBinder token, Intent service,
             if ((flags&Context.BIND_TREAT_LIKE_ACTIVITY) != 0) {
                 s.app.treatLikeActivity = true;
             }
-            // This could have made the service more important.
+            // 这里可能会提高服务的优先级。
             mAm.updateLruProcessLocked(s.app, s.app.hasClientActivities
                     || s.app.treatLikeActivity, b.client);
             mAm.updateOomAdjLocked(s.app);
@@ -391,9 +397,9 @@ int bindServiceLocked(IApplicationThread caller, IBinder token, Intent service,
                 + " doRebind=" + b.intent.doRebind);
 
         if (s.app != null && b.intent.received) {
-            // Service is already running, so we can immediately
-            // publish the connection.
+            // Service 已经在运行了，所以我们可以立即发布连接。
             try {
+                // 2. conn 为上面的 connection（IServiceConnection）。
                 c.conn.connected(s.name, b.intent.binder);
             } catch (Exception e) {
                 Slog.w(TAG, "Failure sending service " + s.shortName
@@ -401,10 +407,10 @@ int bindServiceLocked(IApplicationThread caller, IBinder token, Intent service,
                         + " (in " + c.binding.client.processName + ")", e);
             }
 
-            // If this is the first app connected back to this binding,
-            // and the service had previously asked to be told when
-            // rebound, then do so.
+            // 如果这是第一个连接到此绑定的应用，并且 Service 之前已被被告知重新
+            // 被绑定，则这样做。
             if (b.intent.apps.size() == 1 && b.intent.doRebind) {
+                // 回调 onRebind 方法。
                 requestServiceBindingLocked(s, b.intent, callerFg, true);
             }
         } else if (!b.intent.requested) {
@@ -419,5 +425,90 @@ int bindServiceLocked(IApplicationThread caller, IBinder token, Intent service,
 
     return 1;
 }
+```
+
+首先看 1 处的 `s.retrieveAppBindingLocked` 是怎样获取绑定记录的。
+
+### ServiceRecord
+
+```java
+// ServiceRecord.java
+
+public AppBindRecord retrieveAppBindingLocked(Intent intent,
+        ProcessRecord app) {
+    // 创建 Intent 比较器对象。
+    Intent.FilterComparison filter = new Intent.FilterComparison(intent);
+    // bindings 是 FilterComparison -> IntentBindRecord 的 map。
+    IntentBindRecord i = bindings.get(filter);
+    if (i == null) {
+        i = new IntentBindRecord(this, filter);
+        bindings.put(filter, i);
+    }
+    AppBindRecord a = i.apps.get(app);
+    if (a != null) {
+        return a;
+    }
+    a = new AppBindRecord(this, i, app);
+    i.apps.put(app, a);
+    return a;
+}
+```
+
+### 伪代码描述 todo
+
+```java
+// 描述绑定到服务的 Intent 记录。
+IntentBindRecord {
+	ServiceRecord service;      // 绑定的 Service 记录。
+	FilterComparison intent;    // Intent 比较器。
+	Map<ProcessRecord, AppBindRecord> apps; // 所有绑定到此 Intent 的应用程序。
+}
+
+// 描述一个和服务相绑定的应用程序记录。
+AppBindRecord {
+	ServiceRecord service;      // 绑定的 Service 记录。
+	IntentBindRecord intent;    // 对应的 Intent 绑定描述。
+	ProcessRocord client;       // 应用程序对应的进程记录。
+	Set<ConnectionRecord> apps; // 应用程序所有的绑定记录。
+}
+
+// 描述单个绑定记录。
+ConnectionRecord {
+	AppBindRocord binding;      // 对应的应用程序绑定描述。
+	ActivityRecord activity;    // 绑定 Activity 记录。
+	IServiceConnection conn;    // 绑定连接。
+}
+
+// 描述服务激励。
+ServiceRecord {
+	Map<FilterComparison, IntentBindRecord> bindings; // 所有活动绑定 Service 的记录。
+	Map<IBinder, List<ConnectionRecord>> connections; // 所有绑定 Service 的客户端记录。
+}
+
+retrieveAppBindingLocked(this, intent, app):
+
+IntentBindRecord = {
+	ServiceRecord service     = this;
+	FilterComparison intent   = { intent };
+	Map<ProcessRecord, AppBindRecord> apps;
+}
+
+AppBindRecord = {
+	ServiceRecord service      = this;
+	IntentBindRecord intent    = intent;
+	ProcessRocord client       = app;
+}
+
+IntentBindRecord.apps.put(app, AppBinderRecord);
+
+return AppBindRecord;
+
+ConnectionRecord = {
+	AppBindRocord binding    = AppBindRecord;
+	ActivityRecord activity  = activity;
+	IServiceConnection conn  = connection;
+}
+
+ServiceRecord.connections.put(binder, List<IntentBindRecord>.add(ConnectionRecord));
 ```
 
