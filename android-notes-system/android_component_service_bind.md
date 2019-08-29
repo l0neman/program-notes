@@ -337,28 +337,33 @@ int bindServiceLocked(IApplicationThread caller, IBinder token, Intent service,
         mAm.startAssociationLocked(callerApp.uid, callerApp.processName,
                 s.appInfo.uid, s.name, s.processName);
 
-        // 1. 获得应用绑定记录。
+        // 1. 获得应用程序绑定记录。
         AppBindRecord b = s.retrieveAppBindingLocked(service, callerApp);
-        // 创建服务连接记录。
+        // 创建单个 Service 绑定记录（activity 和 service 对应的描述）。
         ConnectionRecord c = new ConnectionRecord(b, activity,
                 connection, flags, clientLabel, clientIntent);
 
         IBinder binder = connection.asBinder();
-        // s.connection 是 IBinder -> List<ConnectionRecord>（表示所有绑定的客户端）。
+        // s.connections 是 IBinder -> List<ConnectionRecord> 的 map
+        // （表示所有绑定到此 Service 的客户端记录）。
         ArrayList<ConnectionRecord> clist = s.connections.get(binder);
         if (clist == null) {
             clist = new ArrayList<ConnectionRecord>();
+            // 将单个绑定记录存入 Service 的所有记录中。
             s.connections.put(binder, clist);
         }
         clist.add(c);
-        // b.connection 是 List<ConnectionRecord>（表示所有绑定的客户端）。
+        // b.connections 是 List<ConnectionRecord>
+        // （表示此应用程序中所有绑定的客户端）。
         b.connections.add(c);
         if (activity != null) {
             if (activity.connections == null) {
                 activity.connections = new HashSet<ConnectionRecord>();
             }
+            // 记录到 activity 的所有绑定记录中。
             activity.connections.add(c);
         }
+        // 记录到应用程序的所有绑定记录中。
         b.client.connections.add(c);
         if ((c.flags&Context.BIND_ABOVE_CLIENT) != 0) {
             b.client.hasAboveClient = true;
@@ -414,6 +419,7 @@ int bindServiceLocked(IApplicationThread caller, IBinder token, Intent service,
                 requestServiceBindingLocked(s, b.intent, callerFg, true);
             }
         } else if (!b.intent.requested) {
+            // 2. 请求绑定服务。
             requestServiceBindingLocked(s, b.intent, callerFg, false);
         }
 
@@ -439,76 +445,329 @@ public AppBindRecord retrieveAppBindingLocked(Intent intent,
     // 创建 Intent 比较器对象。
     Intent.FilterComparison filter = new Intent.FilterComparison(intent);
     // bindings 是 FilterComparison -> IntentBindRecord 的 map。
+    // 首先获取绑定到 Service 的 Intent 记录。
     IntentBindRecord i = bindings.get(filter);
     if (i == null) {
+        // 没有获取到，则创建新的记录。
         i = new IntentBindRecord(this, filter);
         bindings.put(filter, i);
     }
     AppBindRecord a = i.apps.get(app);
+    // 获取绑定到此 Intent 上的应用程序记录。
     if (a != null) {
         return a;
     }
+    // 如果没有则创建新的记录。
     a = new AppBindRecord(this, i, app);
+    // 将应用程序记录存入。
     i.apps.put(app, a);
     return a;
 }
 ```
 
-### 伪代码描述 todo
+可以看到上面出现了好几个 Record 类型，这里首先使用伪代码它们和服务绑定记录相关数据结构，这里以 `{}` 表示类型。
+
+### Records
 
 ```java
-// 描述绑定到服务的 Intent 记录。
+// 描述绑定到 Service 的 Intent 记录。
 IntentBindRecord {
 	ServiceRecord service;      // 绑定的 Service 记录。
 	FilterComparison intent;    // Intent 比较器。
 	Map<ProcessRecord, AppBindRecord> apps; // 所有绑定到此 Intent 的应用程序。
+    ...
 }
 
-// 描述一个和服务相绑定的应用程序记录。
+// 描述一个和 Service 相绑定的应用程序记录。
 AppBindRecord {
 	ServiceRecord service;      // 绑定的 Service 记录。
 	IntentBindRecord intent;    // 对应的 Intent 绑定描述。
 	ProcessRocord client;       // 应用程序对应的进程记录。
 	Set<ConnectionRecord> apps; // 应用程序所有的绑定记录。
+    ...
 }
 
 // 描述单个绑定记录。
 ConnectionRecord {
 	AppBindRocord binding;      // 对应的应用程序绑定描述。
-	ActivityRecord activity;    // 绑定 Activity 记录。
+	ActivityRecord activity;    // 对应的绑定 Activity 记录。
 	IServiceConnection conn;    // 绑定连接。
+    ...
 }
 
-// 描述服务激励。
+// 描述 Service 记录。
 ServiceRecord {
 	Map<FilterComparison, IntentBindRecord> bindings; // 所有活动绑定 Service 的记录。
 	Map<IBinder, List<ConnectionRecord>> connections; // 所有绑定 Service 的客户端记录。
+    ...
 }
 
-retrieveAppBindingLocked(this, intent, app):
-
-IntentBindRecord = {
-	ServiceRecord service     = this;
-	FilterComparison intent   = { intent };
-	Map<ProcessRecord, AppBindRecord> apps;
+// 描述 Activity 记录。
+ActivityRecord {
+    HashSet<ConnectionRecord> connections;  // Activity 中的所有绑定记录。
 }
 
-AppBindRecord = {
-	ServiceRecord service      = this;
-	IntentBindRecord intent    = intent;
-	ProcessRocord client       = app;
+// 描述应用程序记录。
+ProcessRecord {
+    // 应用程序中的所有绑定记录。
+    final ArraySet<ConnectionRecord> connections = new ArraySet<>();
+    ...
+}
+```
+
+通过枚举这些绑定记录相关的数据结构，再看上面的分析就清晰很多，都是一些保存数据的操作。
+
+接下来看 2 处 的 `requestServiceBindingLocked` 方法是如何请求绑定服务的。
+
+### ActiveServices
+
+```java
+// ActiveServices.java
+
+private final boolean requestServiceBindingLocked(ServiceRecord r, IntentBindRecord i,
+        boolean execInFg, boolean rebind) throws TransactionTooLargeException {
+    if (r.app == null || r.app.thread == null) {
+        // 如果 Service 当前没有运行，则无法绑定。
+        return false;
+    }
+    if ((!i.requested || rebind) && i.apps.size() > 0) {
+        try {
+            // 发送绑定超时的消息，和 startService 类似。
+            bumpServiceExecutingLocked(r, execInFg, "bind");
+            r.app.forceProcessStateUpTo(ActivityManager.PROCESS_STATE_SERVICE);
+            // 安排客户端进程执行绑定 Service。
+            r.app.thread.scheduleBindService(r, i.intent.getIntent(), rebind,
+                    r.app.repProcState);
+            if (!rebind) {
+                i.requested = true;
+            }
+            i.hasBound = true;
+            i.doRebind = false;
+        } catch (TransactionTooLargeException e) {
+            // 保持 executeNesting 计数准确。
+            if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Crashed while binding " + r, e);
+            final boolean inDestroying = mDestroyingServices.contains(r);
+            serviceDoneExecutingLocked(r, inDestroying, inDestroying);
+            throw e;
+        } catch (RemoteException e) {
+            if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Crashed while binding " + r);
+            // 保持 executeNesting 计数准确。
+            final boolean inDestroying = mDestroyingServices.contains(r);
+            serviceDoneExecutingLocked(r, inDestroying, inDestroying);
+            return false;
+        }
+    }
+    return true;
+}
+```
+
+下一步安排客户端进程执行 Service 绑定操作。
+
+### ApplicationThreadProxy
+
+```java
+// ApplicationThreadNative.java - class ApplicationThreadProxy
+
+public final void scheduleBindService(IBinder token, Intent intent, boolean rebind,
+        int processState) throws RemoteException {
+    Parcel data = Parcel.obtain();
+    data.writeInterfaceToken(IApplicationThread.descriptor);
+    data.writeStrongBinder(token);
+    intent.writeToParcel(data, 0);
+    data.writeInt(rebind ? 1 : 0);
+    data.writeInt(processState);
+    mRemote.transact(SCHEDULE_BIND_SERVICE_TRANSACTION, data, null,
+            IBinder.FLAG_ONEWAY);
+    data.recycle();
 }
 
-IntentBindRecord.apps.put(app, AppBinderRecord);
+```
 
-return AppBindRecord;
+## Client
 
-ConnectionRecord = {
-	AppBindRocord binding    = AppBindRecord;
-	ActivityRecord activity  = activity;
-	IServiceConnection conn  = connection;
+### ApplicationThreadNative
+
+```java
+// ApplicationThreadNative.java
+
+@Override
+public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
+        throws RemoteException {
+    switch (code) {
+    ...
+    case SCHEDULE_BIND_SERVICE_TRANSACTION: {
+        data.enforceInterface(IApplicationThread.descriptor);
+        IBinder token = data.readStrongBinder();
+        Intent intent = Intent.CREATOR.createFromParcel(data);
+        boolean rebind = data.readInt() != 0;
+        int processState = data.readInt();
+        scheduleBindService(token, intent, rebind, processState);
+        return true;
+    }
+    ...
+    }
+    ...
+}   
+```
+
+### ActivityThread
+
+```java
+// ActivityThread.java
+
+public final void scheduleBindService(IBinder token, Intent intent,
+        boolean rebind, int processState) {
+    updateProcessState(processState, false);
+    BindServiceData s = new BindServiceData();
+    s.token = token;
+    s.intent = intent;
+    s.rebind = rebind;
+
+    if (DEBUG_SERVICE)
+        Slog.v(TAG, "scheduleBindService token=" + token + " intent=" + intent + " uid="
+                + Binder.getCallingUid() + " pid=" + Binder.getCallingPid());
+    sendMessage(H.BIND_SERVICE, s);
+}
+```
+
+### ActivityThread.H
+
+```java
+// ActivityThread.java - class H
+
+public void handleMessage(Message msg) {
+    if (DEBUG_MESSAGES) Slog.v(TAG, ">>> handling: " + codeToString(msg.what));
+    switch (msg.what) {
+    ...
+    case BIND_SERVICE:
+        Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "serviceBind");
+        handleBindService((BindServiceData)msg.obj);
+        Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+        break;
+    ...
+    }
+    ...
+}
+```
+
+### ActivityThread
+
+```java
+// ActivityThread.java
+
+private void handleBindService(BindServiceData data) {
+    // 获得对应的 Service 对象。
+    Service s = mServices.get(data.token);
+    if (DEBUG_SERVICE)
+        Slog.v(TAG, "handleBindService s=" + s + " rebind=" + data.rebind);
+    if (s != null) {
+        try {
+            data.intent.setExtrasClassLoader(s.getClassLoader());
+            data.intent.prepareToEnterProcess();
+            try {
+                if (!data.rebind) {
+                    // 获得 Service 回调的 IBinder 对象。
+                    IBinder binder = s.onBind(data.intent);
+                    // 发布 IBinder 对象。
+                    ActivityManagerNative.getDefault().publishService(
+                            data.token, data.intent, binder);
+                } else {
+                    s.onRebind(data.intent);
+                    ActivityManagerNative.getDefault().serviceDoneExecuting(
+                            data.token, SERVICE_DONE_EXECUTING_ANON, 0, 0);
+                }
+                ensureJitEnabled();
+            } catch (RemoteException ex) {
+            }
+        } catch (Exception e) {
+            if (!mInstrumentation.onException(s, e)) {
+                throw new RuntimeException(
+                        "Unable to bind to service " + s
+                        + " with " + data.intent + ": " + e.toString(), e);
+            }
+        }
+    }
 }
 
-ServiceRecord.connections.put(binder, List<IntentBindRecord>.add(ConnectionRecord));
+```
+
+辗转调用到了 `ActivityThread` 的 `handleBindService` 方法中。
+
+这里可以看到，直接调用 `Service` 的 `onBinder` 获取提供的 Binder 对象，然后通过 AMS 发布。
+
+## Server
+
+### ActivityManagerService
+
+```java
+// ActivityManagerService.java
+
+public void publishService(IBinder token, Intent intent, IBinder service) {
+    // 拒绝 Intent 携带（泄露）文件描述符。
+    if (intent != null && intent.hasFileDescriptors() == true) {
+        throw new IllegalArgumentException("File descriptors passed in Intent");
+    }
+
+    synchronized(this) {
+        if (!(token instanceof ServiceRecord)) {
+            throw new IllegalArgumentException("Invalid service token");
+        }
+        mServices.publishServiceLocked((ServiceRecord)token, intent, service);
+    }
+}
+```
+
+### ActiveServices
+
+```java
+// ActiveServices.java
+
+void publishServiceLocked(ServiceRecord r, Intent intent, IBinder service) {
+    final long origId = Binder.clearCallingIdentity();
+    try {
+        if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "PUBLISHING " + r
+                + " " + intent + ": " + service);
+        if (r != null) {
+            Intent.FilterComparison filter
+                    = new Intent.FilterComparison(intent);
+            // 获得绑定到 Service 的 Intent 记录。
+            IntentBindRecord b = r.bindings.get(filter);
+            if (b != null && !b.received) {
+                b.binder = service;
+                b.requested = true;
+                b.received = true;
+                for (int conni=r.connections.size()-1; conni>=0; conni--) {
+                    // 获得绑定到 Service 的所有绑定记录。
+                    ArrayList<ConnectionRecord> clist = r.connections.valueAt(conni);
+                    for (int i=0; i<clist.size(); i++) {
+                        ConnectionRecord c = clist.get(i);
+                        if (!filter.equals(c.binding.intent.intent)) {
+                            if (DEBUG_SERVICE) Slog.v(
+                                    TAG_SERVICE, "Not publishing to: " + c);
+                            if (DEBUG_SERVICE) Slog.v(
+                                    TAG_SERVICE, "Bound intent: " + c.binding.intent.intent);
+                            if (DEBUG_SERVICE) Slog.v(
+                                    TAG_SERVICE, "Published intent: " + intent);
+                            continue;
+                        }
+                        if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Publishing to: " + c);
+                        try {
+                            // 回调对应的 IServiceConnection 的 connected 方法。
+                            c.conn.connected(r.name, service);
+                        } catch (Exception e) {
+                            Slog.w(TAG, "Failure sending service " + r.name +
+                                  " to connection " + c.conn.asBinder() +
+                                  " (in " + c.binding.client.processName + ")", e);
+                        }
+                    }
+                }
+            }
+
+            serviceDoneExecutingLocked(r, mDestroyingServices.contains(r), false);
+        }
+    } finally {
+        Binder.restoreCallingIdentity(origId);
+    }
+}
 ```
 
