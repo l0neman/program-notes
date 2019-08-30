@@ -26,7 +26,7 @@ public boolean bindService(Intent service, ServiceConnection conn, int flags) {
 
 ### Client
 
-### ContextImpl
+#### ContextImpl
 
 ```java
 // ContextImpl.java
@@ -71,7 +71,7 @@ private boolean bindServiceCommon(Intent service, ServiceConnection conn, int fl
 
 首先看获取的 Service 分发器实现：
 
-### LoadedApk
+#### LoadedApk
 
 ```java
 // ContextImpl.java
@@ -103,7 +103,7 @@ public final IServiceConnection getServiceDispatcher(ServiceConnection c,
 
 看一下 `ServuceDispatcher` 的实现。
 
-### ServiceDispatcher
+#### ServiceDispatcher
 
 ```java
 // LoadedApk.java - class ServiceDIspatcher
@@ -164,7 +164,7 @@ static final class ServiceDispatcher {
 
 下一步就是通过 `ActivityManagerNative` 向 AMS 发送 `bindeService` 请求了。
 
-### ActivityManagerProxy
+#### ActivityManagerProxy
 
 ```java
 // ActivityManagerNative.java - class ActivityManagerProxy
@@ -192,9 +192,9 @@ public int bindService(IApplicationThread caller, IBinder token,
 }
 ```
 
-## Server
+### Server
 
-### ActivityManagerNative
+#### ActivityManagerNative
 
 ```java
 // ActivityManagerNative.java
@@ -226,7 +226,7 @@ public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
 }
 ```
 
-### ActivityManagerService
+#### ActivityManagerService
 
 ```java
 // ActivityManagerService.java
@@ -253,7 +253,7 @@ public int bindService(IApplicationThread caller, IBinder token, Intent service,
 }
 ```
 
-### ActiveServices
+#### ActiveServices
 
 ```java
 // ActiveServices.java
@@ -435,7 +435,7 @@ int bindServiceLocked(IApplicationThread caller, IBinder token, Intent service,
 
 首先看 1 处的 `s.retrieveAppBindingLocked` 是怎样获取绑定记录的。
 
-### ServiceRecord
+#### ServiceRecord
 
 ```java
 // ServiceRecord.java
@@ -467,7 +467,7 @@ public AppBindRecord retrieveAppBindingLocked(Intent intent,
 
 可以看到上面出现了好几个 Record 类型，这里首先使用伪代码它们和服务绑定记录相关数据结构，这里以 `{}` 表示类型。
 
-### Records
+#### Records
 
 ```java
 // 描述绑定到 Service 的 Intent 记录。
@@ -519,7 +519,7 @@ ProcessRecord {
 
 接下来看 2 处 的 `requestServiceBindingLocked` 方法是如何请求绑定服务的。
 
-### ActiveServices
+#### ActiveServices
 
 ```java
 // ActiveServices.java
@@ -563,7 +563,7 @@ private final boolean requestServiceBindingLocked(ServiceRecord r, IntentBindRec
 
 下一步安排客户端进程执行 Service 绑定操作。
 
-### ApplicationThreadProxy
+#### ApplicationThreadProxy
 
 ```java
 // ApplicationThreadNative.java - class ApplicationThreadProxy
@@ -583,9 +583,9 @@ public final void scheduleBindService(IBinder token, Intent intent, boolean rebi
 
 ```
 
-## Client
+### Client
 
-### ApplicationThreadNative
+#### ApplicationThreadNative
 
 ```java
 // ApplicationThreadNative.java
@@ -610,7 +610,7 @@ public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
 }   
 ```
 
-### ActivityThread
+#### ActivityThread
 
 ```java
 // ActivityThread.java
@@ -630,7 +630,7 @@ public final void scheduleBindService(IBinder token, Intent intent,
 }
 ```
 
-### ActivityThread.H
+#### ActivityThread.H
 
 ```java
 // ActivityThread.java - class H
@@ -650,7 +650,7 @@ public void handleMessage(Message msg) {
 }
 ```
 
-### ActivityThread
+#### ActivityThread
 
 ```java
 // ActivityThread.java
@@ -695,9 +695,9 @@ private void handleBindService(BindServiceData data) {
 
 这里可以看到，直接调用 `Service` 的 `onBinder` 获取提供的 Binder 对象，然后通过 AMS 发布。
 
-## Server
+### Server
 
-### ActivityManagerService
+#### ActivityManagerService
 
 ```java
 // ActivityManagerService.java
@@ -712,12 +712,13 @@ public void publishService(IBinder token, Intent intent, IBinder service) {
         if (!(token instanceof ServiceRecord)) {
             throw new IllegalArgumentException("Invalid service token");
         }
+        // 下一步。
         mServices.publishServiceLocked((ServiceRecord)token, intent, service);
     }
 }
 ```
 
-### ActiveServices
+#### ActiveServices
 
 ```java
 // ActiveServices.java
@@ -752,7 +753,7 @@ void publishServiceLocked(ServiceRecord r, Intent intent, IBinder service) {
                         }
                         if (DEBUG_SERVICE) Slog.v(TAG_SERVICE, "Publishing to: " + c);
                         try {
-                            // 回调对应的 IServiceConnection 的 connected 方法。
+                            // IPC 回调对应的 IServiceConnection 的 connected 方法。
                             c.conn.connected(r.name, service);
                         } catch (Exception e) {
                             Slog.w(TAG, "Failure sending service " + r.name +
@@ -770,4 +771,134 @@ void publishServiceLocked(ServiceRecord r, Intent intent, IBinder service) {
     }
 }
 ```
+
+### Client
+
+#### InnerConnection
+
+```java
+// LoadedApk.java - class ServiceDispatcher$InnerConnection
+
+private static class InnerConnection extends IServiceConnection.Stub {
+    final WeakReference<LoadedApk.ServiceDispatcher> mDispatcher;
+
+    InnerConnection(LoadedApk.ServiceDispatcher sd) {
+        mDispatcher = new WeakReference<LoadedApk.ServiceDispatcher>(sd);
+    }
+
+    public void connected(ComponentName name, IBinder service) throws RemoteException {
+        LoadedApk.ServiceDispatcher sd = mDispatcher.get();
+        if (sd != null) {
+            sd.connected(name, service);
+        }
+    }
+}
+```
+
+#### ServiceDispatcher
+
+```java
+// LoadedApk.java - class ServiceDispatcher
+
+public void connected(ComponentName name, IBinder service) {
+    if (mActivityThread != null) {
+        mActivityThread.post(new RunConnection(name, service, 0));
+    } else {
+        doConnected(name, service);
+    }
+}
+```
+
+#### RunConnection
+
+```java
+// LoadedApk.java - class ServiceDispatcher$RunConnection
+
+private final class RunConnection implements Runnable {
+    RunConnection(ComponentName name, IBinder service, int command) {
+        mName = name;
+        mService = service;
+        mCommand = command;
+    }
+
+    public void run() {
+        if (mCommand == 0) {
+            doConnected(mName, mService);
+        } else if (mCommand == 1) {
+            doDeath(mName, mService);
+        }
+    }
+
+    final ComponentName mName;
+    final IBinder mService;
+    final int mCommand;
+}
+```
+
+#### ServiceDispatcher
+
+```java
+// LoadedApk.java - class ServiceDispatcher
+
+public void doConnected(ComponentName name, IBinder service) {
+    ServiceDispatcher.ConnectionInfo old;
+    ServiceDispatcher.ConnectionInfo info;
+
+    synchronized (this) {
+        if (mForgotten) {
+            // 我们在收到连接之前解除绑定，忽略接收到的任何连接。
+            return;
+        }
+        // mActiveConnections = ComponentName -> ConnectionInfo
+        old = mActiveConnections.get(name);
+        if (old != null && old.binder == service) {
+            // 嗯，已经有这个了，那好吧。
+            return;
+        }
+
+        if (service != null) {
+            // 一个新的 Service 正在被连接……设置一切。
+            mDied = false;
+            info = new ConnectionInfo();
+            info.binder = service;
+            info.deathMonitor = new DeathMonitor(name, service);
+            try {
+                service.linkToDeath(info.deathMonitor, 0);
+                // 存入活动的连接中。
+                mActiveConnections.put(name, info);
+            } catch (RemoteException e) {
+                // 这个服务再我们得到之前已经死了……只是不要对它做任何事。
+                mActiveConnections.remove(name);
+                return;
+            }
+
+        } else {
+            // Service 正在断开连接……清理掉。
+            mActiveConnections.remove(name);
+        }
+
+        if (old != null) {
+            old.binder.unlinkToDeath(old.deathMonitor, 0);
+        }
+    }
+
+    // 如果有就的 Service，则不会断开连接。
+    if (old != null) {
+        mConnection.onServiceDisconnected(name);
+    }
+    // 如果有新 Service，则现在已连接。
+    if (service != null) {
+        // 回调 ServiceConnection。
+        mConnection.onServiceConnected(name, service);
+    } 	
+}
+```
+
+最后回调了 `ServiceConnection` 的 `onServiceConnected` 方法将 Service 提供的 `IBinder` 对象回调出去，结束整个绑定流程。
+
+下面用时序图描述这个过程。
+
+## 时序图
+
+
 
