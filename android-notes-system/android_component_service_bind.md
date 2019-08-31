@@ -1,5 +1,37 @@
 # Android Service 绑定流程分析
 
+- [前言](#前言)
+- [入口](#入口)
+  - [ContextImpl](#contextimpl)
+- [流程分析](#流程分析)
+  - [Client](#client)
+    - [ContextImpl](#contextimpl)
+    - [LoadedApk](#loadedapk)
+    - [ServiceDispatcher](#servicedispatcher)
+    - [ActivityManagerProxy](#activitymanagerproxy)
+  - [Server](#server)
+    - [ActivityManagerNative](#activitymanagernative)
+    - [ActivityManagerService](#activitymanagerservice)
+    - [ActiveServices](#activeservices)
+    - [ServiceRecord](#servicerecord)
+    - [Records](#records)
+    - [ActiveServices](#activeservices)
+    - [ApplicationThreadProxy](#applicationthreadproxy)
+  - [Client](#client)
+    - [ApplicationThreadNative](#applicationthreadnative)
+    - [ApplicationThread](#applicationthread)
+    - [ActivityThread.H](#activitythread.h)
+    - [ActivityThread](#activitythread)
+  - [Server](#server)
+    - [ActivityManagerService](#activitymanagerservice)
+    - [ActiveServices](#activeservices)
+  - [Client](#client)
+    - [InnerConnection](#innerconnection)
+    - [ServiceDispatcher](#servicedispatcher)
+    - [RunConnection](#runconnection)
+    - [ServiceDispatcher](#servicedispatcher)
+- [时序图](#时序图)
+
 ## 前言
 
 启动服务的方式有两种，`startService` 和 `bindService`，其中绑定服务后，可获得服务端返回的 Binder 引用，通过持有 Service 端 Binder 可向 Service 端发送请求，这里基于 Android 6.0.1 系统源码继续分析 Service 的绑定流程。
@@ -576,6 +608,7 @@ public final void scheduleBindService(IBinder token, Intent intent, boolean rebi
     intent.writeToParcel(data, 0);
     data.writeInt(rebind ? 1 : 0);
     data.writeInt(processState);
+    // FLAG_ONEWAY 是异步的不阻塞。
     mRemote.transact(SCHEDULE_BIND_SERVICE_TRANSACTION, data, null,
             IBinder.FLAG_ONEWAY);
     data.recycle();
@@ -610,10 +643,10 @@ public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
 }   
 ```
 
-#### ActivityThread
+#### ApplicationThread
 
 ```java
-// ActivityThread.java
+// ActivityThread.java - class ApplicationThread
 
 public final void scheduleBindService(IBinder token, Intent intent,
         boolean rebind, int processState) {
@@ -900,5 +933,10 @@ public void doConnected(ComponentName name, IBinder service) {
 
 ## 时序图
 
+首先是应用客户端进程流程：
 
+![service_bind_client](./image/android_component_service_bind/service_bind_client.png)
 
+服务端流程：
+
+![service_bind_server](./image/android_component_service_bind/service_bind_server.png)
