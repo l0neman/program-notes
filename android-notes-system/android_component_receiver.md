@@ -432,7 +432,7 @@ public Intent registerReceiver(IApplicationThread caller, String callerPackage,
         if (!bf.debugCheck()) {
             Slog.w(TAG, "==> For Dynamic broadcast");
         }
-        // mReceiverResolver 表示广播的查询器，这里提前添加广播的过滤器。
+        // mReceiverResolver 表示广播的解析器，这里提前添加广播的过滤器。
         mReceiverResolver.addFilter(bf);
 
         // 将与此过滤器匹配的所有粘性广播加入队列。
@@ -725,10 +725,10 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
         boolean ordered, boolean sticky, int callingPid, int callingUid, int userId) {
     intent = new Intent(intent);
 
-    // By default broadcasts do not go to stopped apps.
+    // 默认情况下，广播不会发送到已停止的包。
     intent.addFlags(Intent.FLAG_EXCLUDE_STOPPED_PACKAGES);
 
-    // If we have not finished booting, don't allow this to launch new processes.
+    // 如果我们没有完成启动，不允许启动新的进程。
     if (!mProcessesReady && (intent.getFlags()&Intent.FLAG_RECEIVER_BOOT_UPGRADE) == 0) {
         intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY);
     }
@@ -743,9 +743,8 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
     userId = handleIncomingUser(callingPid, callingUid, userId,
             true, ALLOW_NON_FULL, "broadcast", callerPackage);
 
-    // Make sure that the user who is receiving this broadcast is running.
-    // If not, we will just skip it. Make an exception for shutdown broadcasts
-    // and upgrade steps.
+    // 确保接收广播用户此时正在运行。
+    // 如果没有，我们会跳过它，除了关闭广播和升级步骤除外。
 
     if (userId != UserHandle.USER_ALL && !isUserRunningLocked(userId, false)) {
         if ((callingUid != Process.SYSTEM_UID
@@ -761,9 +760,8 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
     if (options != null) {
         brOptions = new BroadcastOptions(options);
         if (brOptions.getTemporaryAppWhitelistDuration() > 0) {
-            // See if the caller is allowed to do this.  Note we are checking against
-            // the actual real caller (not whoever provided the operation as say a
-            // PendingIntent), because that who is actually supplied the arguments.
+            // 查看是否允许调用者执行此操作。注意我们实际上正在检查真实的调用者
+            //（不是提供操作的人， 例如 PendingIntent），要看实际上谁提供了参数。
             if (checkComponentPermission(
                     android.Manifest.permission.CHANGE_DEVICE_IDLE_TEMP_WHITELIST,
                     Binder.getCallingPid(), Binder.getCallingUid(), -1, true)
@@ -780,14 +778,13 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
     }
 
     /*
-     * Prevent non-system code (defined here to be non-persistent
-     * processes) from sending protected broadcasts.
+     * 阻止非系统代码（这里定义为非 persistend 的进程）发送受保护的广播。
      */
     int callingAppId = UserHandle.getAppId(callingUid);
     if (callingAppId == Process.SYSTEM_UID || callingAppId == Process.PHONE_UID
         || callingAppId == Process.SHELL_UID || callingAppId == Process.BLUETOOTH_UID
         || callingAppId == Process.NFC_UID || callingUid == 0) {
-        // Always okay.
+        // 始终 OK。
     } else if (callerApp == null || !callerApp.persistent) {
         try {
             if (AppGlobals.getPackageManager().isProtectedBroadcast(
@@ -798,18 +795,17 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
                 Slog.w(TAG, msg);
                 throw new SecurityException(msg);
             } else if (AppWidgetManager.ACTION_APPWIDGET_CONFIGURE.equals(intent.getAction())) {
-                // Special case for compatibility: we don't want apps to send this,
-                // but historically it has not been protected and apps may be using it
-                // to poke their own app widget.  So, instead of making it protected,
-                // just limit it to the caller.
+                // 兼容性的特殊情况，我们不希望应用程序发送此消息，但从历史上看它
+                // 没有受到保护，应用程序可能会使用它来推送自己的应用程序小部件。
+                // 因此不要将其保护，而是将其限制为调用者。
                 if (callerApp == null) {
                     String msg = "Permission Denial: not allowed to send broadcast "
                             + intent.getAction() + " from unknown caller.";
                     Slog.w(TAG, msg);
                     throw new SecurityException(msg);
                 } else if (intent.getComponent() != null) {
-                    // They are good enough to send to an explicit component...  verify
-                    // it is being sent to the calling app.
+                    // 它们能够被发送到确定的组件上……
+                    // 验证它是否被发送到了调用的应用程序上。
                     if (!intent.getComponent().getPackageName().equals(
                             callerApp.info.packageName)) {
                         String msg = "Permission Denial: not allowed to send broadcast "
@@ -820,7 +816,7 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
                         throw new SecurityException(msg);
                     }
                 } else {
-                    // Limit broadcast to their own package.
+                    // 限制广播到它们自己的包。
                     intent.setPackage(callerApp.info.packageName);
                 }
             }
@@ -838,9 +834,8 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
             case Intent.ACTION_PACKAGE_CHANGED:
             case Intent.ACTION_EXTERNAL_APPLICATIONS_UNAVAILABLE:
             case Intent.ACTION_EXTERNAL_APPLICATIONS_AVAILABLE:
-                // Handle special intents: if this broadcast is from the package
-                // manager about a package being removed, we need to remove all of
-                // its activities from the history stack.
+                // 处理特殊意图：如果此广播来自 PackageManager 和包被删除有关，
+                // 我们需要从历史 Activity 栈中删除其所有 Activity。
                 if (checkComponentPermission(
                         android.Manifest.permission.BROADCAST_PACKAGE_REMOVED,
                         callingPid, callingUid, -1, true)
@@ -864,8 +859,7 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
                         }
                         break;
                     case Intent.ACTION_EXTERNAL_APPLICATIONS_UNAVAILABLE:
-                        // If resources are unavailable just force stop all those packages
-                        // and flush the attribute cache as well.
+                        // 如果资源不可用，则强制停止所有这些包并刷新属性缓存。
                         String list[] =
                                 intent.getStringArrayExtra(Intent.EXTRA_CHANGED_PACKAGE_LIST);
                         if (list != null && list.length > 0) {
@@ -905,7 +899,7 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
                                     mAppOpsService.packageRemoved(
                                             intent.getIntExtra(Intent.EXTRA_UID, -1), ssp);
 
-                                    // Remove all permissions granted from/to this package
+                                    // 删除来自/向授予的所有权限。
                                     removeUriPermissionsForPackageLocked(ssp, userId, true);
 
                                     removeTasksByPackageNameLocked(ssp, userId);
@@ -921,7 +915,7 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
                 }
                 break;
             case Intent.ACTION_PACKAGE_ADDED:
-                // Special case for adding a package: by default turn on compatibility mode.
+                // 添加包的特殊情况：默认情况下启动兼容模式。
                 Uri data = intent.getData();
                 String ssp;
                 if (data != null && (ssp = data.getSchemeSpecificPart()) != null) {
@@ -939,16 +933,14 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
                 }
                 break;
             case Intent.ACTION_TIMEZONE_CHANGED:
-                // If this is the time zone changed action, queue up a message that will reset
-                // the timezone of all currently running processes. This message will get
-                // queued up before the broadcast happens.
+                // 如果这是时区更改操作，请向队列插入一条消息，该消息将重置所有
+                // 当前正在运行的进程的时区。 在广播发生之前，此消息将排队等候。
                 mHandler.sendEmptyMessage(UPDATE_TIME_ZONE);
                 break;
             case Intent.ACTION_TIME_CHANGED:
-                // If the user set the time, let all running processes know.
+                // 如果用户设置了时间，请让所有正在运行的进程知道。
                 final int is24Hour =
-                        intent.getBooleanExtra(Intent.EXTRA_TIME_PREF_24_HOUR_FORMAT, false) ? 1
-                                : 0;
+                        intent.getBooleanExtra(Intent.EXTRA_TIME_PREF_24_HOUR_FORMAT, false) ? 1: 0;
                 mHandler.sendMessage(mHandler.obtainMessage(UPDATE_TIME, is24Hour, 0));
                 BatteryStatsImpl stats = mBatteryStatsService.getActiveStatistics();
                 synchronized (stats) {
@@ -965,7 +957,7 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
         }
     }
 
-    // Add to the sticky list if requested.
+    // 如果需要添加到粘性广播列表中。
     if (sticky) {
         if (checkPermission(android.Manifest.permission.BROADCAST_STICKY,
                 callingPid, callingUid)
@@ -985,12 +977,9 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
             throw new SecurityException(
                     "Sticky broadcasts can't target a specific component");
         }
-        // We use userId directly here, since the "all" target is maintained
-        // as a separate set of sticky broadcasts.
+        // 我们这里直接使用 userId，因为 "all" 这个目标是作为一组独立的粘性广播维护的。
         if (userId != UserHandle.USER_ALL) {
-            // But first, if this is not a broadcast to all users, then
-            // make sure it doesn't conflict with an existing broadcast to
-            // all users.
+            // 但是首先，如果这不是对所有用户的广播，那么请确保它不与现有的所有用户的广播冲突。
             ArrayMap<String, ArrayList<Intent>> stickies = mStickyBroadcasts.get(
                     UserHandle.USER_ALL);
             if (stickies != null) {
@@ -1022,7 +1011,7 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
         int i;
         for (i = 0; i < stickiesCount; i++) {
             if (intent.filterEquals(list.get(i))) {
-                // This sticky already exists, replace it.
+                // 这个粘性广播已经存在，替换它。
                 list.set(i, new Intent(intent));
                 break;
             }
@@ -1034,24 +1023,25 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
 
     int[] users;
     if (userId == UserHandle.USER_ALL) {
-        // Caller wants broadcast to go to all started users.
+        // 调用者希望将广播发送到所有启动的用户。
         users = mStartedUserArray;
     } else {
-        // Caller wants broadcast to go to one specific user.
+        // 调用者希望将广播发送到指定的用户。
         users = new int[] {userId};
     }
 
-    // Figure out who all will receive this broadcast.
+    // 找出所有会接收这个广播的人。
     List receivers = null;
     List<BroadcastFilter> registeredReceivers = null;
-    // Need to resolve the intent to interested receivers...
+    // 需要从 intent 解析出感兴趣的广播接收器……
     if ((intent.getFlags()&Intent.FLAG_RECEIVER_REGISTERED_ONLY)
              == 0) {
+        // 合并广播接收器到 receivers。
         receivers = collectReceiverComponents(intent, resolvedType, callingUid, users);
     }
     if (intent.getComponent() == null) {
         if (userId == UserHandle.USER_ALL && callingUid == Process.SHELL_UID) {
-            // Query one target user at a time, excluding shell-restricted users
+            // 一次查询一个目标用户，不包括 shell 限制用户。
             UserManagerService ums = getUserManagerLocked();
             for (int i = 0; i < users.length; i++) {
                 if (ums.hasUserRestriction(
@@ -1081,9 +1071,7 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
 
     int NR = registeredReceivers != null ? registeredReceivers.size() : 0;
     if (!ordered && NR > 0) {
-        // If we are not serializing this broadcast, then send the
-        // registered receivers separately so they don't wait for the
-        // components to be launched.
+        // 如果我们没有序列化此广播，则单独发送已注册的广播接收器，为了不让它们等待组件启动。
         final BroadcastQueue queue = broadcastQueueForIntent(intent);
         BroadcastRecord r = new BroadcastRecord(queue, intent, callerApp,
                 callerPackage, callingPid, callingUid, resolvedType, requiredPermissions,
@@ -1099,15 +1087,12 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
         NR = 0;
     }
 
-    // Merge into one list.
+    // 合并为一个列表。
     int ir = 0;
     if (receivers != null) {
-        // A special case for PACKAGE_ADDED: do not allow the package
-        // being added to see this broadcast.  This prevents them from
-        // using this as a back door to get run as soon as they are
-        // installed.  Maybe in the future we want to have a special install
-        // broadcast or such for apps, but we'd like to deliberately make
-        // this decision.
+        // PACKAGE_ADDED 的一个特例：不允许包在添加时来接收到此广播。
+        // 这可以防止它们将其用作后门，以便在安装后立即运行。 
+        // 也许将来我们希望有一个特殊的安装广播或类似的应用程序，但我们想故意做出这个决定。
         String skipPackages[] = null;
         if (Intent.ACTION_PACKAGE_ADDED.equals(intent.getAction())
                 || Intent.ACTION_PACKAGE_RESTARTED.equals(intent.getAction())
@@ -1150,14 +1135,14 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
                 curr = registeredReceivers.get(ir);
             }
             if (curr.getPriority() >= curt.priority) {
-                // Insert this broadcast record into the final list.
+                // 将此广播记录插入最终列表。
                 receivers.add(it, curr);
                 ir++;
                 curr = null;
                 it++;
                 NT++;
             } else {
-                // Skip to the next ResolveInfo in the final list.
+                // 跳到最终列表中的下一个ResolveInfo。
                 it++;
                 curt = null;
             }
