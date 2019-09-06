@@ -672,6 +672,8 @@ public int broadcastIntent(IApplicationThread caller,
 粘性广播 serialized = false; sticky = true;
 ```
 
+### Server
+
 #### ActivityManagerNative
 
 ```java
@@ -1036,7 +1038,7 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
     // 需要从 intent 解析出感兴趣的广播接收器……
     if ((intent.getFlags()&Intent.FLAG_RECEIVER_REGISTERED_ONLY)
              == 0) {
-        // 合并广播接收器到 receivers。
+        // 查询出静态注册广播。
         receivers = collectReceiverComponents(intent, resolvedType, callingUid, users);
     }
     if (intent.getComponent() == null) {
@@ -1058,6 +1060,7 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
                 }
             }
         } else {
+            // 查询出动态注册的广播。
             registeredReceivers = mReceiverResolver.queryIntent(intent,
                     resolvedType, false, userId);
         }
@@ -1080,9 +1083,12 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
         if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST, "Enqueueing parallel broadcast " + r);
         final boolean replaced = replacePending && queue.replaceParallelBroadcastLocked(r);
         if (!replaced) {
+            // 将广播记录加入到无序广播队列。
             queue.enqueueParallelBroadcastLocked(r);
+            // 分发无序广播队列中的广播。
             queue.scheduleBroadcastsLocked();
         }
+        // 处理后将动态广播列表置空。
         registeredReceivers = null;
         NR = 0;
     }
@@ -1123,6 +1129,7 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
             }
         }
 
+        // 合并 registeredReceivers 到 receivers 中去。
         int NT = receivers != null ? receivers.size() : 0;
         int it = 0;
         ResolveInfo curt = null;
@@ -1168,10 +1175,12 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
                 + ": prev had " + queue.mOrderedBroadcasts.size());
         if (DEBUG_BROADCAST) Slog.i(TAG_BROADCAST,
                 "Enqueueing broadcast " + r.intent.getAction());
-
+       
         boolean replaced = replacePending && queue.replaceOrderedBroadcastLocked(r);
         if (!replaced) {
+            // 将广播记录加入有序广播队列中。
             queue.enqueueOrderedBroadcastLocked(r);
+            // 分发有序广播队列中的广播。
             queue.scheduleBroadcastsLocked();
         }
     }
@@ -1179,4 +1188,138 @@ private final int broadcastIntentLocked(ProcessRecord callerApp,
     return ActivityManager.BROADCAST_SUCCESS;
 }
 ```
+
+上面主要做了如下几件事：
+
+1. 设置 Flags（不发送给停止的包，不允许启动新进程）。
+2. 检查用户状态，验证广播是否受保护。
+3. 处理系统相关的广播（PACKAGE_ADD、ACTION_TIME_CHANGED）。
+4. 收集粘性广播，将其存放在 `mStickyBroadcasts`。
+5. 收集动态和静态广播列表，处理无序广播。
+6. 合并动态广播列表 `registeredReceivers` 至 `receivers` 列表。
+7. 处理有序广播。
+
+其中有几个方法单独提取出来分析：
+
+`collectReceiverComponents` 收集静态广播：
+
+```java
+// ActivityManagerService.java
+
+private List<ResolveInfo> collectReceiverComponents(Intent intent, String resolvedType,
+        int callingUid, int[] users) {
+    List<ResolveInfo> receivers = null;
+    try {
+        HashSet<ComponentName> singleUserReceivers = null;
+        boolean scannedFirstReceivers = false;
+        for (int user : users) {
+            // 跳过具有 shell 限制的用户。
+            if (callingUid == Process.SHELL_UID
+                    && getUserManagerLocked().hasUserRestriction(
+                            UserManager.DISALLOW_DEBUGGING_FEATURES, user)) {
+                continue;
+            }
+            List<ResolveInfo> newReceivers = AppGlobals.getPackageManager()
+                    .queryIntentReceivers(intent, resolvedType, STOCK_PM_FLAGS, user);
+            if (user != UserHandle.USER_OWNER && newReceivers != null) {
+                // 如果这不是主用户，我们需要检查应该过滤掉的任何广播接收器。
+                for (int i=0; i<newReceivers.size(); i++) {
+                    ResolveInfo ri = newReceivers.get(i);
+                    if ((ri.activityInfo.flags&ActivityInfo.FLAG_PRIMARY_USER_ONLY) != 0) {
+                        newReceivers.remove(i);
+                        i--;
+                    }
+                }
+            }
+            if (newReceivers != null && newReceivers.size() == 0) {
+                newReceivers = null;
+            }
+            if (receivers == null) {
+                receivers = newReceivers;
+            } else if (newReceivers != null) {
+                // 我们需要将额外的广播接收器与我们迄今为止所做的相结合。
+                // 这很容易，但我们还需要对任何单用户广播接收器进行去重。
+                if (!scannedFirstReceivers) {
+                    // 收集我们已经检索过的任何单用户广播接收器。
+                    scannedFirstReceivers = true;
+                    for (int i=0; i<receivers.size(); i++) {
+                        ResolveInfo ri = receivers.get(i);
+                        if ((ri.activityInfo.flags&ActivityInfo.FLAG_SINGLE_USER) != 0) {
+                            ComponentName cn = new ComponentName(
+                                    ri.activityInfo.packageName, ri.activityInfo.name);
+                            if (singleUserReceivers == null) {
+                                singleUserReceivers = new HashSet<ComponentName>();
+                            }
+                            singleUserReceivers.add(cn);
+                        }
+                    }
+                }
+                // 添加新结果到现有结果中，跟踪和去重单用户广播接收器。
+                for (int i=0; i<newReceivers.size(); i++) {
+                    ResolveInfo ri = newReceivers.get(i);
+                    if ((ri.activityInfo.flags&ActivityInfo.FLAG_SINGLE_USER) != 0) {
+                        ComponentName cn = new ComponentName(
+                                ri.activityInfo.packageName, ri.activityInfo.name);
+                        if (singleUserReceivers == null) {
+                            singleUserReceivers = new HashSet<ComponentName>();
+                        }
+                        if (!singleUserReceivers.contains(cn)) {
+                            singleUserReceivers.add(cn);
+                            receivers.add(ri);
+                        }
+                    } else {
+                        receivers.add(ri);
+                    }
+                }
+            }
+        }
+    } catch (RemoteException ex) {
+        // pm 在同一个进程中，这永远不可能发生。
+    }
+    return receivers;
+}
+```
+
+`BroadcastQueue queue = broadcastQueueForIntent(intent);` 获得广播队列：
+
+```java
+// ActivityManagerService.java
+
+BroadcastQueue broadcastQueueForIntent(Intent intent) {
+    // 返回前台或后台广播队列。
+    final boolean isFg = (intent.getFlags() & Intent.FLAG_RECEIVER_FOREGROUND) != 0;
+    if (DEBUG_BROADCAST_BACKGROUND) Slog.i(TAG_BROADCAST,
+            "Broadcast intent " + intent + " on "
+            + (isFg ? "foreground" : "background") + " queue");
+    return (isFg) ? mFgBroadcastQueue : mBgBroadcastQueue;
+}
+```
+
+`queue.enqueueParallelBroadcastLocked(r);` 加入无序广播队列。
+
+#### BroadcastQueue
+
+```java
+// BroadcastQueue.java
+
+public void enqueueParallelBroadcastLocked(BroadcastRecord r) {
+    mParallelBroadcasts.add(r);
+    r.enqueueClockTime = System.currentTimeMillis();
+}
+```
+
+`queue.enqueueOrderedBroadcastLocked(r);` 加入有序广播队列。
+
+```java
+// BroadcastQueue.java
+
+public void enqueueOrderedBroadcastLocked(BroadcastRecord r) {
+    mOrderedBroadcasts.add(r);
+    r.enqueueClockTime = System.currentTimeMillis();
+}
+```
+
+下面分析广播的分发过程，上面不管是无需还是有序广播，都调用了 `BroadcasrQueue` 的 `scheduleBroadcastsLocked` 方法进行广播的分发。
+
+## 分发流程分析
 
