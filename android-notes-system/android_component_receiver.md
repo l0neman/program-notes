@@ -1385,7 +1385,7 @@ final void processNextBroadcast(boolean fromMsg) {
             mBroadcastsScheduled = false;
         }
 
-        // First, deliver any non-serialized broadcasts right away.
+        // 首先，立即发送任何非有序广播。
         while (mParallelBroadcasts.size() > 0) {
             r = mParallelBroadcasts.remove(0);
             r.dispatchTime = SystemClock.uptimeMillis();
@@ -1405,11 +1405,10 @@ final void processNextBroadcast(boolean fromMsg) {
                     + mQueueName + "] " + r);
         }
 
-        // Now take care of the next serialized one...
+        // 现在关心下一个有序广播。
 
-        // If we are waiting for a process to come up to handle the next
-        // broadcast, then do nothing at this point.  Just in case, we
-        // check that the process we're waiting for still exists.
+        // 如果我们正在等待一个进程来处理下一个广播，那么此时什么都不做。
+        // 为了以防万一，我们检查我们正在等待的过程是否仍然存在。
         if (mPendingBroadcast != null) {
             if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST,
                     "processNextBroadcast [" + mQueueName + "]: waiting for "
@@ -1421,7 +1420,7 @@ final void processNextBroadcast(boolean fromMsg) {
                 isDead = proc == null || proc.crashing;
             }
             if (!isDead) {
-                // It's still alive, so keep waiting
+                // 它还活着，所以保持等待。
                 return;
             } else {
                 Slog.w(TAG, "pending app  ["
@@ -1437,12 +1436,11 @@ final void processNextBroadcast(boolean fromMsg) {
         
         do {
             if (mOrderedBroadcasts.size() == 0) {
-                // No more broadcasts pending, so all done!
+                // 没有更多的广播在等待，所以全部完成！
                 mService.scheduleAppGcsLocked();
                 if (looped) {
-                    // If we had finished the last ordered broadcast, then
-                    // make sure all processes have correct oom and sched
-                    // adjustments.
+                    // 如果我们完成了最后一次有序广播，
+                    // 那么请确保所有进程都调整为正确的 oom 和 sched。
                     mService.updateOomAdjLocked();
                 }
                 return;
@@ -1450,14 +1448,11 @@ final void processNextBroadcast(boolean fromMsg) {
             r = mOrderedBroadcasts.get(0);
             boolean forceReceive = false;
 
-            // Ensure that even if something goes awry with the timeout
-            // detection, we catch "hung" broadcasts here, discard them,
-            // and continue to make progress.
-            //
-            // This is only done if the system is ready so that PRE_BOOT_COMPLETED
-            // receivers don't get executed with timeouts. They're intended for
-            // one time heavy lifting after system upgrades and can take
-            // significant amounts of time.
+            // 确保即使出现超时检测错误，我们也会在此处捕获“挂起”广播，
+            // 丢弃它们并继续进度。
+            
+            // 仅在系统准备就绪时才执行此操作，以便 PRE_BOOT_COMPLETED 接收器不
+            // 会因超时而执行。 它们在系统升级后一次性重型启动，可能需要花费大量时间。
             int numReceivers = (r.receivers != null) ? r.receivers.size() : 0;
             if (mService.mProcessesReady && r.dispatchTime > 0) {
                 long now = SystemClock.uptimeMillis();
@@ -1488,8 +1483,7 @@ final void processNextBroadcast(boolean fromMsg) {
 
             if (r.receivers == null || r.nextReceiver >= numReceivers
                     || r.resultAbort || forceReceive) {
-                // No more receivers for this broadcast!  Send the final
-                // result if requested...
+                // 对于这个广播没有更多的接收器了！如果请求那么发送最终结果……
                 if (r.resultTo != null) {
                     try {
                         if (DEBUG_BROADCAST) Slog.i(TAG_BROADCAST,
@@ -1498,8 +1492,8 @@ final void processNextBroadcast(boolean fromMsg) {
                         performReceiveLocked(r.callerApp, r.resultTo,
                             new Intent(r.intent), r.resultCode,
                             r.resultData, r.resultExtras, false, false, r.userId);
-                        // Set this to null so that the reference
-                        // (local and remote) isn't kept in the mBroadcastHistory.
+                        // 将此值设置为 null，以便引用（本地和远程）
+                        // 不保留在 mBroadcastHistory 中。
                         r.resultTo = null;
                     } catch (RemoteException e) {
                         r.resultTo = null;
@@ -1515,7 +1509,7 @@ final void processNextBroadcast(boolean fromMsg) {
                 if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST,
                         "Finished with ordered broadcast " + r);
 
-                // ... and on to the next...
+                // ... 然后是下一个……
                 addBroadcastToHistoryLocked(r);
                 mOrderedBroadcasts.remove(0);
                 r = null;
@@ -1524,11 +1518,10 @@ final void processNextBroadcast(boolean fromMsg) {
             }
         } while (r == null);
 
-        // Get the next receiver...
+        // 获取下一个广播接收器……
         int recIdx = r.nextReceiver++;
 
-        // Keep track of when this receiver started, and make sure there
-        // is a timeout message pending to kill it if need be.
+        // 跟踪此广播接收器何时启动，并确保在需要时有待处理的超时消息。
         r.receiverTime = SystemClock.uptimeMillis();
         if (recIdx == 0) {
             r.dispatchTime = r.receiverTime;
@@ -1548,8 +1541,7 @@ final void processNextBroadcast(boolean fromMsg) {
         final Object nextReceiver = r.receivers.get(recIdx);
 
         if (nextReceiver instanceof BroadcastFilter) {
-            // Simple case: this is a registered receiver who gets
-            // a direct call.
+            // 简单示例：这是一个直接调用的已注册的广播接收器。
             BroadcastFilter filter = (BroadcastFilter)nextReceiver;
             if (DEBUG_BROADCAST)  Slog.v(TAG_BROADCAST,
                     "Delivering ordered ["
@@ -1557,8 +1549,7 @@ final void processNextBroadcast(boolean fromMsg) {
                     + filter + ": " + r);
             deliverToRegisteredReceiverLocked(r, filter, r.ordered);
             if (r.receiver == null || !r.ordered) {
-                // The receiver has already finished, so schedule to
-                // process the next one.
+                // 这个广播接收器已经完成，因此安排处理下一个广播接收器。
                 if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST, "Quick finishing ["
                         + mQueueName + "]: ordered="
                         + r.ordered + " receiver=" + r.receiver);
@@ -1573,8 +1564,7 @@ final void processNextBroadcast(boolean fromMsg) {
             return;
         }
 
-        // Hard case: need to instantiate the receiver, possibly
-        // starting its application process to host it.
+        // 硬示例：需要实例化接收器，可能启动它的应用进程来支持它。
 
         ResolveInfo info =
             (ResolveInfo)nextReceiver;
@@ -1696,7 +1686,7 @@ final void processNextBroadcast(boolean fromMsg) {
             }
         }
         if (r.curApp != null && r.curApp.crashing) {
-            // If the target process is crashing, just skip it.
+            // 如果目标进程 cash 了，那么跳过它。
             Slog.w(TAG, "Skipping deliver ordered [" + mQueueName + "] " + r
                     + " to " + r.curApp + ": process crashing");
             skip = true;
@@ -1708,7 +1698,7 @@ final void processNextBroadcast(boolean fromMsg) {
                         info.activityInfo.packageName,
                         UserHandle.getUserId(info.activityInfo.applicationInfo.uid));
             } catch (Exception e) {
-                // all such failures mean we skip this receiver
+                // 所有这些失败表示我们要跳过这个接收器。
                 Slog.w(TAG, "Exception getting recipient info for "
                         + info.activityInfo.packageName, e);
             }
@@ -1736,7 +1726,7 @@ final void processNextBroadcast(boolean fromMsg) {
         String targetProcess = info.activityInfo.processName;
         r.curComponent = component;
         final int receiverUid = info.activityInfo.applicationInfo.uid;
-        // If it's a singleton, it needs to be the same app or a special app
+        // 如果它是单例的，那么需要是相同的应用或指定的应用。
         if (r.callingUid != Process.SYSTEM_UID && isSingleton
                 && mService.isValidSingletonCall(r.callingUid, receiverUid)) {
             info.activityInfo = mService.getActivityInfoForUser(info.activityInfo, 0);
@@ -1753,7 +1743,7 @@ final void processNextBroadcast(boolean fromMsg) {
                     brOptions.getTemporaryAppWhitelistDuration(), r);
         }
 
-        // Broadcast is being executed, its package can't be stopped.
+        // 广播正在执行，其包不能被停止。
         try {
             AppGlobals.getPackageManager().setPackageStoppedState(
                     r.curComponent.getPackageName(), false, UserHandle.getUserId(r.callingUid));
@@ -1763,7 +1753,7 @@ final void processNextBroadcast(boolean fromMsg) {
                     + r.curComponent.getPackageName() + ": " + e);
         }
 
-        // Is this receiver's application already running?
+        // 这个广播接收器的应用进程是否已经运行？
         ProcessRecord app = mService.getProcessRecordLocked(targetProcess,
                 info.activityInfo.applicationInfo.uid, false);
         if (app != null && app.thread != null) {
@@ -1778,25 +1768,22 @@ final void processNextBroadcast(boolean fromMsg) {
             } catch (RuntimeException e) {
                 Slog.wtf(TAG, "Failed sending broadcast to "
                         + r.curComponent + " with " + r.intent, e);
-                // If some unexpected exception happened, just skip
-                // this broadcast.  At this point we are not in the call
-                // from a client, so throwing an exception out from here
-                // will crash the entire system instead of just whoever
-                // sent the broadcast.
+                // 如果发生了一些意外异常，请跳过此广播。
+                // 此时我们不是来自客户端的调用，那么从此处抛出异常将导致
+                // 整个系统崩溃而不是发送广播的任何人。
                 logBroadcastReceiverDiscardLocked(r);
                 finishReceiverLocked(r, r.resultCode, r.resultData,
                         r.resultExtras, r.resultAbort, false);
                 scheduleBroadcastsLocked();
-                // We need to reset the state if we failed to start the receiver.
+                // 如果我们启动广播接收器失败，那么我们需要重置状态。
                 r.state = BroadcastRecord.IDLE;
                 return;
             }
 
-            // If a dead object exception was thrown -- fall through to
-            // restart the application.
+            // 如果抛出了 DeadObjectException - 请重新启动应用程序。
         }
 
-        // Not running -- get it started, to be executed when the app comes up.
+        // 没有运行 - 那么启动它，在应用程序启动时执行。
         if (DEBUG_BROADCAST)  Slog.v(TAG_BROADCAST,
                 "Need to start app ["
                 + mQueueName + "] " + targetProcess + " for broadcast " + r);
@@ -1806,8 +1793,7 @@ final void processNextBroadcast(boolean fromMsg) {
                 "broadcast", r.curComponent,
                 (r.intent.getFlags()&Intent.FLAG_RECEIVER_BOOT_UPGRADE) != 0, false, false))
                         == null) {
-            // Ah, this recipient is unavailable.  Finish it if necessary,
-            // and mark the broadcast record as ready for the next.
+            // 哎呀，这个接收器不可用。 如果有必要，请完成它，并将下一个广播记录标记为准备就绪。
             Slog.w(TAG, "Unable to launch app "
                     + info.activityInfo.applicationInfo.packageName + "/"
                     + info.activityInfo.applicationInfo.uid + " for broadcast "
