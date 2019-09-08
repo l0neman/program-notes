@@ -1398,8 +1398,10 @@ final void processNextBroadcast(boolean fromMsg) {
                 if (DEBUG_BROADCAST)  Slog.v(TAG_BROADCAST,
                         "Delivering non-ordered on [" + mQueueName + "] to registered "
                         + target + ": " + r);
+                // 分发广播给已注册的广播接收器。
                 deliverToRegisteredReceiverLocked(r, (BroadcastFilter)target, false);
             }
+            // 将广播加入历史记录。
             addBroadcastToHistoryLocked(r);
             if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST, "Done with parallel broadcast ["
                     + mQueueName + "] " + r);
@@ -1504,6 +1506,7 @@ final void processNextBroadcast(boolean fromMsg) {
                 }
 
                 if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST, "Cancelling BROADCAST_TIMEOUT_MSG");
+                // 取消超时的消息。
                 cancelBroadcastTimeoutLocked();
 
                 if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST,
