@@ -1385,7 +1385,7 @@ final void processNextBroadcast(boolean fromMsg) {
             mBroadcastsScheduled = false;
         }
 
-        // 首先，立即发送任何非有序广播。
+        // 1. 首先，立即发送所有无序广播。
         while (mParallelBroadcasts.size() > 0) {
             r = mParallelBroadcasts.remove(0);
             r.dispatchTime = SystemClock.uptimeMillis();
@@ -1407,7 +1407,7 @@ final void processNextBroadcast(boolean fromMsg) {
                     + mQueueName + "] " + r);
         }
 
-        // 现在关心下一个有序广播。
+        // 2. 现在处理下一个有序广播。
 
         // 如果我们正在等待一个进程来处理下一个广播，那么此时什么都不做。
         // 为了以防万一，我们检查我们正在等待的过程是否仍然存在。
@@ -1469,7 +1469,7 @@ final void processNextBroadcast(boolean fromMsg) {
                             + " numReceivers=" + numReceivers
                             + " nextReceiver=" + r.nextReceiver
                             + " state=" + r.state);
-                    broadcastTimeoutLocked(false); // forcibly finish this broadcast
+                    broadcastTimeoutLocked(false); // 强制结束这个广播。
                     forceReceive = true;
                     r.state = BroadcastRecord.IDLE;
                 }
@@ -1491,6 +1491,7 @@ final void processNextBroadcast(boolean fromMsg) {
                         if (DEBUG_BROADCAST) Slog.i(TAG_BROADCAST,
                                 "Finishing broadcast [" + mQueueName + "] "
                                 + r.intent.getAction() + " app=" + r.callerApp);
+                        // 安排 onReceive()。
                         performReceiveLocked(r.callerApp, r.resultTo,
                             new Intent(r.intent), r.resultCode,
                             r.resultData, r.resultExtras, false, false, r.userId);
@@ -1512,7 +1513,7 @@ final void processNextBroadcast(boolean fromMsg) {
                 if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST,
                         "Finished with ordered broadcast " + r);
 
-                // ... 然后是下一个……
+                // ... 然后是下一个有序广播……
                 addBroadcastToHistoryLocked(r);
                 mOrderedBroadcasts.remove(0);
                 r = null;
@@ -1537,6 +1538,7 @@ final void processNextBroadcast(boolean fromMsg) {
             if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST,
                     "Submitting BROADCAST_TIMEOUT_MSG ["
                     + mQueueName + "] for " + r + " at " + timeoutTime);
+            // 发送广播超时消息。
             setBroadcastTimeoutLocked(timeoutTime);
         }
 
@@ -1569,13 +1571,13 @@ final void processNextBroadcast(boolean fromMsg) {
 
         // 硬示例：需要实例化接收器，可能启动它的应用进程来支持它。
 
-        ResolveInfo info =
-            (ResolveInfo)nextReceiver;
+        ResolveInfo info = (ResolveInfo)nextReceiver;
         ComponentName component = new ComponentName(
                 info.activityInfo.applicationInfo.packageName,
                 info.activityInfo.name);
 
         boolean skip = false;
+        // 权限检查。
         int perm = mService.checkComponentPermission(info.activityInfo.permission,
                 r.callingPid, r.callingUid, info.activityInfo.applicationInfo.uid,
                 info.activityInfo.exported);
@@ -1813,6 +1815,173 @@ final void processNextBroadcast(boolean fromMsg) {
         mPendingBroadcastRecvIndex = recIdx;
     }
 }
+```
 
+上面的代码做了如下四件事：
+
+
+1. 循环处理无序广播，使用 `deliverToRegisteredReceiverLocked` 方法进行分发。
+2. 循环处理有序广播，使用 `performReceiveLocked` 方法进行分发。
+3. 获得下一条有序广播，如果动态注册，则使用 `deliverToRegisteredReceiverLocked` 处理后返回。
+4. 检查相关权限，处理下一条有序广播，如果接收器所在进程没有启动，则启动，然后使用 `processCurBroadcastLocked` 处理这条静态广播 。
+
+首先看 `deliverToRegisteredReceiverLocked` 方法的处理：
+
+```java
+// BroadcastHandler.java
+
+private void deliverToRegisteredReceiverLocked(BroadcastRecord r,
+        BroadcastFilter filter, boolean ordered) {
+    boolean skip = false;
+    // 检查相关权限，同上。
+    ...
+
+    if (!mService.mIntentFirewall.checkBroadcast(r.intent, r.callingUid,
+            r.callingPid, r.resolvedType, filter.receiverList.uid)) {
+        return;
+    }
+
+    if (filter.receiverList.app == null || filter.receiverList.app.crashing) {
+        Slog.w(TAG, "Skipping deliver [" + mQueueName + "] " + r
+                + " to " + filter.receiverList + ": process crashing");
+        skip = true;
+    }
+
+    if (!skip) {
+        // 如果这不是作为有序广播发送的，那么
+        // 我们不希望接触跟踪有序广播当前状态的字段。
+        if (ordered) {
+            r.receiver = filter.receiverList.receiver.asBinder();
+            r.curFilter = filter;
+            filter.receiverList.curBroadcast = r;
+            r.state = BroadcastRecord.CALL_IN_RECEIVE;
+            if (filter.receiverList.app != null) {
+                r.curApp = filter.receiverList.app;
+                filter.receiverList.app.curReceiver = r;
+                mService.updateOomAdjLocked(r.curApp);
+            }
+        }
+        try {
+            if (DEBUG_BROADCAST_LIGHT) Slog.i(TAG_BROADCAST,
+                    "Delivering to " + filter + " : " + r);
+            // 下一步。
+            performReceiveLocked(filter.receiverList.app, filter.receiverList.receiver,
+                    new Intent(r.intent), r.resultCode, r.resultData,
+                    r.resultExtras, r.ordered, r.initialSticky, r.userId);
+            if (ordered) {
+                r.state = BroadcastRecord.CALL_DONE_RECEIVE;
+            }
+        } catch (RemoteException e) {
+            Slog.w(TAG, "Failure sending broadcast " + r.intent, e);
+            if (ordered) {
+                r.receiver = null;
+                r.curFilter = null;
+                filter.receiverList.curBroadcast = null;
+                if (filter.receiverList.app != null) {
+                    filter.receiverList.app.curReceiver = null;
+                }
+            }
+        }
+    }
+}
+```
+
+在检查权限后进入 `performReceiveLocked` 方法。
+
+```java
+// BroadcastHandler.java
+
+private static void performReceiveLocked(ProcessRecord app, IIntentReceiver receiver,
+        Intent intent, int resultCode, String data, Bundle extras,
+        boolean ordered, boolean sticky, int sendingUser) throws RemoteException {
+    // 使用 one-way 的 binder 异步模式将 Intent 发送给广播接收器。
+    if (app != null) {
+        if (app.thread != null) {
+            // 如果我们有一个 ApplicationThread，请通过它进行调用，
+            // 以便正确地与其他 one-way 模式的异步调用一起调用。
+            app.thread.scheduleRegisteredReceiver(receiver, intent, resultCode,
+                    data, extras, ordered, sticky, sendingUser, app.repProcState);
+        } else {
+            // 应用程序死亡了，广播接收器不存在。
+            throw new RemoteException("app.thread must not be null");
+        }
+    } else {
+        receiver.performReceive(intent, resultCode, data, extras, ordered,
+                sticky, sendingUser);
+    }
+}
+```
+
+接下来就是使用 `app.thread.scheduleRegisteredReceiver` 向应用端进程发送消息了。
+
+#### ApplicationThreadProxy
+
+```java
+// ApplicationThreadNative.java - class ApplicationThreadProxy
+
+public void scheduleRegisteredReceiver(IIntentReceiver receiver, Intent intent,
+        int resultCode, String dataStr, Bundle extras, boolean ordered,
+        boolean sticky, int sendingUser, int processState) throws RemoteException {
+    Parcel data = Parcel.obtain();
+    data.writeInterfaceToken(IApplicationThread.descriptor);
+    data.writeStrongBinder(receiver.asBinder());
+    intent.writeToParcel(data, 0);
+    data.writeInt(resultCode);
+    data.writeString(dataStr);
+    data.writeBundle(extras);
+    data.writeInt(ordered ? 1 : 0);
+    data.writeInt(sticky ? 1 : 0);
+    data.writeInt(sendingUser);
+    data.writeInt(processState);
+    mRemote.transact(SCHEDULE_REGISTERED_RECEIVER_TRANSACTION, data, null,
+            IBinder.FLAG_ONEWAY);
+    data.recycle();
+}
+```
+
+### Client
+
+#### ApplicationThreadNative
+
+```java
+// ApplicationThreadNative.java
+
+@Override
+public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
+        throws RemoteException {
+    switch (code) {
+    ...
+    case SCHEDULE_REGISTERED_RECEIVER_TRANSACTION: {
+        data.enforceInterface(IApplicationThread.descriptor);
+        IIntentReceiver receiver = IIntentReceiver.Stub.asInterface(
+                data.readStrongBinder());
+        Intent intent = Intent.CREATOR.createFromParcel(data);
+        int resultCode = data.readInt();
+        String dataStr = data.readString();
+        Bundle extras = data.readBundle();
+        boolean ordered = data.readInt() != 0;
+        boolean sticky = data.readInt() != 0;
+        int sendingUser = data.readInt();
+        int processState = data.readInt();
+        scheduleRegisteredReceiver(receiver, intent,
+                resultCode, dataStr, extras, ordered, sticky, sendingUser, processState);
+        return true;
+    }
+    ...
+}
+```
+
+#### ApplicationThread
+
+```java
+// ActivityThread.java
+
+public void scheduleRegisteredReceiver(IIntentReceiver receiver, Intent intent,
+        int resultCode, String dataStr, Bundle extras, boolean ordered,
+        boolean sticky, int sendingUser, int processState) throws RemoteException {
+    updateProcessState(processState, false);
+    receiver.performReceive(intent, resultCode, dataStr, extras, ordered,
+            sticky, sendingUser);
+}
 ```
 
