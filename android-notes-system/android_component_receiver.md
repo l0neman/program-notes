@@ -1825,10 +1825,12 @@ final void processNextBroadcast(boolean fromMsg) {
 3. 获得下一条有序广播，如果动态注册，则使用 `deliverToRegisteredReceiverLocked` 处理后返回。
 4. 检查相关权限，处理下一条有序广播，如果接收器所在进程没有启动，则启动，然后使用 `processCurBroadcastLocked` 处理这条静态广播 。
 
-首先看 `deliverToRegisteredReceiverLocked` 方法的处理：
+### 动态注册广播分发
+
+首先看 `deliverToRegisteredReceiverLocked` 方法的处理，它负责处理动态注册的广播接收器：
 
 ```java
-// BroadcastHandler.java
+// BroadcastQueue.java - class BroadcastHandler
 
 private void deliverToRegisteredReceiverLocked(BroadcastRecord r,
         BroadcastFilter filter, boolean ordered) {
@@ -1982,6 +1984,200 @@ public void scheduleRegisteredReceiver(IIntentReceiver receiver, Intent intent,
     updateProcessState(processState, false);
     receiver.performReceive(intent, resultCode, dataStr, extras, ordered,
             sticky, sendingUser);
+}
+```
+
+这里就会通过 `receiver` 即前面广播分发器 `InnerReceiver` 的 Binder 客户端，向 `InnerReceiver` 发起 IPC 通信回调 Intent 信息，辗转调用到 `InnerReceiver` 的 `performReceive` 方法。
+
+#### InnerReceiver
+
+```java
+// LoadedApk.java - class ReceiverDispatcher&InnerReceiver
+
+public void performReceive(Intent intent, int resultCode, String data,
+        Bundle extras, boolean ordered, boolean sticky, int sendingUser) {
+    LoadedApk.ReceiverDispatcher rd = mDispatcher.get();
+    if (ActivityThread.DEBUG_BROADCAST) {
+        int seq = intent.getIntExtra("seq", -1);
+        Slog.i(ActivityThread.TAG, "Receiving broadcast " + intent.getAction() + " seq=" + seq
+                + " to " + (rd != null ? rd.mReceiver : null));
+    }
+    if (rd != null) {
+        // 下一步，ReceiverDispatcher。
+        rd.performReceive(intent, resultCode, data, extras,
+                ordered, sticky, sendingUser);
+    } else {
+        // 在此过程中，ActivityManager 将广播发送给已注册的接收器，
+        // 但在发送之前，接收器未注册。
+        // 表示其确认广播，以便系统的广播队列可以继续。
+        if (ActivityThread.DEBUG_BROADCAST) Slog.i(ActivityThread.TAG,
+                "Finishing broadcast to unregistered receiver");
+        IActivityManager mgr = ActivityManagerNative.getDefault();
+        try {
+            if (extras != null) {
+                extras.setAllowFds(false);
+            }
+            mgr.finishReceiver(this, resultCode, data, extras, false, intent.getFlags());
+        } catch (RemoteException e) {
+            Slog.w(ActivityThread.TAG, "Couldn't finish broadcast to unregistered receiver");
+        }
+    }
+}
+```
+
+`InnerReceiver` 通过弱引用调用到了外部类 `ReceiverDispatcher` 的 `performReceive` 方法。
+
+#### ReceiverDispatcher
+
+```java
+// LoadedApk.java - class ReceiverDispatcher
+
+public void performReceive(Intent intent, int resultCode, String data,
+        Bundle extras, boolean ordered, boolean sticky, int sendingUser) {
+    if (ActivityThread.DEBUG_BROADCAST) {
+        int seq = intent.getIntExtra("seq", -1);
+        Slog.i(ActivityThread.TAG, "Enqueueing broadcast " + intent.getAction() + " seq=" + seq
+                + " to " + mReceiver);
+    }
+    // 创建 Args 对象。
+    Args args = new Args(intent, resultCode, data, extras, ordered,
+            sticky, sendingUser);
+    // 使用 Handler 执行 Args。
+    if (!mActivityThread.post(args)) {
+        if (mRegistered && ordered) {
+            IActivityManager mgr = ActivityManagerNative.getDefault();
+            if (ActivityThread.DEBUG_BROADCAST) Slog.i(ActivityThread.TAG,
+                    "Finishing sync broadcast to " + mReceiver);
+            args.sendFinished(mgr);
+        }
+    }
+}
+```
+
+#### Args
+
+```java
+// LoadedApk.java - class Args
+
+final class Args extends BroadcastReceiver.PendingResult implements Runnable {
+    private Intent mCurIntent;
+    private final boolean mOrdered;
+
+    public Args(Intent intent, int resultCode, String resultData, Bundle resultExtras,
+            boolean ordered, boolean sticky, int sendingUser) {
+        super(resultCode, resultData, resultExtras,
+                mRegistered ? TYPE_REGISTERED : TYPE_UNREGISTERED, ordered,
+                sticky, mIIntentReceiver.asBinder(), sendingUser, intent.getFlags());
+        mCurIntent = intent;
+        mOrdered = ordered;
+    }
+    
+    public void run() {
+        final BroadcastReceiver receiver = mReceiver;
+        final boolean ordered = mOrdered;
+        
+        if (ActivityThread.DEBUG_BROADCAST) {
+            int seq = mCurIntent.getIntExtra("seq", -1);
+            Slog.i(ActivityThread.TAG, "Dispatching broadcast " + mCurIntent.getAction()
+                    + " seq=" + seq + " to " + mReceiver);
+            Slog.i(ActivityThread.TAG, "  mRegistered=" + mRegistered
+                    + " mOrderedHint=" + ordered);
+        }
+        
+        final IActivityManager mgr = ActivityManagerNative.getDefault();
+        final Intent intent = mCurIntent;
+        mCurIntent = null;
+        
+        if (receiver == null || mForgotten) {
+            if (mRegistered && ordered) {
+                if (ActivityThread.DEBUG_BROADCAST) Slog.i(ActivityThread.TAG,
+                        "Finishing null broadcast to " + mReceiver);
+                sendFinished(mgr);
+            }
+            return;
+        }
+
+        Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "broadcastReceiveReg");
+        try {
+            ClassLoader cl =  mReceiver.getClass().getClassLoader();
+            intent.setExtrasClassLoader(cl);
+            setExtrasClassLoader(cl);
+            receiver.setPendingResult(this);
+            // 回调广播接收器的 receiver 方法。
+            receiver.onReceive(mContext, intent);
+        } catch (Exception e) {
+            if (mRegistered && ordered) {
+                if (ActivityThread.DEBUG_BROADCAST) Slog.i(ActivityThread.TAG,
+                        "Finishing failed broadcast to " + mReceiver);
+                sendFinished(mgr);
+            }
+            if (mInstrumentation == null ||
+                    !mInstrumentation.onException(mReceiver, e)) {
+                Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+                throw new RuntimeException(
+                    "Error receiving broadcast " + intent
+                    + " in " + mReceiver, e);
+            }
+        }
+        
+        if (receiver.getPendingResult() != null) {
+            finish();
+        }
+        Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+    }
+}
+```
+
+这里就完成了动态注册广播的分发。
+
+### 静态注册广播分发
+
+回到分发流程上面，静态广播是通过 `processCurBroadcastLocked` 方法进行分发的，看一下其流程：
+
+#### BroadcastHandler
+
+```java
+// BroadQueue.java - class BroadcastHandler
+
+private final void processCurBroadcastLocked(BroadcastRecord r,
+        ProcessRecord app) throws RemoteException {
+    if (DEBUG_BROADCAST)  Slog.v(TAG_BROADCAST,
+            "Process cur broadcast " + r + " for app " + app);
+    if (app.thread == null) {
+        throw new RemoteException();
+    }
+    r.receiver = app.thread.asBinder();
+    r.curApp = app;
+    app.curReceiver = r;
+    app.forceProcessStateUpTo(ActivityManager.PROCESS_STATE_RECEIVER);
+    mService.updateLruProcessLocked(app, false, null);
+    mService.updateOomAdjLocked();
+
+    // Tell the application to launch this receiver.
+    r.intent.setComponent(r.curComponent);
+
+    boolean started = false;
+    try {
+        if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST,
+                "Delivering to component " + r.curComponent
+                + ": " + r);
+        mService.ensurePackageDexOpt(r.intent.getComponent().getPackageName());
+        app.thread.scheduleReceiver(new Intent(r.intent), r.curReceiver,
+                mService.compatibilityInfoForPackageLocked(r.curReceiver.applicationInfo),
+                r.resultCode, r.resultData, r.resultExtras, r.ordered, r.userId,
+                app.repProcState);
+        if (DEBUG_BROADCAST)  Slog.v(TAG_BROADCAST,
+                "Process cur broadcast " + r + " DELIVERED for app " + app);
+        started = true;
+    } finally {
+        if (!started) {
+            if (DEBUG_BROADCAST)  Slog.v(TAG_BROADCAST,
+                    "Process cur broadcast " + r + ": NOT STARTED!");
+            r.receiver = null;
+            r.curApp = null;
+            app.curReceiver = null;
+        }
+    }
 }
 ```
 
