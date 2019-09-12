@@ -2153,7 +2153,7 @@ private final void processCurBroadcastLocked(BroadcastRecord r,
     mService.updateLruProcessLocked(app, false, null);
     mService.updateOomAdjLocked();
 
-    // Tell the application to launch this receiver.
+    // 告诉应用程序启动这个广播接收器。
     r.intent.setComponent(r.curComponent);
 
     boolean started = false;
@@ -2162,6 +2162,7 @@ private final void processCurBroadcastLocked(BroadcastRecord r,
                 "Delivering to component " + r.curComponent
                 + ": " + r);
         mService.ensurePackageDexOpt(r.intent.getComponent().getPackageName());
+		// 安排应用端进程分发广播。
         app.thread.scheduleReceiver(new Intent(r.intent), r.curReceiver,
                 mService.compatibilityInfoForPackageLocked(r.curReceiver.applicationInfo),
                 r.resultCode, r.resultData, r.resultExtras, r.ordered, r.userId,
@@ -2181,3 +2182,113 @@ private final void processCurBroadcastLocked(BroadcastRecord r,
 }
 ```
 
+跟上面一样，将会辗转调用到 `ApplicationThread` 的 `scheduleReceiver` 方法。
+
+#### ApplicationThread
+
+```java
+// ActivityThread.java - class ApplicationThread.java
+
+public final void scheduleReceiver(Intent intent, ActivityInfo info,
+        CompatibilityInfo compatInfo, int resultCode, String data, Bundle extras,
+        boolean sync, int sendingUser, int processState) {
+    updateProcessState(processState, false);
+    ReceiverData r = new ReceiverData(intent, resultCode, data, extras,
+            sync, false, mAppThread.asBinder(), sendingUser);
+    r.info = info;
+    r.compatInfo = compatInfo;
+    sendMessage(H.RECEIVER, r);
+}
+```
+
+#### ActivityThread.H
+
+```java
+// ActivityThread.java - class H
+
+public void handleMessage(Message msg) {
+    if (DEBUG_MESSAGES) Slog.v(TAG, ">>> handling: " + codeToString(msg.what));
+    switch (msg.what) {
+    case RECEIVER:
+        Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "broadcastReceiveComp");
+        handleReceiver((ReceiverData)msg.obj);
+        maybeSnapshot();
+        Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+        break;
+}
+```
+
+#### ActivityThread
+
+```java
+// ActivityThread.java
+
+private void handleReceiver(ReceiverData data) {
+    // 如果我们在转到后台后准备好 gc，那么我们又回来了，所以跳过它。
+    unscheduleGcIdler();
+
+    String component = data.intent.getComponent().getClassName();
+
+    LoadedApk packageInfo = getPackageInfoNoCheck(
+            data.info.applicationInfo, data.compatInfo);
+
+    IActivityManager mgr = ActivityManagerNative.getDefault();
+
+    BroadcastReceiver receiver;
+    try {
+        java.lang.ClassLoader cl = packageInfo.getClassLoader();
+        data.intent.setExtrasClassLoader(cl);
+        data.intent.prepareToEnterProcess();
+        data.setExtrasClassLoader(cl);
+        // 通过反射创建广播接收器的实例。
+        receiver = (BroadcastReceiver)cl.loadClass(component).newInstance();
+    } catch (Exception e) {
+        if (DEBUG_BROADCAST) Slog.i(TAG,
+                "Finishing failed broadcast to " + data.intent.getComponent());
+        data.sendFinished(mgr);
+        throw new RuntimeException(
+            "Unable to instantiate receiver " + component
+            + ": " + e.toString(), e);
+    }
+
+    try {
+        Application app = packageInfo.makeApplication(false, mInstrumentation);
+
+        if (localLOGV) Slog.v(
+            TAG, "Performing receive of " + data.intent
+            + ": app=" + app
+            + ", appName=" + app.getPackageName()
+            + ", pkg=" + packageInfo.getPackageName()
+            + ", comp=" + data.intent.getComponent().toShortString()
+            + ", dir=" + packageInfo.getAppDir());
+
+        ContextImpl context = (ContextImpl)app.getBaseContext();
+        sCurrentBroadcastIntent.set(data.intent);
+        receiver.setPendingResult(data);
+        // 回调 receiver 的 onReceive 方法。
+        receiver.onReceive(context.getReceiverRestrictedContext(),
+                data.intent);
+    } catch (Exception e) {
+        if (DEBUG_BROADCAST) Slog.i(TAG,
+                "Finishing failed broadcast to " + data.intent.getComponent());
+        data.sendFinished(mgr);
+        if (!mInstrumentation.onException(receiver, e)) {
+            throw new RuntimeException(
+                "Unable to start receiver " + component
+                + ": " + e.toString(), e);
+        }
+    } finally {
+        sCurrentBroadcastIntent.set(null);
+    }
+
+    if (receiver.getPendingResult() != null) {
+        data.finish();
+    }
+}
+```
+
+到这里就分析完了广播的分发流程，下面以时序图来表示上述流程：
+
+## 时序图
+
+todo
