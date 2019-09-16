@@ -1,5 +1,51 @@
 # Android Receiver 实现原理分析
 
+- [前言](#前言)
+- [广播注册方式](#广播注册方式)
+  - [静态注册](#静态注册)
+  - [动态注册](#动态注册)
+- [注册流程分析](#注册流程分析)
+  - [Client](#client)
+    - [ContextImpl](#contextimpl)
+    - [LoadedApk](#loadedapk)
+    - [ReceiverDispatcher](#receiverdispatcher)
+    - [ActivityManagerProxy](#activitymanagerproxy)
+  - [Server](#server)
+    - [ActivityManagerNative](#activitymanagernative)
+    - [ActivityManagerService](#activitymanagerservice)
+    - [IntentFilter](#intentfilter)
+- [时序图](#时序图)
+- [广播发送方式](#广播发送方式)
+  - [无序广播](#无序广播)
+  - [有序广播](#有序广播)
+  - [粘性广播](#粘性广播)
+- [ 发送流程分析](#-发送流程分析)
+  - [Client](#client)
+    - [ContextImpl](#contextimpl)
+    - [ActivityManagerProxy](#activitymanagerproxy)
+  - [Server](#server)
+    - [ActivityManagerNative](#activitymanagernative)
+    - [ActivityManagerService](#activitymanagerservice)
+    - [BroadcastQueue](#broadcastqueue)
+- [分发流程分析](#分发流程分析)
+  - [Server](#server)
+    - [BroadcastQueue](#broadcastqueue)
+    - [BroadcastHandler](#broadcasthandler)
+  - [动态注册广播分发](#动态注册广播分发)
+    - [ApplicationThreadProxy](#applicationthreadproxy)
+  - [Client](#client)
+    - [ApplicationThreadNative](#applicationthreadnative)
+    - [ApplicationThread](#applicationthread)
+    - [InnerReceiver](#innerreceiver)
+    - [ReceiverDispatcher](#receiverdispatcher)
+    - [Args](#args)
+  - [静态注册广播分发](#静态注册广播分发)
+    - [BroadcastHandler](#broadcasthandler)
+    - [ApplicationThread](#applicationthread)
+    - [ActivityThread.H](#activitythread.h)
+    - [ActivityThread](#activitythread)
+- [时序图](#时序图)
+
 ## 前言
 
 广播是 Android 系统的四大组件之一，是进程间通信的的一种方式，下面基于 Android 6.0.1 系统源码分析广播的实现原理，实现分为两个部分，注册和发送，首先分析广播的注册。
@@ -535,7 +581,9 @@ ProcessRecord {
 
 广播的注册过程使用时序图表示为：
 
-## 时序图 todo
+## 时序图
+
+![android_component_receiver_register](./image/android_component_receiver/receiver_register.png)
 
 ## 广播发送方式
 
@@ -2291,4 +2339,10 @@ private void handleReceiver(ReceiverData data) {
 
 ## 时序图
 
-todo
+时序图分为两部分，首先是客户端的处理流程：
+
+![android_component_receiver_send_client](./image/android_component_receiver/receiver_send_client.png)
+
+然后是服务端的处理流程：
+
+![android_component_receiver_send_server](./image/android_component_receiver/receiver_send_server.png)
