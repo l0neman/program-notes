@@ -444,15 +444,13 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
 
             if (!mProcessesReady && !mDidUpdate && !mWaitingUpdate
                     && !cpi.processName.equals("system")) {
-                // If this content provider does not run in the system
-                // process, and the system is not yet ready to run other
-                // processes, then fail fast instead of hanging.
+                // 如果此 provider 未在系统进程中运行，并且
+                // 系统尚未准备好运行其他进程，则快速失败而不是挂起。
                 throw new IllegalArgumentException(
                         "Attempt to launch content provider before system ready");
             }
 
-            // Make sure that the user who owns this provider is running.  If not,
-            // we don't want to allow it to run.
+            // 确保拥有此 provider 的用户正在运行，如果没有，我们不想让它运行。
             if (!isUserRunningLocked(userId, false)) {
                 Slog.w(TAG, "Unable to launch app "
                         + cpi.applicationInfo.packageName + "/"
@@ -484,7 +482,7 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
                     ai = getAppInfoForUser(ai, userId);
                     cpr = new ContentProviderRecord(this, cpi, ai, comp, singleton);
                 } catch (RemoteException ex) {
-                    // pm is in same process, this will never happen.
+                    // pm 在同一个进程中，这将永远不会发生。
                 } finally {
                     Binder.restoreCallingIdentity(ident);
                 }
@@ -493,10 +491,10 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
             checkTime(startTime, "getContentProviderImpl: now have ContentProviderRecord");
 
             if (r != null && cpr.canRunHere(r)) {
-                // If this is a multiprocess provider, then just return its
-                // info and allow the caller to instantiate it.  Only do
-                // this if the provider is the same user as the caller's
-                // process, or can run as root (so can be in any process).
+                // 如果这是一个多进程 provider，则只需返回其信息并允许调用方
+                // 实例化它。
+                // 仅当 provider 与调用者的进程属于同一用户，或以 root 用户
+                // 身份允许（因此可以在任何进程中）时，才执行此操作。
                 return cpr.newHolder(null);
             }
 
@@ -504,9 +502,8 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
                         + (r != null ? r.uid : null) + " pruid " + cpr.appInfo.uid + "): "
                         + cpr.info.name + " callers=" + Debug.getCallers(6));
 
-            // This is single process, and our app is now connecting to it.
-            // See if we are already in the process of launching this
-            // provider.
+            // 这是一个单例进程，我们的 app 现在正在连接到它。
+            // 看看我们是否已经在启动此 provider。
             final int N = mLaunchingProviders.size();
             int i;
             for (i = 0; i < N; i++) {
@@ -515,13 +512,12 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
                 }
             }
 
-            // If the provider is not already being launched, then get it
-            // started.
+            // 如果 provider 还未启动，则启动它。
             if (i >= N) {
                 final long origId = Binder.clearCallingIdentity();
 
                 try {
-                    // Content provider is now in use, its package can't be stopped.
+                    // provider 现在正在被使用，所以不能停止它的包。
                     try {
                         checkTime(startTime, "getContentProviderImpl: before set stopped state");
                         AppGlobals.getPackageManager().setPackageStoppedState(
@@ -533,7 +529,7 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
                                 + cpr.appInfo.packageName + ": " + e);
                     }
 
-                    // Use existing process if already started
+                    // 如果已启动则使用现有进程。
                     checkTime(startTime, "getContentProviderImpl: looking for process record");
                     ProcessRecord proc = getProcessRecordLocked(
                             cpi.processName, cpr.appInfo.uid, false);
@@ -572,8 +568,7 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
 
             checkTime(startTime, "getContentProviderImpl: updating data structures");
 
-            // Make sure the provider is published (the same provider class
-            // may be published under multiple names).
+            // 确保 provider 已发布（同一 provider 类可能以多个名称发布）。
             if (firstClass) {
                 mProviderMap.putProviderByClass(comp, cpr);
             }
@@ -587,7 +582,7 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
         checkTime(startTime, "getContentProviderImpl: done!");
     }
 
-    // Wait for the provider to be published...
+    // 等待 provider 被发布……
     synchronized (cpr) {
         while (cpr.provider == null) {
             if (cpr.launchingApp == null) {
