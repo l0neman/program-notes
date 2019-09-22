@@ -300,6 +300,7 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
 
         ProcessRecord r = null;
         if (caller != null) {
+            // 获得调用者进程记录。
             r = getRecordForAppLocked(caller);
             if (r == null) {
                 throw new SecurityException(
@@ -335,6 +336,7 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
 
         boolean providerRunning = cpr != null;
         if (providerRunning) {
+            // 1. provider 已经发布。
             cpi = cpr.info;
             String msg;
             checkTime(startTime, "getContentProviderImpl: before checkContentProviderPermission");
@@ -357,8 +359,8 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
 
             checkTime(startTime, "getContentProviderImpl: incProviderCountLocked");
 
-            // 在这种情况下， provider 实例已经存在,
-            // 所以我们可以立即返回。
+            // 在这种情况下， provider 实例已经存在, 所以我们可以立即返回。
+            // 这里增加了 provider 的访问引用技术。
             conn = incProviderCountLocked(r, cpr, token, stable);
             if (conn != null && (conn.stableCount+conn.unstableCount) == 1) {
                 if (cpr.proc != null && r.setAdj <= ProcessList.PERCEPTIBLE_APP_ADJ) {
@@ -393,6 +395,7 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
                     // 我们需要等待一个新进程的启动，并确保它的死亡不会杀死我们的进程。
                     Slog.i(TAG, "Existing provider " + cpr.name.flattenToShortString()
                             + " is crashing; detaching " + r);
+                    // 进程死亡，则减少使用引用技术。
                     boolean lastRef = decProviderCountLocked(conn, cpr, token, stable);
                     checkTime(startTime, "getContentProviderImpl: before appDied");
                     appDiedLocked(cpr.proc);
@@ -412,8 +415,10 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
 
         boolean singleton;
         if (!providerRunning) {
+            // 2. provider 未发布。
             try {
                 checkTime(startTime, "getContentProviderImpl: before resolveContentProvider");
+                // 查询 provider 信息。
                 cpi = AppGlobals.getPackageManager().
                     resolveContentProvider(name,
                         STOCK_PM_FLAGS | PackageManager.GET_URI_PERMISSION_PATTERNS, userId);
@@ -480,6 +485,7 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
                         return null;
                     }
                     ai = getAppInfoForUser(ai, userId);
+                    // 创建 provider 记录。
                     cpr = new ContentProviderRecord(this, cpi, ai, comp, singleton);
                 } catch (RemoteException ex) {
                     // pm 在同一个进程中，这将永远不会发生。
@@ -560,6 +566,7 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
                         }
                     }
                     cpr.launchingApp = proc;
+                    // 加入待启动列表。
                     mLaunchingProviders.add(cpr);
                 } finally {
                     Binder.restoreCallingIdentity(origId);
@@ -584,6 +591,7 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
 
     // 等待 provider 被发布……
     synchronized (cpr) {
+        // 循环查询。
         while (cpr.provider == null) {
             if (cpr.launchingApp == null) {
                 Slog.w(TAG, "Unable to launch app "
@@ -616,7 +624,19 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
 }
 ```
 
+上面 `getContentProviderImpl` 获得 provider 对象的实现分为两部分：
 
+1. `providerRunning = true`（provider 已发布）
+
+```
+
+```
+
+1. `providerRunning = false`（provider 未发布）
+
+```
+
+```
 
 ## Provider 的安装
 
