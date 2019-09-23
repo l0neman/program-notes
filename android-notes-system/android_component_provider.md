@@ -116,12 +116,30 @@ public final @Nullable Bundle call(@NonNull Uri uri, @NonNull String method,
 }
 ```
 
-上面首先使用 `acquireProvider` 方法获取 provider 句柄，然后再调用 call，`acquireProvider` 是一个抽象方法，实现者是 `ApplicationContentResolver`。
+上面首先使用 `acquireProvider` 方法获取 provider 句柄，然后再调用 call。
+
+```java
+// ContentProvider.java
+
+public final IContentProvider acquireProvider(Uri uri) {
+    if (!SCHEME_CONTENT.equals(uri.getScheme())) {
+        return null;
+    }
+    final String auth = uri.getAuthority();
+    if (auth != null) {
+        return acquireProvider(mContext, auth);
+    }
+    return null;
+}
+
+```
+
+`acquireProvider(mContext, auth)` 是一个抽象方法，实现者是 `ApplicationContentResolver`。
 
 #### ApplicationContentResolver
 
 ```java
-// ApplicationContentResolver.java
+// ContextImpl.java - class ApplicationContentResolver
 
 @Override
 protected IContentProvider acquireProvider(Context context, String auth) {
@@ -235,6 +253,8 @@ public ContentProviderHolder getContentProvider(IApplicationThread caller,
     return cph;
 }
 ```
+
+### Server
 
 ####ActivityManagerNative
 
@@ -629,14 +649,245 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
 1. `providerRunning = true`（provider 已发布）
 
 ```
-
+1. 检查是否具有获取 provider 的权限。
+2. 如果调用者进程存在且可以 canRunHere（允许在其上运行），那么直接返回。
+3. 使用 incProviderCountLocked 增加使用引用计数。
+4. 更新 LRU 进程队列，更新 Adj 优先级队列，如果失败则表示进程被杀，那么减少使用引用计数且标记重新标记 provider 为未发布（providerRunning = false）。
 ```
 
 1. `providerRunning = false`（provider 未发布）
 
 ```
+1. 使用 auth（URI 协议部分）获得 provider 信息。
+2. 检查权限，如果将运行在 system 进程，且系统未准备好，那么异常。
+3. 检查 provider 拥有者用户是否运行，如果没有，那么返回 null。
+4. 使用组件做 key，获得 provider 记录，如果没有那么创建新的记录对象，否则返回。
+5. 如果正启动列表（mLaunchingProviders）没有 provider，那么启动 provider，启动 provider 时如果 provider 所在进程已启动，则进入安装 provider 流程，否则启动目标进程且添加 provider 到启动列表。
+6. 增加使用引用计数。
+```
 
+下面看是如何安装 provider 的。
+
+```java
+... 
+try {
+    proc.thread.scheduleInstallProvider(cpi);
+ } catch (RemoteException e) {
+ }
+...
 ```
 
 ## Provider 的安装
+
+上面将会辗转调用到 `ApplicationThread`。
+
+`ApplicationThreadProxy -> ApplicationThreadNative -> ApplicationThread`
+
+### Client
+
+#### ApplicationThread
+
+```java
+// ActivityThread.java - class ApplicationThread
+
+@Override
+public void scheduleInstallProvider(ProviderInfo provider) {
+    sendMessage(H.INSTALL_PROVIDER, provider);
+}
+```
+
+#### ActivityThread.H
+
+```java
+// ActivityThread.java - class H
+public void handleMessage(Message msg) {
+    if (DEBUG_MESSAGES) Slog.v(TAG, ">>> handling: " + codeToString(msg.what));
+    switch (msg.what) {
+    ...
+    case INSTALL_PROVIDER:
+        handleInstallProvider((ProviderInfo) msg.obj);
+        break;
+    ...
+    }
+    ...
+}
+```
+
+#### ActivityThread
+
+```java
+// ActivityThread.java
+
+public void handleInstallProvider(ProviderInfo info) {
+    final StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskWrites();
+    try {
+        installContentProviders(mInitialApplication, Lists.newArrayList(info));
+    } finally {
+        StrictMode.setThreadPolicy(oldPolicy);
+    }
+}
+```
+
+```java
+// ActivityThread.java
+
+private void installContentProviders(
+        Context context, List<ProviderInfo> providers) {
+    final ArrayList<IActivityManager.ContentProviderHolder> results =
+        new ArrayList<IActivityManager.ContentProviderHolder>();
+
+    for (ProviderInfo cpi : providers) {
+        if (DEBUG_PROVIDER) {
+            StringBuilder buf = new StringBuilder(128);
+            buf.append("Pub ");
+            buf.append(cpi.authority);
+            buf.append(": ");
+            buf.append(cpi.name);
+            Log.i(TAG, buf.toString());
+        }
+        // 下一步安装。
+        IActivityManager.ContentProviderHolder cph = installProvider(context, null, cpi,
+                false /*noisy*/, true /*noReleaseNeeded*/, true /*stable*/);
+        if (cph != null) {
+            cph.noReleaseNeeded = true;
+            results.add(cph);
+        }
+    }
+
+    try {
+        // 发布 provider。
+        ActivityManagerNative.getDefault().publishContentProviders(
+            getApplicationThread(), results);
+    } catch (RemoteException ex) {
+    }
+}
+```
+
+```java
+// ActivityThread.java
+
+private IActivityManager.ContentProviderHolder installProvider(Context context,
+        IActivityManager.ContentProviderHolder holder, ProviderInfo info,
+        boolean noisy, boolean noReleaseNeeded, boolean stable) {
+    ContentProvider localProvider = null;
+    IContentProvider provider;
+    if (holder == null || holder.provider == null) {
+        if (DEBUG_PROVIDER || noisy) {
+            Slog.d(TAG, "Loading provider " + info.authority + ": "
+                    + info.name);
+        }
+        Context c = null;
+        ApplicationInfo ai = info.applicationInfo;
+        if (context.getPackageName().equals(ai.packageName)) {
+            c = context;
+        } else if (mInitialApplication != null &&
+                mInitialApplication.getPackageName().equals(ai.packageName)) {
+            c = mInitialApplication;
+        } else {
+            try {
+                c = context.createPackageContext(ai.packageName,
+                        Context.CONTEXT_INCLUDE_CODE);
+            } catch (PackageManager.NameNotFoundException e) {
+                // Ignore
+            }
+        }
+        if (c == null) {
+            Slog.w(TAG, "Unable to get context for package " +
+                  ai.packageName +
+                  " while loading content provider " +
+                  info.name);
+            return null;
+        }
+        try {
+            // 创建 ContentProvider 对象。
+            final java.lang.ClassLoader cl = c.getClassLoader();
+            localProvider = (ContentProvider)cl.
+                loadClass(info.name).newInstance();
+            provider = localProvider.getIContentProvider();
+            if (provider == null) {
+                Slog.e(TAG, "Failed to instantiate class " +
+                      info.name + " from sourceDir " +
+                      info.applicationInfo.sourceDir);
+                return null;
+            }
+            if (DEBUG_PROVIDER) Slog.v(
+                TAG, "Instantiating local provider " + info.name);
+            // XXX 需要为此 provider 创建正确的 Context。
+            localProvider.attachInfo(c, info);
+        } catch (java.lang.Exception e) {
+            if (!mInstrumentation.onException(null, e)) {
+                throw new RuntimeException(
+                        "Unable to get provider " + info.name
+                        + ": " + e.toString(), e);
+            }
+            return null;
+        }
+    } else {
+        provider = holder.provider;
+        if (DEBUG_PROVIDER) Slog.v(TAG, "Installing external provider " + info.authority + ": "
+                + info.name);
+    }
+
+    IActivityManager.ContentProviderHolder retHolder;
+
+    synchronized (mProviderMap) {
+        if (DEBUG_PROVIDER) Slog.v(TAG, "Checking to add " + provider
+                + " / " + info.name);
+        IBinder jBinder = provider.asBinder();
+        if (localProvider != null) {
+            ComponentName cname = new ComponentName(info.packageName, info.name);
+            ProviderClientRecord pr = mLocalProvidersByName.get(cname);
+            if (pr != null) {
+                if (DEBUG_PROVIDER) {
+                    Slog.v(TAG, "installProvider: lost the race, "
+                            + "using existing local provider");
+                }
+                provider = pr.mProvider;
+            } else {
+                holder = new IActivityManager.ContentProviderHolder(info);
+                holder.provider = provider;
+                holder.noReleaseNeeded = true;
+                pr = installProviderAuthoritiesLocked(provider, localProvider, holder);
+                mLocalProviders.put(jBinder, pr);
+                mLocalProvidersByName.put(cname, pr);
+            }
+            retHolder = pr.mHolder;
+        } else {
+            ProviderRefCount prc = mProviderRefCountMap.get(jBinder);
+            if (prc != null) {
+                if (DEBUG_PROVIDER) {
+                    Slog.v(TAG, "installProvider: lost the race, updating ref count");
+                }
+                // 我们需要将新的引用转移至现有的引用计数，释放旧的引用……
+                // 但是仅当需要释放时（即它不在系统进程中运行）。
+                if (!noReleaseNeeded) {
+                    incProviderRefLocked(prc, stable);
+                    try {
+                        ActivityManagerNative.getDefault().removeContentProvider(
+                                holder.connection, stable);
+                    } catch (RemoteException e) {
+                        // priovder 对象已死，什么也不做。
+                    }
+                }
+            } else {
+                // 安装 provider 锁定 auth。
+                ProviderClientRecord client = installProviderAuthoritiesLocked(
+                        provider, localProvider, holder);
+                if (noReleaseNeeded) {
+                    prc = new ProviderRefCount(holder, client, 1000, 1000);
+                } else {
+                    prc = stable
+                            ? new ProviderRefCount(holder, client, 1, 0)
+                            : new ProviderRefCount(holder, client, 0, 1);
+                }
+                mProviderRefCountMap.put(jBinder, prc);
+            }
+            retHolder = prc.holder;
+        }
+    }
+
+    return retHolder;
+}
+
+```
 
