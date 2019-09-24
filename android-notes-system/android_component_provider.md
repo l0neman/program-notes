@@ -2,13 +2,13 @@
 
 ## 前言
 
-ContentProvider 是 Android 系统的四大组件之一，它提供了一种共享数据的机制，同时也是一种进程间通信的方式，下面基于 Android 6.0.1 系统源码分析 Provider 组件的工作及实现原理，分为两部分，Provider 的查询和 Provider 的安装。
+ContentProvider 是 Android 系统的四大组件之一，它提供了一种共享数据的机制，同时也是一种进程间通信的方式，下面基于 Android 6.0.1 系统源码分析 Provider 组件的工作及实现原理，分为三部分，应用端将会进行 Provider 的查询和 Provider 的安装流程，AMS 服务端则是 Provider 的发布。
 
 ## 使用方式
 
 一般的开发工作很少用到 ContentProvider，下面说一下它的用法。
 
-### 实现数据提供者
+### 实现 ContentProvider
 
 首先需要实现自定义的数据提供者，需要实现增删查改的数据操作方法，还可实现自定义操作的 `call` 方法：
 
@@ -34,7 +34,7 @@ public class ExampleContentProvider extends ContentProvider {
 }
 ```
 
-### 注册数据提供者
+### 注册 ContentProvider
 
 实现数据提供者后就可以在清单文件中注册了，注册时需要指定 Uri，当其他进程需要访问时，使用 Uri 即可获得 ContentProvider 的远程代理，然后使用代理即可向 ContentProvider 发送数据操作请求。
 
@@ -46,7 +46,7 @@ public class ExampleContentProvider extends ContentProvider {
 </application>
 ```
 
-### 访问数据提供者
+### 访问 ContentProvider
 
 上面的工作完成后就可以向数据提供者发送请求了，使用 `content://` 前缀加 Uri 即可，还可在后面加数据访问路径：
 
@@ -888,6 +888,142 @@ private IActivityManager.ContentProviderHolder installProvider(Context context,
 
     return retHolder;
 }
+```
 
+概况上面的操作如下：
+
+```
+1. 如果 holder 为 null，那么 获得 context，然后使用它的 ClassLoader 构造 ContentProvider 对象，获得它的内部 IContentProvider 对象。
+2. 使用组件名查询已存在的 provider 客户端记录，如果不存在则使用 installProviderAuthoritiesLocked 安装 provider，其内部会创建 provider 客户端记录，并将 provider 客户端记录对应的 binder 和组件名缓存至 map。
+
+另一个分支：
+1. 如果 holder 不为 null，则 provider 直接赋值为 holder 里缓存的 provider。
+2. provider 引用数量对象使用 provider 的 binder 从列表中取出，如果有，则在 provider 需要被释放时请求 AMS removeContentProvider 移除引用，否则使用 installProviderAuthoritiesLocked 安装得到 provider 客户端记录对象，创建新的引用数对象，保存至列表。
+```
+
+看一下 `installProviderAuthoritiesLocked` 做了什么。
+
+```java
+// ActivityThread.java 
+
+private ProviderClientRecord installProviderAuthoritiesLocked(IContentProvider provider,
+        ContentProvider localProvider, IActivityManager.ContentProviderHolder holder) {
+    final String auths[] = holder.info.authority.split(";");
+    final int userId = UserHandle.getUserId(holder.info.applicationInfo.uid);
+
+    final ProviderClientRecord pcr = new ProviderClientRecord(
+            auths, provider, localProvider, holder);
+    for (String auth : auths) {
+        final ProviderKey key = new ProviderKey(auth, userId);
+        final ProviderClientRecord existing = mProviderMap.get(key);
+        if (existing != null) {
+            Slog.w(TAG, "Content provider " + pcr.mHolder.info.name
+                    + " already published as " + auth);
+        } else {
+            mProviderMap.put(key, pcr);
+        }
+    }
+    return pcr;
+}
+```
+
+可以看到，创建了 provider 本地记录对象，然后保存至了 `mProviderMap` 中缓存。
+
+这里就看完了 provider 的大致安装流程，回到上面在 `publishContentProviders` 后面请求 AMS 发布 provider， `ActivityManagerNative.getDefault().publishContentProviders(...)` 。
+
+将会通过 `ActivityManagerProxy` 以 Binder IPC 的形式传递至 `ActivityManagerNative` 的 `onTransact`：
+
+## Provider 的发布
+
+### Server
+
+#### ActivityManagerNative
+
+```java
+// ActivityManagerNative.java
+@Override
+public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
+        throws RemoteException {
+    switch (code) {
+    ...
+    case PUBLISH_CONTENT_PROVIDERS_TRANSACTION: {
+        data.enforceInterface(IActivityManager.descriptor);
+        IBinder b = data.readStrongBinder();
+        IApplicationThread app = ApplicationThreadNative.asInterface(b);
+        ArrayList<ContentProviderHolder> providers =
+            data.createTypedArrayList(ContentProviderHolder.CREATOR);
+        publishContentProviders(app, providers);
+        reply.writeNoException();
+        return true;
+    }
+    ...
+    }
+    ...
+}
+```
+
+#### ActivityManagerService
+
+```java
+// ActivityManagerService.java
+
+public final void publishContentProviders(IApplicationThread caller,
+        List<ContentProviderHolder> providers) {
+    if (providers == null) {
+        return;
+    }
+
+    enforceNotIsolatedCaller("publishContentProviders");
+    synchronized (this) {
+        final ProcessRecord r = getRecordForAppLocked(caller);
+        if (DEBUG_MU) Slog.v(TAG_MU, "ProcessRecord uid = " + r.uid);
+        if (r == null) {
+            throw new SecurityException(
+                    "Unable to find app for caller " + caller
+                  + " (pid=" + Binder.getCallingPid()
+                  + ") when publishing content providers");
+        }
+
+        final long origId = Binder.clearCallingIdentity();
+
+        final int N = providers.size();
+        for (int i=0; i<N; i++) {
+            ContentProviderHolder src = providers.get(i);
+            if (src == null || src.info == null || src.provider == null) {
+                continue;
+            }
+            ContentProviderRecord dst = r.pubProviders.get(src.info.name);
+            if (DEBUG_MU) Slog.v(TAG_MU, "ContentProviderRecord uid = " + dst.uid);
+            if (dst != null) {
+                ComponentName comp = new ComponentName(dst.info.packageName, dst.info.name);
+                mProviderMap.putProviderByClass(comp, dst);
+                String names[] = dst.info.authority.split(";");
+                for (int j = 0; j < names.length; j++) {
+                    mProviderMap.putProviderByName(names[j], dst);
+                }
+
+                int NL = mLaunchingProviders.size();
+                int j;
+                for (j=0; j<NL; j++) {
+                    if (mLaunchingProviders.get(j) == dst) {
+                        mLaunchingProviders.remove(j);
+                        j--;
+                        NL--;
+                    }
+                }
+                synchronized (dst) {
+                    dst.provider = src.provider;
+                    dst.proc = r;
+                    dst.notifyAll();
+                }
+                updateOomAdjLocked(r);
+                maybeUpdateProviderUsageStatsLocked(r, src.info.packageName,
+                        src.info.authority);
+            }
+        }
+
+        Binder.restoreCallingIdentity(origId);
+    }
+}
 ```
 
