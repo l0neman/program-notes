@@ -996,6 +996,7 @@ public final void publishContentProviders(IApplicationThread caller,
             if (DEBUG_MU) Slog.v(TAG_MU, "ContentProviderRecord uid = " + dst.uid);
             if (dst != null) {
                 ComponentName comp = new ComponentName(dst.info.packageName, dst.info.name);
+                // 加入 mProviderMap。
                 mProviderMap.putProviderByClass(comp, dst);
                 String names[] = dst.info.authority.split(";");
                 for (int j = 0; j < names.length; j++) {
@@ -1006,6 +1007,7 @@ public final void publishContentProviders(IApplicationThread caller,
                 int j;
                 for (j=0; j<NL; j++) {
                     if (mLaunchingProviders.get(j) == dst) {
+                        // 从正启动列表中移除。
                         mLaunchingProviders.remove(j);
                         j--;
                         NL--;
