@@ -631,6 +631,7 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
                 if (conn != null) {
                     conn.waiting = true;
                 }
+                // 锁定 cpr。
                 cpr.wait();
             } catch (InterruptedException ex) {
             } finally {
@@ -666,7 +667,65 @@ private final ContentProviderHolder getContentProviderImpl(IApplicationThread ca
 6. 增加使用引用计数。
 ```
 
-下面看是如何安装 provider 的。
+注意上面判断 provider 所在进程在未启动时，将使用 `startProcessLocked` 启动目标进程，启动后，会辗转调用到 `ActivityThread` 的 `handleBindApplication` 方法绑定至 Application，其中将会做 provider 的安装工作：
+
+```java
+// ActivityThread.java
+
+private void handleBindApplication(AppBindData data) {
+    ...
+    Process.setArgV0(data.processName);
+    // 获得 Application 对象。
+    Application app = data.info.makeApplication(data.restrictedBackupMode, null);
+    ...
+    if (!data.restrictedBackupMode) {
+        List<ProviderInfo> providers = data.providers;
+        if (providers != null) {
+            // 安装 app 的 provider。
+            installContentProviders(app, providers);
+        }
+    }
+    ...
+    // 回调 Application 的 onCreate 方法。
+    mInstrumentation.callApplicationOnCreate(app);
+```
+
+```java
+// ActivityThread.java
+
+private void installContentProviders(
+        Context context, List<ProviderInfo> providers) {
+    final ArrayList<IActivityManager.ContentProviderHolder> results =
+        new ArrayList<IActivityManager.ContentProviderHolder>();
+
+    for (ProviderInfo cpi : providers) {
+        if (DEBUG_PROVIDER) {
+            StringBuilder buf = new StringBuilder(128);
+            buf.append("Pub ");
+            buf.append(cpi.authority);
+            buf.append(": ");
+            buf.append(cpi.name);
+            Log.i(TAG, buf.toString());
+        }
+        // 安装 provider。
+        IActivityManager.ContentProviderHolder cph = installProvider(context, null, cpi,
+                false /*noisy*/, true /*noReleaseNeeded*/, true /*stable*/);
+        if (cph != null) {
+            cph.noReleaseNeeded = true;
+            results.add(cph);
+        }
+    }
+
+    try {
+        // 发布 provider。
+        ActivityManagerNative.getDefault().publishContentProviders(
+            getApplicationThread(), results);
+    } catch (RemoteException ex) {
+    }
+}
+```
+
+下面首先看进程已存在的情况下是如何安装 provider 的。
 
 ```java
 ... 
@@ -1016,6 +1075,7 @@ public final void publishContentProviders(IApplicationThread caller,
                 synchronized (dst) {
                     dst.provider = src.provider;
                     dst.proc = r;
+                    // 解锁。
                     dst.notifyAll();
                 }
                 updateOomAdjLocked(r);
@@ -1029,3 +1089,6 @@ public final void publishContentProviders(IApplicationThread caller,
 }
 ```
 
+发布 provider 即将 provider 缓存至 `mProviderMap`。
+
+## 时序图 todo
