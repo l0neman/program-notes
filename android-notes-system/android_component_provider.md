@@ -1,5 +1,31 @@
 # Android Provider 实现分析
 
+- [前言](#前言)
+- [使用方式](#使用方式)
+  - [实现 ContentProvider](#实现-contentprovider)
+  - [注册 ContentProvider](#注册-contentprovider)
+  - [访问 ContentProvider](#访问-contentprovider)
+- [Provider 的查询](#provider-的查询)
+  - [Client](#client)
+    - [ContextImpl](#contextimpl)
+    - [ContentProvider](#contentprovider)
+    - [ApplicationContentResolver](#applicationcontentresolver)
+    - [ActivityThread](#activitythread)
+    - [ActivityManagerProxy](#activitymanagerproxy)
+  - [Server](#server)
+    - [ActivityManagerService](#activitymanagerservice)
+- [时序图](#时序图)
+- [Provider 的安装](#provider-的安装)
+  - [Client](#client)
+    - [ApplicationThread](#applicationthread)
+    - [ActivityThread.H](#activitythread.h)
+    - [ActivityThread](#activitythread)
+- [Provider 的发布](#provider-的发布)
+  - [Server](#server)
+    - [ActivityManagerNative](#activitymanagernative)
+    - [ActivityManagerService](#activitymanagerservice)
+- [时序图](#时序图)
+
 ## 前言
 
 ContentProvider 是 Android 系统的四大组件之一，它提供了一种共享数据的机制，同时也是一种进程间通信的方式，下面基于 Android 6.0.1 系统源码分析 Provider 组件的工作及实现原理，分为三部分，应用端将会进行 Provider 的查询和 Provider 的安装流程，AMS 服务端则是 Provider 的发布。
@@ -736,6 +762,12 @@ try {
 ...
 ```
 
+最后绘制出反映出大致流程的时序图。
+
+## 时序图
+
+
+
 ## Provider 的安装
 
 上面将会辗转调用到 `ApplicationThread`。
@@ -1091,4 +1123,8 @@ public final void publishContentProviders(IApplicationThread caller,
 
 发布 provider 即将 provider 缓存至 `mProviderMap`。
 
-## 时序图 todo
+## 时序图
+
+最后绘制安装流程和发布的时序图。
+
+![provider_install_publish](./image/android_component_provider/provider_install.png)
