@@ -67,87 +67,85 @@ private static final String TAG = TAG_WITH_CLASS_NAME ? "ProcessRecord" : TAG_AM
     boolean repForegroundActivities; // 上次上报的前台 activity。
     boolean systemNoUi;         // 这是一个系统应用，但当前未显示 UI。
     boolean hasShownUi;         // 自启动以来，是否已在此进程中显示 UI？
-    boolean pendingUiClean;     // Want to clean up resources from showing UI?
-    boolean hasAboveClient;     // Bound using BIND_ABOVE_CLIENT, so want to be lower
-    boolean treatLikeActivity;  // Bound using BIND_TREAT_LIKE_ACTIVITY
-    boolean bad;                // True if disabled in the bad process list
-    boolean killedByAm;         // True when proc has been killed by activity manager, not for RAM
-    boolean killed;             // True once we know the process has been killed
-    boolean procStateChanged;   // Keep track of whether we changed 'setAdj'.
-    boolean reportedInteraction;// Whether we have told usage stats about it being an interaction
-    long fgInteractionTime;     // When we became foreground for interaction purposes
-    String waitingToKill;       // Process is waiting to be killed when in the bg, and reason
-    IBinder forcingToForeground;// Token that is forcing this process to be foreground
-    int adjSeq;                 // Sequence id for identifying oom_adj assignment cycles
-    int lruSeq;                 // Sequence id for identifying LRU update cycles
-    CompatibilityInfo compat;   // last used compatibility mode
-    IBinder.DeathRecipient deathRecipient; // Who is watching for the death.
-    ComponentName instrumentationClass;// class installed to instrument app
-    ApplicationInfo instrumentationInfo; // the application being instrumented
-    String instrumentationProfileFile; // where to save profiling
-    IInstrumentationWatcher instrumentationWatcher; // who is waiting
-    IUiAutomationConnection instrumentationUiAutomationConnection; // Connection to use the UI introspection APIs.
-    Bundle instrumentationArguments;// as given to us
-    ComponentName instrumentationResultClass;// copy of instrumentationClass
-    boolean usingWrapper;       // Set to true when process was launched with a wrapper attached
-    BroadcastRecord curReceiver;// receiver currently running in the app
-    long lastWakeTime;          // How long proc held wake lock at last check
-    long lastCpuTime;           // How long proc has run CPU at last check
-    long curCpuTime;            // How long proc has run CPU most recently
-    long lastRequestedGc;       // When we last asked the app to do a gc
-    long lastLowMemory;         // When we last told the app that memory is low
-    boolean reportLowMemory;    // Set to true when waiting to report low mem
-    boolean empty;              // Is this an empty background process?
-    boolean cached;             // Is this a cached process?
-    String adjType;             // Debugging: primary thing impacting oom_adj.
-    int adjTypeCode;            // Debugging: adj code to report to app.
-    Object adjSource;           // Debugging: option dependent object.
-    int adjSourceProcState;     // Debugging: proc state of adjSource's process.
-    Object adjTarget;           // Debugging: target component impacting oom_adj.
-    Runnable crashHandler;      // Optional local handler to be invoked in the process crash.
+    boolean pendingUiClean;     // 是否想清除显示 UI 的资源？
+    boolean hasAboveClient;     // 使用 BIND_ABOVE_CLIENT 绑定，因此想降低。
+    boolean treatLikeActivity;  // 使用 BIND_TREAT_LIKE_ACTIVITY 绑定。
+    boolean bad;                // 如果在 bad 进程列表中被禁用，则为 true。
+    boolean killedByAm;         // 当 proc 已被 AMS 终止，而不是用于 RAM 时为 true。
+    boolean killed;             // 一旦我们知道该 process 已被终止，便为 true。
+    boolean procStateChanged;   // 追踪我们是否更改了 “setAdj”。
+    boolean reportedInteraction;// 我们是否已告知 usage stats 是一种交互。
+    long fgInteractionTime;     // 当我们为了交互而成为前台的时间。
+    String waitingToKill;       // 在 bg 中等待进程被杀死，原因是。
+    IBinder forcingToForeground;// 强制此进程变为前台的 token。
+    int adjSeq;                 // 用于标识 oom_adj 分配周期的序队列 ID。
+    int lruSeq;                 // 用于标识 LRU 更新周期的队列 ID。
+    CompatibilityInfo compat;   // 上次使用的兼容模式。
+    IBinder.DeathRecipient deathRecipient; // 谁在监听 binder 死亡。
+    ComponentName instrumentationClass;    // 安装到 instrument 的类。
+    ApplicationInfo instrumentationInfo;   // 正在测试的应用程序。
+    String instrumentationProfileFile;     // 保存配置文件的位置。
+    IInstrumentationWatcher instrumentationWatcher; // 谁在等待。
+    IUiAutomationConnection instrumentationUiAutomationConnection; // 使用 UI 自检 API 的连接。
+    Bundle instrumentationArguments;// 给我们的。
+    ComponentName instrumentationResultClass;// 从 instrumentationClass 复制。
+    boolean usingWrapper;       // 在进程启动并附加包装器时设置为 true。
+    BroadcastRecord curReceiver;// 当前在应用程序中运行的广播接收器。
+    long lastWakeTime;          // proc 上次检查时保持唤醒锁的时间
+    long lastCpuTime;           // proc 上次检查时运行的 cpu 时间。
+    long curCpuTime;            // proc 最近运行的 CPU 时间。
+    long lastRequestedGc;       // 上一次要求该应用执行 gc 的时间。
+    long lastLowMemory;         // 我们上次告诉应用程序内存不足的时间。
+    boolean reportLowMemory;    // 等待低内存上报时设置为 true。
+    boolean empty;              // 这是一个空的后台进程吗？
+    boolean cached;             // 这是一个缓存的进程吗？
+    String adjType;             // Debugging：影响oom_adj的主要原因。
+    int adjTypeCode;            // Debugging：向 app 上报的 adj 代码。
+    Object adjSource;           // Debugging：选项相关的对象。
+    int adjSourceProcState;     // Debugging：adjSource 进程的 proc 状态。
+    Object adjTarget;           // Debugging：影响 oom_adj 的目标组件。
+    Runnable crashHandler;      // 在进程崩溃时要调用的可选的本地处理程序。
 
-    // all activities running in the process
+    // 此进程中所有运行的 activity。
     final ArrayList<ActivityRecord> activities = new ArrayList<>();
-    // all ServiceRecord running in this process
+    // 此进程中所有运行的 ServiceRecord。
     final ArraySet<ServiceRecord> services = new ArraySet<>();
-    // services that are currently executing code (need to remain foreground).
+    // 当前正在执行代码的 Service（需要保持在前台）。
     final ArraySet<ServiceRecord> executingServices = new ArraySet<>();
-    // All ConnectionRecord this process holds
+    // 此进程持有的所有 ConnectionRecord。
     final ArraySet<ConnectionRecord> connections = new ArraySet<>();
-    // all IIntentReceivers that are registered from this process.
+    // 该进程注册的所有 IIntentReceivers。
     final ArraySet<ReceiverList> receivers = new ArraySet<>();
     // class (String) -> ContentProviderRecord
     final ArrayMap<String, ContentProviderRecord> pubProviders = new ArrayMap<>();
-    // All ContentProviderRecord process is using
+    // 进程正在使用的所有 ContentProviderRecord。
     final ArrayList<ContentProviderConnection> conProviders = new ArrayList<>();
 
-    boolean execServicesFg;     // do we need to be executing services in the foreground?
-    boolean persistent;         // always keep this application running?
-    boolean crashing;           // are we in the process of crashing?
-    Dialog crashDialog;         // dialog being displayed due to crash.
-    boolean forceCrashReport;   // suppress normal auto-dismiss of crash dialog & report UI?
-    boolean notResponding;      // does the app have a not responding dialog?
-    Dialog anrDialog;           // dialog being displayed due to app not resp.
-    boolean removed;            // has app package been removed from device?
-    boolean debugging;          // was app launched for debugging?
-    boolean waitedForDebugger;  // has process show wait for debugger dialog?
-    Dialog waitDialog;          // current wait for debugger dialog
+    boolean execServicesFg;     // 我们需要在前台执行服务吗？
+    boolean persistent;         // 始终保持该应用程序运行？
+    boolean crashing;           // 我们正在 crash 吗？
+    Dialog crashDialog;         // 由于崩溃而显示的对话框。
+    boolean forceCrashReport;   // 不允许正常自动关闭崩溃对话框和报告用户界面？
+    boolean notResponding;      // 该应用程序是否有未响应 Dialog？
+    Dialog anrDialog;           // 由于没有响应应用程序而显示 Dialog。
+    boolean removed;            // 是否已从设备中删除应用包？
+    boolean debugging;          // 应用是否已启动进行调试？
+    boolean waitedForDebugger;  // 进程是否显示等待调试器 Dialog？
+    Dialog waitDialog;          // 当前等待调试器 Dialog。
     
-    String shortStringName;     // caching of toShortString() result.
-    String stringName;          // caching of toString() result.
+    String shortStringName;     // 缓存 toShortString() 结果。
+    String stringName;          // 缓存 toString() 结果。
     
-    // These reports are generated & stored when an app gets into an error condition.
-    // They will be "null" when all is OK.
+    // 当应用程序进入错误状态时，将生成并存储这些报告。
+    // 一切正常后，它们将为 “null”。
     ActivityManager.ProcessErrorStateInfo crashingReport;
     ActivityManager.ProcessErrorStateInfo notRespondingReport;
 
-    // Who will be notified of the error. This is usually an activity in the
-    // app that installed the package.
+    // 该向谁通知该错误。
+    // 这通常是软件包安装应用程序中的活动。
     ComponentName errorReportReceiver;
 }
 ```
-
-
 
 ## ServiceRecord
 
