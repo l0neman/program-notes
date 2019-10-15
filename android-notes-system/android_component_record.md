@@ -149,6 +149,77 @@ private static final String TAG = TAG_WITH_CLASS_NAME ? "ProcessRecord" : TAG_AM
 
 ## ServiceRecord
 
+ServiceRecord 是记录 Service 组件的数据结构，下面枚举出它的成员变量。
+
+```java
+// ServiceRecord.java
+
+final class ServiceRecord extends Binder {
+    private static final String TAG = TAG_WITH_CLASS_NAME ? "ServiceRecord" : TAG_AM;
+
+    // 放弃之前的最大传送尝试次数。
+    static final int MAX_DELIVERY_COUNT = 3;
+
+    // 放弃执行之前执行失败的最大次数。
+    static final int MAX_DONE_EXECUTING_COUNT = 6;
+
+    final ActivityManagerService ams;
+    final BatteryStatsImpl.Uid.Pkg.Serv stats;
+    final ComponentName name; // service 组件。
+    final String shortName;   // name.flattenToShortString()。
+    final Intent.FilterComparison intent;
+                              // 用来寻找 service 的原始 intent。
+    final ServiceInfo serviceInfo;
+                              // 和 service 相关的所有信息。
+    final ApplicationInfo appInfo;
+                              // service 所在 app 的相关信息。
+    final int userId;         // 运行该服务的用户。
+    final String packageName; // 实现 intent 组件的包。
+    final String processName; // 组件所在进程。
+    final String permission;  // 访问 service 所需权限。
+    final boolean exported;   // 来自 ServiceInfo.exported。
+    final Runnable restarter; // 用于安排重启服务的时间。
+    final long createTime;    // service 被创建的时间。
+    final ArrayMap<Intent.FilterComparison, IntentBindRecord> bindings
+            = new ArrayMap<Intent.FilterComparison, IntentBindRecord>();
+                            // 对于此 service 所有活动的绑定者。
+    final ArrayMap<IBinder, ArrayList<ConnectionRecord>> connections
+            = new ArrayMap<IBinder, ArrayList<ConnectionRecord>>();
+                            // IBinder -> 所有绑定客户端的 ConnectionRecord。
+
+    ProcessRecord app;      // service 正在运行的地方，或为 null。
+    ProcessRecord isolatedProc; // 跟踪隔离的进程（如果需要）。
+    ProcessStats.ServiceState tracker; // 跟踪 service 执行，可能为 null。
+    ProcessStats.ServiceState restartTracker; // 跟踪 service 重启。
+    boolean delayed;        // 我们是否正在等待在后台启动此 service？
+    boolean isForeground;   // service 当前处于后后台模式吗？
+    int foregroundId;       // 上一个前台请求的 Notification id。
+    Notification foregroundNoti; // 前台状态下的 Notification 记录。
+    long lastActivity;      // 上次这个 service 的一些活动。
+    long startingBgTimeout;  // 我们将其安排为延迟启动的时间。
+    boolean startRequested; // 有人明确地请求启动？
+    boolean delayedStop;    // service 已停止，但延迟启动？
+    boolean stopIfKilled;   // 上次 onstart() 说如果 service 被杀死就停止？
+    boolean callStart;      // 上次 onStart() 要求在重新启动时总是被调用。
+    int executeNesting;     // 持有前台的未完成操作数。
+    boolean executeFg;      // 我们应该在前台执行吗？
+    long executingStart;    // 上次执行请求的启动时间。
+    boolean createdFromFg;  // 该 service 上次是由于前台进程调用而创建的吗？
+    int crashCount;         // proc 因 service 运行而崩溃的次数。
+    int totalRestartCount;  // 我们不得不重新启动的次数。
+    int restartCount;       // 连续执行的重新启动次数。
+    long restartDelay;      // 延迟到下一次重新启动尝试。
+    long restartTime;       // 上次重新启动的时间。
+    long nextRestartTime;   // restartDelay 到期的时间。
+    boolean destroying;     // 在我们开始销毁 service 时设置。
+    long destroyTime;       // 销毁的开始时间。
+
+    String stringName;      // 缓存 toString。
+    
+    private int lastStartId; // 最近启动请求的标识符。
+}
+```
+
 ## ActivityRecord
 
 ## ContentProviderRecord
