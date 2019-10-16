@@ -149,7 +149,7 @@ private static final String TAG = TAG_WITH_CLASS_NAME ? "ProcessRecord" : TAG_AM
 
 ## ServiceRecord
 
-ServiceRecord 是记录 Service 组件的数据结构，下面枚举出它的成员变量。
+ServiceRecord 是记录 Service 组件信息的数据结构，下面枚举出它的成员变量：
 
 ```java
 // ServiceRecord.java
@@ -221,6 +221,119 @@ final class ServiceRecord extends Binder {
 ```
 
 ## ActivityRecord
+
+ActivityRecord 是记录 Activity 组件信息的数据结构，下面枚举出它的成员变量：
+
+```java
+final class ActivityRecord {
+    private static final boolean SHOW_ACTIVITY_START_TIME = true;
+    final public static String RECENTS_PACKAGE_NAME = "com.android.systemui.recents";
+
+    private static final String ATTR_ID = "id";
+    private static final String TAG_INTENT = "intent";
+    private static final String ATTR_USERID = "user_id";
+    private static final String TAG_PERSISTABLEBUNDLE = "persistable_bundle";
+    private static final String ATTR_LAUNCHEDFROMUID = "launched_from_uid";
+    private static final String ATTR_LAUNCHEDFROMPACKAGE = "launched_from_package";
+    private static final String ATTR_RESOLVEDTYPE = "resolved_type";
+    private static final String ATTR_COMPONENTSPECIFIED = "component_specified";
+    static final String ACTIVITY_ICON_SUFFIX = "_activity_icon_";
+
+    final ActivityManagerService service;  // 所有者。
+    final IApplicationToken.Stub appToken; // window manager token。
+    final ActivityInfo info;               // 和我相关的信息。
+    final ApplicationInfo appInfo;         // activity 所在应用的信息。
+    final int launchedFromUid;             // 始终是启动 Activity 的 uid。
+    final String launchedFromPackage;      // 始终是启动 activity 的包。
+    final int userId;                      // 该用户运行哪个用户？
+    final Intent intent;                   // 创建我们的原始 intent。
+    final ComponentName realActivity;      // intent 的组件或 target 的别名。
+    final String shortComponentName;       // intent 的短组件名。
+    final String resolvedType;             // 原始调用者;
+    final String packageName;              // 实现 intent 组件的包。
+    final String processName;              // 该组件要运行的进程。
+    final String taskAffinity;             // 依照 ActivityInfo.taskAffinity
+    final boolean stateNotNeeded;          // 依照 ActivityInfo.flags
+    boolean fullscreen;                    // 覆盖了全屏?
+    final boolean noDisplay;               // activity 没有显示?
+    final boolean componentSpecified;      // 调用者是否指定了显式组件？
+    final boolean rootVoiceInteraction;    // 这是语音交互的根 activity 吗。
+
+    static final int APPLICATION_ACTIVITY_TYPE = 0;
+    static final int HOME_ACTIVITY_TYPE = 1;
+    static final int RECENTS_ACTIVITY_TYPE = 2;
+    int mActivityType;
+
+    CharSequence nonLocalizedLabel;  // Package Manager 中的标签信息。
+    int labelRes;           // Package Manager 中的标签信息。
+    int icon;               // activity 的 icon 的资源 id.
+    int logo;               // activity 的 logo 的资源 id.
+    int theme;              // activity 的 theme 的资源 id.
+    int realTheme;          // 我们使用的实际 theme 资源，永远不会是 0。
+    int windowFlags;        // 预览窗口的自定义窗口 flags.
+    TaskRecord task;        // 所在栈。
+    long createTime = System.currentTimeMillis();
+    long displayStartTime;  // 我们开始启动此 activity 的时间。
+    long fullyDrawnStartTime; // 我们开始启动此 activity 的时间。
+    long startTime;         // 上次启动此 activity 的时间。
+    long lastVisibleTime;   // 上次此活动可见的时间。
+    long cpuTimeAtResume;   // 恢复 activity 时本机进程的 cpu 时间。
+    long pauseTime;         // 上次我们开始暂停 activity 的时间。
+    long launchTickTime;    // 启动 tick 消息的基准时间。
+    Configuration configuration; // 配置 activity 最后一次由活动堆栈在“覆盖的配置”中运行
+    // WARNING: Reference points to {@link ActivityStack#mOverrideConfig}, 
+    // 因此切勿直接更改其内部状态。
+    Configuration stackConfigOverride;
+    CompatibilityInfo compat;// 上次使用的兼容模式。
+    ActivityRecord resultTo; // 是由谁启动的, 所以我们会得到回复。
+    final String resultWho;  // 用于 resultTo 的附加标识符。
+    final int requestCode;   // 请求者给的请求码 (resultTo)
+    ArrayList<ResultInfo> results; // 我们收到的待处理的 ActivityResult objs。
+    HashSet<WeakReference<PendingIntentRecord>> pendingResults; // 该 activity 的所有 pending intents。
+    ArrayList<ReferrerIntent> newIntents; // single-top 模式的任何新的 pending intents。
+    ActivityOptions pendingOptions;   // 最近给出的选项。
+    ActivityOptions returningOptions; // 通过 convertToTranslucent 返回的选项。
+    AppTimeTracker appTimeTracker;    // 设置是否在此应 app/task/activity 中追踪时间。
+    HashSet<ConnectionRecord> connections; // 我们持有的所有 ConnectionRecord。
+    UriPermissionOwner uriPermissions; // 当前的特殊 URI 访问权限。
+    ProcessRecord app;      // 如果不是 null，则是本机 app。
+    ActivityState state;    // 我们目前的状态
+    Bundle  icicle;         // 上次保存的 activity 状态。
+    PersistableBundle persistentState; // 上一个持久保存的 activity 状态。
+    boolean frontOfTask;    // 这是所在任务的根 activity 吗？
+    boolean launchFailed;   // 如果启动失败则设置，第二次则尝试中止。
+    boolean haveState;      // 我们是否获得了最后一个 activity 状态？
+    boolean stopped;        // activity 暂停完成了吗？
+    boolean delayedResume;  // 由于停止了应用程序切换而还未 resume？
+    boolean finishing;      // activity 在待 finish 列表中？
+    boolean configDestroy;  // 需要因配置更改而销毁？
+    int configChangeFlags;  // 哪些配置值已更改。
+    boolean keysPaused;     // 是否已暂停 key 分发？
+    int launchMode;         // 启动模式活动属性。
+    boolean visible;        // 是否需要显示此 activity 的窗口?
+    boolean sleeping;       // 我们有通知 activity 睡眠吗？
+    boolean nowVisible;     // 此 activity 的窗口是否可见。
+    boolean idle;           // activity 闲置了吗？
+    boolean hasBeenLaunched;// 此 activity 有没有被启动过?
+    boolean frozenBeforeDestroy;// 已被冻结但尚未销毁。
+    boolean immersive;      // 沉浸模式（如果有可能，请勿中断）。
+    boolean forceNewConfig; // 下次使用新配置强制重新创建 activity。
+    int launchCount;        // 自上次状态以来的启动次数。
+    long lastLaunchTime;    // 此 activity 上次启动时间。
+    ArrayList<ActivityContainer> mChildContainers = new ArrayList<ActivityContainer>();
+
+    String stringName;      // 缓存 toString()。
+
+    private boolean inHistory;  // 我们在历史栈列表吗?
+    final ActivityStackSupervisor mStackSupervisor;
+    boolean mStartingWindowShown = false;
+    ActivityContainer mInitialActivityContainer;
+
+    TaskDescription taskDescription; // 此 activity 的最近信息。
+    boolean mLaunchTaskBehind; // 此 activity 正在使用 ActivityOptions.setLaunchTaskBehind 
+                               //主动启动，一旦启动完成，该 activity 将被清除。
+}
+```
 
 ## ContentProviderRecord
 
