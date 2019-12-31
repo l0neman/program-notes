@@ -32,7 +32,7 @@ struct ResTable_type
 
 import com.runing.utilslib.arscparser.util.Formatter;
 import com.runing.utilslib.arscparser.util.objectio.Struct;
-import com.runing.utilslib.arscparser.xml.export.util.objectio.FieldOrder;
+import com.runing.utilslib.arscparser.util.objectio.FieldOrder;
 
 /**
  * 类型资源项数据块。

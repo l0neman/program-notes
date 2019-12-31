@@ -1,6 +1,6 @@
 package com.runing.utilslib.arscparser.type;
 
-import com.runing.utilslib.arscparser.xml.export.util.objectio.FieldOrder;
+import com.runing.utilslib.arscparser.util.objectio.FieldOrder;
 
 /*
 struct ResTable_map_entry : public ResTable_entry

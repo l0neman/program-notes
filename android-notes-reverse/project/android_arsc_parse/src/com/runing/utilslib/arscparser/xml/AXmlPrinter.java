@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 @SuppressWarnings("ALL")
-public class AXmlParser {
+public class AXmlPrinter {
 
   // 输出调试信息（打印对象值）。
   private static final boolean DEBUG_INFO = false;
@@ -26,7 +26,7 @@ public class AXmlParser {
 
   private int mIndex;
   private String[] stringPool;
-  private AXmlEditor AXmlEditor = new AXmlEditor();
+  private AXmlEditor aXmlEditor = new AXmlEditor();
   private Map<String, String> namespaceMap = new HashMap<>();
 
   private void parseXMLTreeHeader(ObjectInput objectInput) throws IOException {
@@ -145,7 +145,7 @@ public class AXmlParser {
     }
 
     if (XML_PRINT) {
-      AXmlEditor.addNamespace(namespace, namespaceUri);
+      aXmlEditor.addNamespace(namespace, namespaceUri);
       namespaceMap.put(namespaceUri, namespace);
     }
 
@@ -188,7 +188,7 @@ public class AXmlParser {
     }
 
     if (XML_PRINT) {
-      AXmlEditor.openElement(elementName);
+      aXmlEditor.openElement(elementName);
     }
 
     index += ObjectInput.sizeOf(ResXMLTreeAttrExt.class);
@@ -234,7 +234,7 @@ public class AXmlParser {
         String nsPrefix = namespaceMap.get(namespace);
 
         nsPrefix = nsPrefix == null ? "" : nsPrefix + ":";
-        AXmlEditor.addAttribute(nsPrefix + attrName, attrText != null ?
+        aXmlEditor.addAttribute(nsPrefix + attrName, attrText != null ?
             attrText : attrValue);
       }
 
@@ -265,7 +265,7 @@ public class AXmlParser {
     }
 
     if (XML_PRINT) {
-      AXmlEditor.addData(cdata);
+      aXmlEditor.addData(cdata);
     }
 
     mIndex += node.header.size;
@@ -298,7 +298,7 @@ public class AXmlParser {
     }
 
     if (XML_PRINT) {
-      AXmlEditor.closeElement(elementName);
+      aXmlEditor.closeElement(elementName);
     }
 
     mIndex += node.header.size;
@@ -338,7 +338,7 @@ public class AXmlParser {
     mIndex += node.header.size;
   }
 
-  private void parse(ObjectInput objectInput) throws IOException {
+  private void print(ObjectInput objectInput) throws IOException {
     while (!objectInput.isEof(mIndex)) {
       ResChunkHeader header = objectInput.read(ResChunkHeader.class, mIndex);
 
@@ -389,7 +389,7 @@ public class AXmlParser {
 
     if (XML_PRINT) {
       System.out.println();
-      System.out.println(AXmlEditor.print());
+      System.out.println(aXmlEditor.print());
     }
   }
 
@@ -404,14 +404,14 @@ public class AXmlParser {
     }
   }
 
-  public void parse(String file) throws IOException {
+  public void print(String file) throws IOException {
     mIndex = 0;
     stringPool = null;
     namespaceMap.clear();
     ObjectInput objectInput = null;
     try {
       objectInput = new ObjectInput(file);
-      parse(objectInput);
+      print(objectInput);
     } finally {
       closeQuietly(objectInput);
     }

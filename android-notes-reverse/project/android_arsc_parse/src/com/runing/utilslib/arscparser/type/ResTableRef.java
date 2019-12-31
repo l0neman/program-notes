@@ -8,7 +8,7 @@ struct ResTable_ref
 
 import com.runing.utilslib.arscparser.util.Formatter;
 import com.runing.utilslib.arscparser.util.objectio.Struct;
-import com.runing.utilslib.arscparser.xml.export.util.objectio.FieldOrder;
+import com.runing.utilslib.arscparser.util.objectio.FieldOrder;
 
 /**
  * 资源的引用（ResID）
