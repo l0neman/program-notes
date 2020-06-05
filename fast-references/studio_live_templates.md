@@ -1,7 +1,5 @@
 # Android Studio Live Templates
 
-[TOC]
-
 ## Android
 
 ### const

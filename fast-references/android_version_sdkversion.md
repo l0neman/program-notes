@@ -31,3 +31,4 @@
 | 27          | Android 8.1     | Oreo MR1                    |
 | 28          | Android 9       | Pie                         |
 | 29          | Android 10      | Q                           |
+| 30          | Android 11      | R                           |
