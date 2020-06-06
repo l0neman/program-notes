@@ -16,8 +16,6 @@
 
 [Android Activity 任务栈](./android_activity_task_stack.md)
 
-[Android Gradle 的使用](./android_gradle_usage.md)
-
 ## third party framework
 
 第三方框架

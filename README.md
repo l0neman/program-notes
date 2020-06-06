@@ -16,9 +16,9 @@ android 系统原理笔记。
 
 android 开源框架笔记。
 
-## [other-notes](./other-notes)
+## [fast-references](./fast-references)
 
-其他笔记。
+快速参考。
 
 [![知识共享许可协议](https://i.creativecommons.org/l/by-nc-sa/3.0/cn/88x31.png)](http://creativecommons.org/licenses/by-nc-sa/3.0/cn/)
 
