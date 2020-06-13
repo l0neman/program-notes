@@ -1042,10 +1042,11 @@ bar:= $(subst $(space),$(comma),$(foo))
 上面使用了字符串替换函数 `subst`，将 `$(foo)` 中的空格替换成了 `,` 结果是 `$(bar)=a,b,c`
 
 
-- 字符串处理函数
+## 字符串处理函数
+
+- subst
 
 ```makefile
-# subst
 $(subst, <from>,<to>,<text>)
 
 # 名称：字符串替换函数
@@ -1054,8 +1055,9 @@ $(subst, <from>,<to>,<text>)
 # 示例：fEEt on the strEEt = $(subst ee,EE,feet on the street)
 ```
 
+- patsubst
+
 ```makefile
-# patsubst
 $(patsubst <pattern>,<replacement>,<text>)
 
 # 名称：模式字符串替换函数
@@ -1065,8 +1067,9 @@ $(patsubst <pattern>,<replacement>,<text>)
 # 备注：$(var:<pattern>=<replacement>;) 相当于 $(patsubst <pattern>,<replacement>,$(var))，而 $(var: <suffix>=<replacement>) 则相当于 $(patsubst %<suffix>,%<replacement>,$(var)) 
 ```
 
+- strip
+
 ```makefile
-# strip
 $(strip <string>)
 
 # 名称：去除空格函数
@@ -1075,8 +1078,9 @@ $(strip <string>)
 # 示例：a b c = $(strip a b c )
 ```
 
+- findstring
+
 ```makefile
-# findstring
 $(findstring <find>,<in>)
 
 # 名称：查找字符串函数
@@ -1087,8 +1091,9 @@ $(findstring <find>,<in>)
         = $(findstring a,b c)
 ```
 
+- filter
+
 ```makefile
-# filter
 $(filter <pattern...>,<text>)
 
 # 名称：过滤函数
@@ -1101,8 +1106,9 @@ $(filter <pattern...>,<text>)
         # 返回值：foo.c bar.c baz.s
 ```
 
+- filter-out
+
 ```makefile
-# filter-out
 $(filter-out <pattern...>,<text>)
 
 # 名称：反过滤函数
@@ -1114,8 +1120,9 @@ $(filter-out <pattern...>,<text>)
         # 返回值：foo.o bar.o
 ```
 
+- sort
+
 ```makefile
-# sort
 $(sort <list>)
 
 # 名称：排序函数
@@ -1125,8 +1132,9 @@ $(sort <list>)
 # 备注：sort 函数会去掉 <list> 中相同的单词
 ```
 
+- word
+
 ```makefile
-# word
 $(word <n>,<text>)
 
 # 名称：取单词函数
@@ -1135,8 +1143,9 @@ $(word <n>,<text>)
 # 示例：bar = $(word 2, foo bar baz)
 ```
 
+- wordlist
+
 ```makefile
-# wordlist
 $(wordlist <ss>,<e>,<text>)
 
 # 名称：取单词串函数
@@ -1145,8 +1154,9 @@ $(wordlist <ss>,<e>,<text>)
 # 示例：bar baz = $(wordlist 2, 3, foo bar baz)
 ```
 
+- words
+
 ```makefile
-# words
 $(words <text>)
 
 # 名称：单词个数统计函数
@@ -1156,8 +1166,9 @@ $(words <text>)
 # 备注：如果要取 <text> 中最后的一个单词，可以这样：$(word $(words <text>),<text>)
 ```
 
+- firstword
+
 ```makefile
-# firstword
 $(firstword <text>)
 
 # 名称：首单词函数
@@ -1178,12 +1189,13 @@ override CFLAGS += $(patsubst %,-I%,$(subst :, ,$(VPATH)))
 
 
 
-- 文件名操作函数
+## 文件名操作函数
 
 每个函数的参数字符串都会被当做一个或是一系列的文件名来对待
 
+- dir
+
 ```makefile
-# dir
 $(dir <names...>)
 
 # 名称：取目录函数
@@ -1192,8 +1204,9 @@ $(dir <names...>)
 # 示例：src/ ./ = $(dir src/foo.c hacks)
 ```
 
+- notdir
+
 ```makefile
-# notdir
 $(notdir <names...>)
 
 # 名称：取文件函数
@@ -1202,8 +1215,9 @@ $(notdir <names...>)
 # 示例：foo.c hacks = $(notdir src/foo.c hacks)
 ```
 
+- suffix
+
 ```makefile
-# suffix
 $(suffix <names...>)
 
 # 名称：取后缀函数
@@ -1212,8 +1226,10 @@ $(suffix <names...>)
 # 示例：.c .c = $(suffix src/foo.c src-1.0/bar.c hacks)
 ```
 
+- basename
+
+
 ```makefile
-# basename
 $(basename <names...>)
 
 # 名称：取前缀函数
@@ -1222,8 +1238,9 @@ $(basename <names...>)
 # 示例：src/foo src-1.0/bar hacks = $(basename src/foo.c src-1.0/bar.c hacks)
 ```
 
+- addsuffix
+
 ```makefile
-# addsuffix
 $(addsuffix <suffix>,<names...>)
 
 # 名称：加后缀函数
@@ -1232,8 +1249,9 @@ $(addsuffix <suffix>,<names...>)
 # 示例：foo.c bar.c = $(addsuffix .c,foo bar)
 ```
 
+- addprefix
+
 ```makefile
-# addprefix
 $(addprefix <prefix>,<names...>)
 
 # 名称：加前缀函数
@@ -1242,8 +1260,9 @@ $(addprefix <prefix>,<names...>)
 # 示例：src/foo src/bar = $(addprefix src/,foo bar)
 ```
 
+- join
+
 ```makefile
-# join
 $(join <list1>,<list2>)
 
 # 名称：连接函数
@@ -1252,7 +1271,9 @@ $(join <list1>,<list2>)
 # 示例：aaa111 bbb222 333 = $(join aaa bbb , 111 222 333)
 ```
 
-- foreach 函数
+
+
+## foreach 函数
 
 ```makefile
 $(foreach <var>,<list>,<text>)
@@ -1271,7 +1292,7 @@ files := $(foreach n,$(names),$(n).o)
 
 
 
-- if 函数
+## if 函数
 
 ```makefile
 $(if <condition>,<then-part>)
@@ -1289,7 +1310,7 @@ $(if <condition>,<then-part>,<else-part>)
 
 
 
-- call 函数
+## call 函数
 
 唯一一个可以用来创建新的参数化的函数，可以写一个非常复杂的表达式，这个表达式中，可以定义许多参数，然后可以用 `call` 函数来向这个表达式传递参数。
 
@@ -1319,7 +1340,7 @@ foo = $(call reverse,a,b)
 
 
 
-- origin 函数
+## origin 函数
 
 它并不操作变量的值，它告诉你这个变量的来源。
 
@@ -1355,7 +1376,7 @@ endif
 
 
 
-- shell 函数
+## shell 函数
 
 它的参数就是操作系统 Shell 的命令，shell 函数把执行操作系统命令后的输出作为函数返回。
 
@@ -1370,7 +1391,7 @@ files := $(shell echo *.c)
 
 
 
-- 控制 Make 的函数
+## 控制 Make 的函数
 
 ```makefile
 $(error <text ...>)
@@ -1401,6 +1422,7 @@ make 命令执行后有三个退出码：
 1 Make 运行时出现任何错误
 
 2 如果使用了 Make 的 `-q` 选项，并且 `Make` 使得一些目标不需要更新
+
 
 ## 指定 Makefile
 
