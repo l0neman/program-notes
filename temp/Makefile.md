@@ -553,12 +553,12 @@ unexport <varible ...>;
 
 ```makefile
 export variable = value
-或
+# 或
 variable = value
 export variable
-或
+# 或
 export variable := value
-或
+# 或
 export variable += value
 ```
 
@@ -1015,28 +1015,392 @@ Make 不允许把整个条件语句分成两部分放在不同的文件中。
 
 # 使用函数
 
+Makefile 中可以使用函数来处理变量。
+
+## 函数的调用语法
+
+```makefile
+$(<function> <arguments>)
+```
+
+或：
+
+```makefile
+${<function> <arguments>}
+```
+
+<function> 是函数名，<arguments> 为函数参数，多个参数使用 `,` 分隔。
+
+```makefile
+comma:= ,
+empty:=
+space:= $(empty) $(empty)
+foo:= a b c
+bar:= $(subst $(space),$(comma),$(foo))
+```
+
+上面使用了字符串替换函数 `subst`，将 `$(foo)` 中的空格替换成了 `,` 结果是 `$(bar)=a,b,c`
+
+
+- 字符串处理函数
+
+```makefile
+# subst
+$(subst, <from>,<to>,<text>)
+
+# 名称：字符串替换函数
+# 功能：把字符串 <text> 中的 <from> 字符串替换成 <to>
+# 结果：返回被替换过后的字符串
+# 示例：fEEt on the strEEt = $(subst ee,EE,feet on the street)
+```
+
+```makefile
+# patsubst
+$(patsubst <pattern>,<replacement>,<text>)
+
+# 名称：模式字符串替换函数
+# 功能：查找 <text> 中的单词（单词以“空格”、“Tab”或“回车”、“换行”分隔）是否符合模式 <pattern> ，如果匹配的话，则以 <replacement> 替换。这里， <pattern> 可以包括通配符 % ，表示任意长度的字串。如果 <replacement> 中也包含 % ，那么， <replacement> 中的这个 % 将是 <pattern> 中的那个 % 所代表的字串。（可以用 \ 来转义，以 \% 来表示真实含义的 % 字符）
+# 结果：返回被替换过后的字符串
+# 示例：x.c.o bar.o = $(patsubst %.c,%.o,x.c.c bar.c)
+# 备注：$(var:<pattern>=<replacement>;) 相当于 $(patsubst <pattern>,<replacement>,$(var))，而 $(var: <suffix>=<replacement>) 则相当于 $(patsubst %<suffix>,%<replacement>,$(var)) 
+```
+
+```makefile
+# strip
+$(strip <string>)
+
+# 名称：去除空格函数
+# 功能：去除 <string> 字符串中开头和结尾的空字符
+# 结果：返回被去掉空格的字符串
+# 示例：a b c = $(strip a b c )
+```
+
+```makefile
+# findstring
+$(findstring <find>,<in>)
+
+# 名称：查找字符串函数
+# 功能：在字串 <in> 中查找 <find> 字串
+# 结果：如果找到，那么返回 <find> ，否则返回空字符串
+# 示例：
+        a = $(findstring a,a b c)
+        = $(findstring a,b c)
+```
+
+```makefile
+# filter
+$(filter <pattern...>,<text>)
+
+# 名称：过滤函数
+# 功能：以 <pattern> 模式过滤 <text> 字符串中的单词，保留符合模式 <pattern> 的单词，可以有多个模式
+# 结果：返回符合模式 <pattern> 的字串
+# 示例：
+        sources := foo.c bar.c baz.s ugh.h
+        foo: $(sources)
+            cc $(filter %.c %.s,$(sources)) -o foo
+        # 返回值：foo.c bar.c baz.s
+```
+
+```makefile
+# filter-out
+$(filter-out <pattern...>,<text>)
+
+# 名称：反过滤函数
+# 功能：以 <pattern> 模式过滤 <text> 字符串中的单词，去除符合模式 <pattern> 的单词，可以有多个模式
+# 结果：返回不符合模式 <pattern> 的字串
+# 示例： 
+        objects = main1.o foo.o main2.o bar.o
+        mains = main1.o main2.o
+        # 返回值：foo.o bar.o
+```
+
+```makefile
+# sort
+$(sort <list>)
+
+# 名称：排序函数
+# 功能：给字符串 <list> 中的单词排序（升序）
+# 结果：返回排序后的字符串
+# 示例：bar foo lose = $(sort foo bar lose)
+# 备注：sort 函数会去掉 <list> 中相同的单词
+```
+
+```makefile
+# word
+$(word <n>,<text>)
+
+# 名称：取单词函数
+# 功能：取字符串 <text> 中第 <n> 个单词。（从一开始）
+# 结果：返回字符串 <text> 中第 <n> 个单词。如果 <n> 比 <text> 中的单词数要大，那么返回空字符串
+# 示例：bar = $(word 2, foo bar baz)
+```
+
+```makefile
+# wordlist
+$(wordlist <ss>,<e>,<text>)
+
+# 名称：取单词串函数
+# 功能：从字符串 <text> 中取从 <ss> 开始到 <e> 的单词串。 <ss> 和 <e> 是一个数字
+# 结果：返回字符串 <text> 中从 <ss> 到 <e> 的单词字串。如果 <ss> 比 <text> 中的单词数要大，那么返回空字符串。如果 <e> 大于 <text> 的单词数，那么返回从 <ss> 开始，到 <text> 结束的单词串
+# 示例：bar baz = $(wordlist 2, 3, foo bar baz)
+```
+
+```makefile
+# words
+$(words <text>)
+
+# 名称：单词个数统计函数
+# 功能：统计 <text> 中字符串中的单词个数
+# 结果：返回 <text> 中的单词数
+# 示例：3 = $(words, foo bar baz)
+# 备注：如果要取 <text> 中最后的一个单词，可以这样：$(word $(words <text>),<text>)
+```
+
+```makefile
+# firstword
+$(firstword <text>)
+
+# 名称：首单词函数
+# 功能：取字符串 <text> 中的第一个单词
+# 结果：返回字符串 <text> 的第一个单词
+# 示例：foo = $(firstword foo bar)
+# 备注：可以用 word 函数来实现：$(word 1,<text>)
+```
+
+字符串函数实例：
+
+利用搜索路径 `VPATH` 来指定编译器对头文件的搜索路径参数 CFLAGS
+
+```makefile
+override CFLAGS += $(patsubst %,-I%,$(subst :, ,$(VPATH)))
+# $(VPATH) 值是 src:../headers ，那么 $(patsubst %,-I%,$(subst :, ,$(VPATH))) 将返回 -Isrc -I../headers 
+```
 
 
 
+- 文件名操作函数
+
+每个函数的参数字符串都会被当做一个或是一系列的文件名来对待
+
+```makefile
+# dir
+$(dir <names...>)
+
+# 名称：取目录函数
+# 功能：文件名序列 <names> 中取出目录部分。目录部分是指最后一个反斜杠（ / ）之前的部分。如果没有反斜杠，那么返回 ./
+# 结果：返回文件名序列 <names> 的目录部分
+# 示例：src/ ./ = $(dir src/foo.c hacks)
+```
+
+```makefile
+# notdir
+$(notdir <names...>)
+
+# 名称：取文件函数
+# 功能：从文件名序列 <names> 中取出非目录部分。非目录部分是指最後一个反斜杠（ / ）之后的部分
+# 结果：返回文件名序列 <names> 的非目录部分
+# 示例：foo.c hacks = $(notdir src/foo.c hacks)
+```
+
+```makefile
+# suffix
+$(suffix <names...>)
+
+# 名称：取后缀函数
+# 功能：从文件名序列 <names> 中取出各个文件名的后缀
+# 结果：返回文件名序列 <names> 的后缀序列，如果文件没有后缀，则返回空字串
+# 示例：.c .c = $(suffix src/foo.c src-1.0/bar.c hacks)
+```
+
+```makefile
+# basename
+$(basename <names...>)
+
+# 名称：取前缀函数
+# 功能：从文件名序列 <names> 中取出各个文件名的前缀部分
+# 结果：返回文件名序列 <names> 的前缀序列，如果文件没有前缀，则返回空字串
+# 示例：src/foo src-1.0/bar hacks = $(basename src/foo.c src-1.0/bar.c hacks)
+```
+
+```makefile
+# addsuffix
+$(addsuffix <suffix>,<names...>)
+
+# 名称：加后缀函数
+# 功能：把后缀 <suffix> 加到 <names> 中的每个单词后面
+# 结果：返回加过后缀的文件名序列
+# 示例：foo.c bar.c = $(addsuffix .c,foo bar)
+```
+
+```makefile
+# addprefix
+$(addprefix <prefix>,<names...>)
+
+# 名称：加前缀函数
+# 功能：把前缀 <prefix> 加到 <names> 中的每个单词后面
+# 结果：返回加过前缀的文件名序列
+# 示例：src/foo src/bar = $(addprefix src/,foo bar)
+```
+
+```makefile
+# join
+$(join <list1>,<list2>)
+
+# 名称：连接函数
+# 功能：把 <list2> 中的单词对应地加到 <list1> 的单词后面。如果 <list1> 的单词个数要比 <list2> 的多，那么， <list1> 中的多出来的单词将保持原样。如果 <list2> 的单词个数要比 <list1> 多，那么， <list2> 多出来的单词将被复制到 <list1> 中
+# 结果：返回连接过后的字符串
+# 示例：aaa111 bbb222 333 = $(join aaa bbb , 111 222 333)
+```
+
+- foreach 函数
+
+```makefile
+$(foreach <var>,<list>,<text>)
+```
+
+，把参数 `<list>` 中的单词逐一取出放到参数 `<var>` 所指定的变量中，然后再执行 `<text>` 所包含的表达式。每一次 `<text>` 会返回一个字符串，循环过程中， `<text>` 的所返回的每个字符串会以空格分隔，最后当整个循环结束时， `<text>` 所返回的每个字符串所组成的整个字符串（以空格分隔）将会是 `foreach` 函数的返回值
+
+实例：
+
+```makefile
+names := a b c d
+files := $(foreach n,$(names),$(n).o)
+```
+
+`$(name)` 中的单词会被挨个取出，并存到变量 `n` 中，`$(n).o` 每次根据 `$(n)` 计算出一个值，这些值以空格分隔，最后作为foreach函数的返回，那么，`$(files)` 的值是 `a.o b.o c.o d.o`
 
 
 
+- if 函数
+
+```makefile
+$(if <condition>,<then-part>)
+# 或
+$(if <condition>,<then-part>,<else-part>)
+```
+
+`if` 函数可以包含“else”部分，或是不含。即 `if` 函数的参数可以是两个，也可以是三个。
+
+`<condition>` 参数是 `if` 的表达式，如果其返回的为非空字符串，那么这个表达式就相当于返回真，于是，`<then-part>` 会被计算，否则 `<else-part>` 会被计算。
+
+`if` 函数的返回值：如果 `<condition>` 为真（非空字符串），那个 `<then-part>` 会是整个函数的返回值，如果 `<condition>` 为假（空字符串），那么 `<else-part>` 会是整个函数的返回值，此时如果 `<else-part>` 没有被定义，那么，整个函数返回空字串。
+
+所以，`<then-part>` 和 `<else-part>` 只会有一个被计算
 
 
 
+- call 函数
+
+唯一一个可以用来创建新的参数化的函数，可以写一个非常复杂的表达式，这个表达式中，可以定义许多参数，然后可以用 `call` 函数来向这个表达式传递参数。
+
+```makefile
+$(call <expression>,<parm1>,<parm2>,...,<parmn>)
+```
+
+当 Make 执行这个函数时，`<expression>` 参数中的变量，如 `$(1)` 、`$(2)` 等，会被参数 `<parm1>` 、`<parm2>` 、`<parm3>` 依次取代。而 `<expression>` 的返回值就是 `call` 函数的返回值。
+
+示例：
+
+```makefile
+reverse =  $(1) $(2)
+foo = $(call reverse,a,b)
+```
+
+`foo` 的值就是 `a b` ，参数的次序可以是自定义的，不一定是顺序的。
+
+```makefile
+reverse =  $(2) $(1)
+foo = $(call reverse,a,b)
+```
+
+此时的 `foo` 的值就是 `b a`
+
+备注：在向 `call` 函数传递参数时要尤其注意空格的使用。`call` 函数在处理参数时，第 `2` 个及其之后的参数中的空格会被保留，因而可能造成一些奇怪的效果。因而在向 `call` 函数提供参数时，最安全的做法是去除所有多余的空格。
 
 
 
+- origin 函数
+
+它并不操作变量的值，它告诉你这个变量的来源。
+
+```makefile
+$(origin <variable>)
+```
+
+<variable> 是变量的名字，不应该是引用（使用 `$` 符号）
+
+返回值：
+
+```
+undefined    -> 如果 <variable> 从来没有定义过
+default      -> 如果 <variable> 是一个默认的定义，比如“CC”这个变量
+environment  -> 如果 <variable> 是一个环境变量，并且当 Makefile 被执行时，-e 参数没有被打开
+file         -> 如果 <variable> 这个变量被定义在 Makefile 中
+command line -> 如果 <variable> 这个变量是被命令行定义的
+override     -> 如果 <variable> 是被 override 指示符重新定义的
+automatic    -> 如果 <variable> 是一个命令运行中的自动化变量
+```
+
+用法实例：
+
+有一个 Makefile 包含了一个定义文件 Make.def，在 Make.def 中定义了一个变量“bletch”，而此时环境中也有一个环境变量“bletch”，此时，判断如果变量来源于环境，那么就把之重定义，如果来源于 Make.def 或是命令行等非环境的，那么就不重新定义它。
+
+```makefile
+ifdef bletch
+    ifeq "$(origin bletch)" "environment"
+        bletch = barf, gag, etc.
+    endif
+endif
+```
 
 
 
+- shell 函数
+
+它的参数就是操作系统 Shell 的命令，shell 函数把执行操作系统命令后的输出作为函数返回。
+
+示例：
+
+```makefile
+contents := $(shell cat foo)
+files := $(shell echo *.c)
+```
+
+备注：这个函数会新生成一个 Shell 程序来执行命令，所以你要注意其运行性能。
 
 
 
+- 控制 Make 的函数
+
+```makefile
+$(error <text ...>)
+# 产生一个致命的错误，<text ...> 是错误信息
+
+$(warning <text ...>)
+# 输出一段警告信息
+```
+
+可以将函数提前保存到变量，在合适的时候使用：
+
+```makefile
+ifdef ERROR_001
+    $(error error is $(ERROR_001))
+endif
+```
 
 
 
+# Make 的运行
 
+## Make 的退出码
 
+make 命令执行后有三个退出码：
 
--
+0 表示成功执行
+
+1 Make 运行时出现任何错误
+
+2 如果使用了 Make 的 `-q` 选项，并且 `Make` 使得一些目标不需要更新
+
+## 指定 Makefile
+
