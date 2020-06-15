@@ -1,5 +1,7 @@
 # Android Studio Live Templates
 
+Android Studio 提供的实时模板，键盘敲出下列关键字，可生成相应代码，用户也可自定义模板。
+
 ## Android
 
 ### const
