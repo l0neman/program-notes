@@ -1,10 +1,24 @@
 # Android NDK 指南
 
+[TOC]
+
+# NDK 工程构建
+
+可采用三种方式进行 NDK 工程的构建。
+
+1. 基于 Make 的 ndk-build，这是传统的 ndk-build 构建方式，使用 Makefile 形式进行构建，简洁高效；
+2. CMake 是新型的构建方式，CMake 具有跨平台的特性，通过 CMake 生成 Makefile 后再进行构建，CMake 的配置文件可读性更高；
+3. 其他编译系统，通过引入其他编译系统可对编译过程进行定制，例如引入 Obfuscator-LLVM 对源码进行混淆和压缩，增强源代码安全性。
+
+下面是每种构建方式的指南，使用 Android Studio 4.0 和 NDK 21 进行如下构建。
+
+
+
 ## Android.mk
 
-基于 Android.mk 的 libfoo.so 的 ndk 基本工程搭建
+基于 Android.mk 的 libfoo.so 的 NDK 基本工程搭建。
 
-在 src/main 下建立 jni 目录（Android.mk 工程的默认文件目录为 jni），工程结构如下：
+在 Android 工程的 src/main 下建立 jni 目录（Android.mk 工程的默认文件目录为 jni，也可指定其他目录进行构建 ndk-build -C 目录），工程结构如下：
 
 ```
 -jni/
@@ -14,7 +28,10 @@
   +libfoo.cpp
 ```
 
+Android.mk 文件用于向 NDK 构建系统描述工程的 C/C++ 源文件以及共享库的属性。
+
 ```makefile
+# Android.mk
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
@@ -25,21 +42,85 @@ LOCAL_SRC_FILES := main.cpp
 include $(BUILD_SHARED_LIBRARY)
 ````
 
-todo
+Application.mk 用于描述 NDK 工程概要设置。
+
+```makefile
+# Application.mk
+
+APP_ABI := armeabi-v7a arm64-v8a
+APP_OPTIM := debug
+```
+
+添加 Java 层代码，用于声明 JNI 方法。
+
+```java
+// class io.l0neman.mkexample.NativeHandler
+public class NativeHandler {
+
+  static {
+    System.loadLibrary("foo");
+  }
+
+  public static native String getHello();
+}
+```
+
+源代码：
+
+```cpp
+// libfoo.h
+
+extern "C" {
+
+#ifndef NDKTPROJECT_LIBFOO_H
+#define NDKTPROJECT_LIBFOO_H
+
+#include <jni.h>
+
+JNIEXPORT jstring JNICALL
+Java_io_l0neman_mkexample_NativeHandler_getHello(JNIEnv *env, jclass clazz);
+
+};
+
+#endif //NDKTPROJECT_LIBFOO_H
+```
+
+```cpp
+// libfoo.cpp
+#include "libfoo.h"
+
+jstring Java_io_l0neman_mkexample_NativeHandler_getHello(JNIEnv *env, jclass clazz) {
+  return env->NewStringUTF("Hello-jni");
+}
+```
+
+todo 
+
+这样的话就完成了一个基本的 NDK 工程搭建，编译后调用代码即可获取 java 字符串。
+
+```java
+String hello = NativeHandler.getHello();
+```
 
 
 
-## cmake
+## CMake
 
 ## 独立工具链
 
-## Android.mk 变量参考
+## 构建技巧
 
-- NDK 定义的 include 变量
 
-- 目标信息变量
 
-- 模块描述变量
+# Android.mk 变量参考
+
+## NDK 定义的 include 变量
+
+## 目标信息变量
+
+## 模块描述变量
+
+
 
 # 引入预编译库
 
@@ -163,15 +244,14 @@ include $(BUILD_SHARED_LIBRARY)
 
 ```cpp
 // libfoo.h
-
-extern "C" {
-
 #ifndef NDKTPROJECT_LIBFOO_H
 #define NDKTPROJECT_LIBFOO_H
 
 #include <jni.h>
 
-JNIEXPORT jstring JNICALL
+extern "C" {
+
+JNIEXPORT void JNICALL
 Java_io_l0neman_mkexample_NativeHandler_test(JNIEnv *env, jclass clazz);
 
 };
@@ -181,10 +261,10 @@ Java_io_l0neman_mkexample_NativeHandler_test(JNIEnv *env, jclass clazz);
 
 ```cpp
 // libfoo.cpp
+#include "libbar.h"
+#include "libfoo.h"
 
-#include <libbar.h>
-
-void Java_io_l0neman_mkexample_NativeHandler_test() {
+void Java_io_l0neman_mkexample_NativeHandler_test(JNIEnv *env, jclass clazz) {
   int a = bar_add(1, 4);
   printf("%d\n", a);
 }
@@ -202,7 +282,7 @@ public class NativeHandler {
     System.loadLibrary("foo");
   }
 
-  public static native String test();
+  public static native void test();
 }
 ```
 
@@ -248,9 +328,3 @@ include $(BUILD_SHARED_LIBRARY)
 ```
 
 2. 在 libfoo.so 工程中引入静态库，步骤和引入动态库大同小异，把 obj 目录
-
-todo
-
-================ 分割线 ================
-
-LOCAL_PATH := $(call my-dir) 返回当前 Android.mk 所在的路径
