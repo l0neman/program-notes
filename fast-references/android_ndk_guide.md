@@ -20,6 +20,8 @@
 
 在 Android 工程的 src/main 下建立 jni 目录（Android.mk 工程的默认文件目录为 jni，也可指定其他目录进行构建 ndk-build -C 目录），工程结构如下：
 
+包含两个 .mk 文件用来描述 NDK 工程，和两个基本的 C++ 语言源文件。
+
 ```
 -jni/
   +Android.mk
@@ -28,7 +30,21 @@
   +libfoo.cpp
 ```
 
-Android.mk 文件用于向 NDK 构建系统描述工程的 C/C++ 源文件以及共享库的属性。
+在 Android Studio 的当前 Module 配置中指明 Android.mk 文件路径:
+
+```groovy
+// app-build.gradle
+android {
+  ...
+  externalNativeBuild {
+    ndkBuild {
+      path 'src/main/jni/Android.mk'
+    }
+  }
+}
+```
+
+编写 Android.mk 文件用于向 NDK 构建系统描述工程的 C/C++ 源文件以及共享库的属性。
 
 ```makefile
 # Android.mk
@@ -106,9 +122,49 @@ String hello = NativeHandler.getHello();
 
 ## CMake
 
+使用 CMake 和 Android.mk 在 Android Studio 中的构建步骤类似。
+
+todo
+
+
+
 ## 独立工具链
 
 ## 构建技巧
+
+在前面 Android.mk 的工程中，需要在 Module 级别的 gradle 配置如下 Android,.mk 路径：
+
+```groovy
+// app-build.gradle
+android {
+  ...
+  externalNativeBuild {
+    ndkBuild {
+      path 'src/main/jni/Android.mk'
+    }
+  }
+}
+```
+
+这样 Android Studio 就会在构建时主动调用 NDK 提供的 ndk-build 脚本，为工程生成 libfoo.so 文件。对于 NDK 工程来说，使用每次构建都需要先在 Studio 中点击 Clean，然后点击 Build 整个工程，否则 so 文件不能主动刷新。
+
+而且这样必须依赖于 Android Studio 这个 IDE 所提供的集成环境，要避免以这种方式构建，如下：
+
+首先把上面的路径 Android.mk 在 gradle 中的配置去除。
+
+在默认的依赖配置里面可以看到，libs 目录已被加入依赖，就是说如果 libs 目录中有 so 文件，那么会被自动加入 apk 中。
+
+```groovy
+// app-build.gradle
+dependencies {
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    ...
+}
+```
+
+那么就可以采用这种方式构建 libfoo.so 文件，首先确认 NDK 的环境变量（NDK 根目录加入系统 PATH 变量），然后直接 在 jni 目录下打开终端（Windows 为 CMD），输入 `ndk-build clean`，然后 `ndk-build` 即可在构建出所需要的 libfoo.so，此时可以直接运行 apk 工程，新的 libfoo.so 将自动被加入 apk 的 libs 目录中。
+
+可以发现在构建过程中，和 jni 同级的目录中产生了 obj 目录，这是构建产生的一些临时目标文件，`ndk-build clean` 的作用是清里这些临时文件，同时清理上一次构建的 libfoo.so。
 
 
 
