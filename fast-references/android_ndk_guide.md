@@ -122,11 +122,15 @@ String hello = NativeHandler.getHello();
 
 使用 CMake 和 Android.mk 在 Android Studio 中的构建步骤类似。
 
-todo
+todo：暂未补充
 
 
 
 ## 独立工具链
+
+有时编译 NDK 工程有一些特殊需求，例如对代码进行混淆，加入依赖于第三方编译器 Obfuscator-LLVM 对 NDK 工程代码进行混淆，这时就需要搭建第三方工具链的编译环境，将它加入 NDK 的一般构建过程中。
+
+todo：暂未补充
 
 
 
@@ -197,12 +201,182 @@ adb remount
 
 # Android.mk 变量参考
 
+## 变量命名规范
+
+NDK 构建系统保留了如下变量名称，在定义自己的变量时尽量避免这些规则：
+
+1. 以 `LOCAL_` 开头的名称，例如 `LOCAL_MODULE`；
+2. 以 `PRIVATE_`、`NDK_` 或 `APP` 开头的名称，构建系统内部使用了这些变量名；
+3. 小写名称，例如 `my-dir`，构建系统内部使用了这些变量名。
+
+最好以 `MY_` 附加在自己的变量开头。
+
+
+
 ## NDK 定义的 include 变量
+
+- CLEAR_VARS
+
+此变量指向一个用于清理变量的脚本，当包含它时，会清理几乎所有的 `LOCAL_XXX` 变量，不包含 `LOCAL_PATH` 变量，一般在描述新模块之前包含。
+
+```makefile
+include $(CLEAR_VARS)
+```
+
+- BUILD_EXECUTABLE
+
+指明构建的产出物是一个可执行文件（无文件后缀名），需要在源代码中包含一个 main 函数。通常构建可执行文件用来测试或用于其他调试工具。
+
+```cpp
+// foo.cpp
+int main(int argv, char **args) {
+  printf("Hello World!\n");
+  return 0;
+}
+```
+
+```makefile
+include $(BUILD_EXECUTABLE)
+```
+
+- BUILD_SHARED_LIBRARY
+
+指明构建的产出物是一个共享库（文件后缀为 .so），它会随着应用代码打包至 apk 中。
+
+```
+include $(BUILD_SHARED_LIBRARY)
+```
+
+- BUILD_STATIC_LIBRARY
+
+指明构建的产出物是一个静态库（文件后缀为 .a），它不会被打包至 apk 中，只是为了被其他 native 模块引用。
+
+- PREBUILT_SHARED_LIBRARY
+
+用于描述预编译共享库的构建，此时 `LOCAL_SRC_FILES` 变量指向预编译库的路径。
+
+```
+LOCAL_SRC_FILES := $(TARGET_ARCH_ABI)/libbar.so
+include $(PREBUILT_SHARED_LIBRARY)
+```
+
+- PREBUILT_STATIC_LIBRARY
+
+用于描述预编译静态库的构建，此时 `LOCAL_SRC_FILES` 变量指向预编译库的路径。
+
+```
+LOCAL_SRC_FILES := $(TARGET_ARCH_ABI)/libbar.a
+include $(PREBUILT_STATIC_LIBRARY)
+```
+
+
 
 ## 目标信息变量
 
+构建系统会根据 `APP_ABI` 变量（在 Application.mk 中定义）指定的每个 ABI 分别解析一次 Android.mk，如下变量将在构建系统每次解析时被重新定义值。
+
+- TARGET_ARCH
+
+对应 CPU 系列，为 `arm`、`arm64`、`x86`、`x86_64`。
+
+- TARGET_PLATFORM
+
+指向 Android API 级别号，例如 Android 5.1 对应 22。可以这样使用：
+
+```makefile
+ifeq ($(TARGET_PLATFORM),android-22)
+    # ... do something ...
+endif
+```
+
+- TARGET_ARCH_ABI
+
+对应每种 CPU 对应架构的 ABI。
+
+| CPU and architecture | Setting     |
+| -------------------- | ----------- |
+| ARMv7                | armeabi-v7a |
+| ARMv8 AArch64        | arm64-v8a   |
+| i6686                | x86         |
+| x86-64               | x86_64|
+
+检查 ABI：
+
+```makefile
+ifeq ($(TARGET_ARCH_ABI),arm64-v8a)
+  # ... do something ...
+endif
+``` 
+
+- TARGET_ABI
+
+目标 Android API 级别与 ABI 的串联值。检查在 Android API 级别 22 上运行的 64 位 ARM 设备：
+
+```makefile
+ifeq ($(TARGET_ABI),android-22-arm64-v8a)
+  # ... do something ...
+endif
+```
+
+
+
 ## 模块描述变量
 
+下面的变量用于向构建系统描述如可构建一个模块，每个模块都应遵守如下流程：
+
+1. 使用 CLEAR_VARS 变量清理与上一个模块相关的变量；
+2. 为用于描述模块的变量赋值；
+3. 包含 BUILD_XXX 变量以适当的构建脚本用于该模块的构建。
+
+- LOCAL_PATH
+
+用于指定当前文件的路径，必须在 Android.mk 文件开头定义此变量。
+
+`CLEAR_VARS` 指向的脚本不会清除此变量。
+
+```makefile
+# my-dir 是一个宏函数，返回当前 Android.mk 文件路径
+LOCAL_PATH := $(call my-dir)
+```
+
+- LOCAL_MODULE
+
+用于向构建系统描述模块名称，对于 .so 和 .a 文件，系统会自动给名称添加 `lib` 前缀和文件扩展名。
+
+```makefile
+# 产出 libfoo.so 或 libfoo.a
+LOCAL_MODULE := foo
+```
+
+- LOCAL_MODULE_FILENAME
+
+向构建系统描述模块的自定义名称，覆盖 `LOCAL_MODULE` 的名称。
+
+```makefile
+LOCAL_MODULE := foo
+# 产出 libnewfoo.so，但无法改变扩展名
+LOCAL_MODULE_FILENAME := libnewfoo
+```
+
+- LOCAL_SRC_FILES
+
+向构建系统描述生成模块时所用的源文件列表，务必使用 Unix 样式的正斜杠 (/) 来描述路径，且避免使用绝对路径。
+
+- LOCAL_CPP_EXTENSION
+
+为 C++ 源文件指定除 .cpp 外的扩展名。
+
+```makefile
+LOCAL_CPP_EXTENSION := .cxx
+```
+
+或指定多个：
+
+```makefile
+LOCAL_CPP_EXTENSION := .cxx .cpp .cc
+```
+
+todo
 
 
 # 引入预编译库
