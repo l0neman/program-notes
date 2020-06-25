@@ -1043,3 +1043,11 @@ include $(BUILD_SHARED_LIBRARY)
 ```
 
 2. 在 libfoo.so 工程中引入静态库，步骤和引入动态库大同小异，把 obj 目录
+
+
+
+# 参考
+
+[https://developer.android.google.cn/ndk/guides/build](https://developer.android.google.cn/ndk/guides/build)
+
+
