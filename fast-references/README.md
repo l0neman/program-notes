@@ -10,6 +10,8 @@
 
 [Makefile 指南](./makefile_guide.md)
 
+[Android NDK 指南](./android_ndk_guide.md)
+
 ## 其他
 
 [Android 版本](./android_version_sdkversion.md)
