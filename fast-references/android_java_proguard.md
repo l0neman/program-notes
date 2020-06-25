@@ -1,4 +1,4 @@
-# Java Proguard配置
+# Proguard 配置参考
 
 * [介绍](#介绍)
 * [使用](#使用)

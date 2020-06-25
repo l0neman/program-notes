@@ -1,12 +1,8 @@
 # android-notes-app
 
-## basis
-
-基础
+## 基础
 
 [Android View 事件分发机制](./android_view_touch_event.md)
-
-[Android java 混淆器的使用](./android_java_proguard.md)
 
 [Android 坐标系和滑动方法](./android_view_coordinate_and_scroll.md)
 
@@ -16,9 +12,7 @@
 
 [Android Activity 任务栈](./android_activity_task_stack.md)
 
-## third party framework
-
-第三方框架
+## 第三方框架
 
 [Android 编译时 View 注入工具的实现](./android_view_injector.md)
 
