@@ -3,8 +3,6 @@
 - [Android NDK 指南](#android-ndk-指南)
 - [NDK 工程构建](#ndk-工程构建)
   - [Android.mk](#android.mk)
-- [Android.mk](#android.mk)
-- [Application.mk](#application.mk)
   - [CMake](#cmake)
   - [独立工具链](#独立工具链)
   - [构建技巧](#构建技巧)
