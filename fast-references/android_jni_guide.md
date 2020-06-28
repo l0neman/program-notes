@@ -4,7 +4,7 @@ JNI（Java Native Interface，Java 原生接口），是 Java 和 C++ 组件用�
 
 Android 平台下的 JNI 支持由 Android NDK 提供，它是一套能将 C 或 C++（原生代码）嵌入到 Android 应用中的工具。
 
-使用 JNI 在 Android 平台下进行编程有具有如下优点：
+使用 JNI 在 Android 平台下进行编程的用处：
 
 1. 在平台之间移植应用；
 2. 重复使用现有库，或者提供自己的库供重复使用；
@@ -266,7 +266,7 @@ long f (int n, String s, int[] arr);
 
 可以允许在 `JNI_OnLoad` 中绑定多个 Java 类中的 native 方法，但是建议不要这样做，会导致难以维护，一般一个 Java 类中包含多个 native 方法，这个 Java 类管理的 native 方法对应一个 so，在静态块中直接调用 `System.loadLibrary`，如果一个 so 包含多个 Java 类的 JNI 方法，那么 `System.loadLibrary` 将放在 `Application` 中初始化，造成代码分散。
 
-动态注册的好处是，可以只导出 `JNI_OnLoad`，生成速度更快且更小的代码，且可避免与加载到应用中的其他库发生潜在冲突。
+动态注册的好处是，可以只导出 `JNI_OnLoad`（注册的 C/C++ 函数可以进行符号优化，不导出），生成速度更快且更小的代码，且可避免与加载到应用中的其他库发生潜在冲突。
 
 
 
@@ -339,7 +339,13 @@ env->Get<type>Field();          // 读取 Java 类型为 type 的类对象成员
 env->Set<type>Field();          // 写入 Java 类型为 type 的类对象成员
 ```
 
-访问静态成员时需要代表 Java 类型的 `jclass` 作为参数，访问类对象成员时需要表示 Java 对象的 `jobject` 作为参数。
+当需要访问静态成员时需要提供一个代表 Java 类型的 `jclass` 作为参数，访问类对象成员时则需要一个表示 Java 对象的 `jobject` 作为参数。
+
+同时两者都需要首先提供目标 Java 类成员的 JNI 类型签名（符合上面的 JNI 签名表规则），用来获取一个不透明的 `jFieldID` 类型，传递给 JNI 函数，用于找到目标成员，之后才能使用上述 JNI 函数访问 Java 类成员。
+
+```c++
+jfieldID GetStaticFieldID(jclass clazz, const char* name, const char* sig);
+```
 
 
 
@@ -366,15 +372,169 @@ env->CallStatic<type>Method(...) // 调用返回值类型为 type 的静态方�
 env->Call<type>Method(...);      // 调用返回值类型为 type 的成员方法
 ```
 
-调用静态方法时需要代表 Java 类型的 `jclass` 作为参数，调用类成员方法时需要表示 Java 对象的 `jobject` 作为参数。
+当需要调用静态方法时需要提供一个代表 Java 类型的 `jclass` 作为参数，调用类成员方法时则需要一个表示 Java 对象的 `jobject` 作为参数。
+
+同时两者都需要首先提供目标 Java 方法的 JNI 签名（符合上面的 JNI 签名表规则），用来获取一个不透明的 `jMethodID` 类型，传递给 JNI 函数，用于找到目标方法，之后才能使用上述 JNI 函数调用 Java 类方法。
 
 
 
-### 测试实例
+### Java 层访问实例
+
+下面对实际的 Java 类成员和方法进行访问和调用。
+
+首先定义一个 Java 类，`JniCallExample`。
+
+```java
+public class JniCallExample {
+  private static int sFlag = 256;
+
+  private String mData = "info";
+
+  public String getData() {
+    return mData;
+  }
+
+  public static boolean setHello(String hello) {
+    return "hello".equals(hello);
+  }
+}
+```
+
+`JniCallExample` 类具有一个静态成员 `sFlag`，和成员变量 `mData`，还包含一个 `getData` 成员方法和一个静态方法。
+
+那么下面将进行如下操作：
+
+1. 读取 `sFlag` 的值并打印；
+2. 改变 `mData` 的值，然后调用 Java 层的 `getData` 方法，获得修改后的值；
+3. 调用 Java 层的 `sayHello` 方法，传递 `hello` 字符串，获得方法返回值。
+
+这里需要在 C/C++ 代码中打印变量，所以需要使用 NDK 提供的 `liblog` 库，Android.mk 如下：
+
+```makefile
+LOCAL_PATH := $(call my-dir)
+
+include $(CLEAR_VARS)
+
+LOCAL_MODULE    := hello
+LOCAL_SRC_FILES := hello.cpp
+
+# 此行表示依赖 liblog 库
+LOCAL_LDLIBS := -llog
+
+include $(BUILD_SHARED_LIBRARY)
+```
+
+下面开始编写源代码。
+
+首先在 `NativeHandler` 类里面，声明 JNI 方法 `void testAccessJava(JniCallExample jniCallExample)`，用于调用 C/C++ 代码启动测试。
+
+其中提供一个 `JniCallExample` 对象，是因为需要访问它的成员值。
+
+```java
+// io.hexman.jniexample.NativeHandler
+
+public class NativeHandler {
+
+  static {
+    System.loadLibrary("hello");
+  }
+
+  public static native void testAccessJava(JniCallExample jniCallExample);
+}
+```
+
+然后在 C++ 代码中定义对应的 JNI 方法的实现函数，并在 `JNI_OnLoad` 中注册函数。
+
+```c++
+// hello.cpp
+
+static const char *CLASS_NAME = "io/l0neman/jniexample/NativeHandler";
+
+static JNINativeMethod gMethods[] = {
+    {"testAccessJava", "(Lio/l0neman/jniexample/JniCallExample;)V", (void *) testAccessJava},
+};
+
+void testAccessJava(JNIEnv *env, jobject nativeHandler) {
+  // ...
+}
+
+JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
+  JNIEnv *env = nullptr;
+  if (vm->GetEnv((void **) &env, JNI_VERSION_1_6) != JNI_OK) {
+    return JNI_ERR;
+  }
+
+  jclass nativeHandlerClass = env->FindClass(CLASS_NAME);
+  if (nativeHandlerClass == nullptr) {
+    return JNI_ERR;
+  }
+
+  jint methods = sizeof(gMethods) / sizeof(JNINativeMethod);
+  jint ret = env->RegisterNatives(nativeHandlerClass, gMethods, methods);
+  if (ret != JNI_OK) {
+    return ret;
+  }
+
+  return JNI_VERSION_1_6;
+}
+```
+
+下面填充 `testAccessJava` 的逻辑：
+
+```c++
+// hello.cpp
+
+static const char *TAG = "TAJ";
+
+// 用于输出 Java 字符串（mData）的工具函数
+void utilPrintJavaStr(JNIEnv *env, jstring jStr) {
+  const char *mDataCChar = env->GetStringUTFChars(jStr, nullptr);  // str+
+  // 这里需要把 Java 字符串转为 C 字符串才能输出
+  __android_log_print(ANDROID_LOG_DEBUG, TAG, "jniCallExample.mData: %s", mDataCChar);
+  env->ReleaseStringUTFChars(jStr, mDataCChar);                    // str-
+}
+
+void testAccessJava(JNIEnv *env, jclass nativeHandler, jobject jniCallExample) {
+  jclass jniCallExampleClass = env->FindClass("io/l0neman/jniexample/JniCallExample");
+
+  jfieldID sFlagStaticFieldId = env->GetStaticFieldID(jniCallExampleClass, "sFlag", "I");
+  // Java: int sFlag = JniCallExample.sFlag;
+  jint sFlag = env->GetStaticIntField(jniCallExampleClass, sFlagStaticFieldId);
+  __android_log_print(ANDROID_LOG_DEBUG, TAG, "JniCallExample.sFlag: %d", sFlag);
+
+  jfieldID mDataFieldId = env->GetFieldID(jniCallExampleClass, "mData", "Ljava/lang/String;");
+  // Java: newData = "data;
+  jstring newData = env->NewStringUTF("data");
+  // Java: jniCallExample.mData = newData;
+  env->SetObjectField(jniCallExample, mDataFieldId, newData);
+
+  jmethodID getDataMethodId = env->GetMethodID(jniCallExampleClass, "getData", "()Ljava/lang/String;");
+  // Java: String newMData = jniCallExample.getData();
+  jstring newMData = (jstring) env->CallObjectMethod(jniCallExample, getDataMethodId);
+  utilPrintJavaStr(env, newMData);
+
+  jmethodID setHelloStaticMethodId = env->GetStaticMethodID(jniCallExampleClass, "setHello", "(Ljava/lang/String;)Z");
+  // JavaL helloParam = "hello";
+  jstring helloParam = env->NewStringUTF("hello");
+  // Java: JniCallExample.setHello(helloParam);
+  jboolean isSetHello = (jboolean) env->CallStaticBooleanMethod(jniCallExampleClass, setHelloStaticMethodId, helloParam);
+  __android_log_print(ANDROID_LOG_DEBUG, TAG, "isSetHello %d", isSetHello);
+}
+```
+
+其中注释 `Java: xxx` 表示与 Java 代码有相同作用。
+
+其中包含一部分对于字符串的操作：
+
+`env->NewStringUTF("data")` 用于创建一个 Java 字符串（new String()），它的内存由 Java 虚拟机管理，它使用 `jstring` 类型来描述，是一个 JNI 提供的不透明类型，用于映射一个 Java 字符串，每种 Java 类型都有对应的映射类型（下面会提供映射表），这里用作 Java 变量来给 Java 变量赋值或者作为参数传递。
+
+`env->GetStringUTFChars(jStr, nullptr);` 用于从 Java 字符串中取得 C 形式的标准 `UTF8` 字符串，它将会在本地分配内存，而不是由 Java 虚拟机管理，所以使用后需要手动使用 `ReleaseStringUTFChars` 释放。
+
 
 
 ### 最佳实践
 
+### JNI 类型
 
 ### 引用管理
 
