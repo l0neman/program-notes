@@ -99,9 +99,9 @@ include $(BUILD_SHARED_LIBRARY)
 
 ### 静态注册
 
-静态注册只需要按照 JNI 接口规范，在 C/C++ 代码中声明一个 `Java_[全类名中 的 . 替换为 _]` 函数，然后添加 `JNIEXPORT` 前缀即可。
+静态注册只需要按照 JNI 接口规范，在 C/C++ 代码中声明一个 `Java_[全类名中 的 . 替换为 _]_[方法名]` 函数，然后添加 `JNIEXPORT` 前缀即可。
 
-下面采用了 C++ 代码，需要使用 `extern "C"` 来声明（为了兼容 C 语言函数签名规则，使 C 语言能够正常链接调用它）。
+下面采用了 C++ 代码，需要使用 `extern "C"` 来声明（为了兼容 C 语言的符号签名规则，使 C 语言能够正常链接调用它）。
 
 ```c++
 // hello.h
@@ -134,6 +134,7 @@ jstring Java_io_l0neman_jniexample_NativeHandler_getString(JNIEnv *env, jclass c
 如果是 C 语言代码的实现，那么可以去除 `extern "C"` 的声明，且返回字符串的代码要改为：
 
 ```c
+// 此时 C 语言中的 env 不是类，只是一个指向函数表的指针
 return (*env)->NewStringUTF(env, "hello");
 ```
 
@@ -199,7 +200,7 @@ JNIEXPORT void JNI_OnUnload(JavaVM *vm, void *reserved) {
 }
 ```
 
-从 JNI_OnLoad 开始看。
+从 `JNI_OnLoad` 开始看。
 
 1. 首先 `registerNatives` 这个函数由 `JNIEnv` 类型提供，而 `JNI_OnLoad` 第一个参数是 `JavaVM *`，所以，这里首先获取 `JNIEnv` 类型指针，使用 `JavaVM` 的 `GetEnv` 函数获取（由于系统默认已经附加到线程，所以这里才能直接 `GetEnv`）;
 2. 下面需要使用 `RegisterNatives` 注册 JNI 函数了，看一下它的用法：
