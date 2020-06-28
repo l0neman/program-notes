@@ -35,7 +35,7 @@
 
 基于 Android.mk 的 libfoo.so 的 NDK 基本工程搭建。
 
-在 Android 工程的 src/main 下建立 jni 目录（Android.mk 工程的默认文件目录为 jni，也可指定其他目录进行构建 ndk-build -C 目录），工程结构如下：
+在 Android 工程的 src/main 下建立 jni 目录（Android.mk 工程的默认文件目录为 jni，也可指定其他目录进行构建，使用 `ndk-build -C 目录`），工程结构如下：
 
 包含两个 .mk 文件用来描述 NDK 工程，和两个基本的 C++ 语言源文件。
 
@@ -169,7 +169,7 @@ android {
 }
 ```
 
-这样 Android Studio 就会在构建时主动调用 NDK 提供的 ndk-build 脚本，为工程生成 libfoo.so 文件。对于 NDK 工程来说，使用每次构建都需要先在 Studio 中点击 Clean，然后点击 Build 整个工程，否则 so 文件不能主动刷新。
+这样 Android Studio 就会在构建时主动调用 NDK 提供的 ndk-build 脚本，为工程生成 libfoo.so 文件。对于 NDK 工程来说，使用每次构建都需要先在 Studio 中点击 Clean，然后点击 Build 整个工程，否则 so 文件不会主动刷新。
 
 而且这样必须依赖于 Android Studio 这个 IDE 所提供的集成环境，使用如下办法要避免以这种方式构建：
 
@@ -185,27 +185,27 @@ dependencies {
 }
 ```
 
-那么就可以采用这种方式构建 libfoo.so 文件，首先确认 NDK 的环境变量（NDK 根目录加入系统 PATH 变量），然后直接 在 jni 目录下打开终端（Windows 为 CMD），输入 `ndk-build clean`，然后 `ndk-build` 即可在构建出所需要的 libfoo.so，此时可以直接运行 apk 工程，新的 libfoo.so 将自动被加入 apk 的 libs 目录中。
+那么就可以采用这种方式构建 libfoo.so 文件，首先确认 NDK 的环境变量（NDK 根目录加入系统 PATH 变量），然后直接 在 jni 目录下打开终端（Windows 为 CMD），输入 `ndk-build clean`，然后 `ndk-build` 即可构建出所需要的 libfoo.so，此时可以直接运行 apk 工程，新的 libfoo.so 将自动被加入 apk 的 libs 目录中。
 
 可以发现在构建过程中，和 jni 同级的目录中产生了 obj 目录，这是构建产生的一些临时目标文件，`ndk-build clean` 的作用是清里这些临时文件，同时清理上一次构建的 libfoo.so。
 
-这样就可以单独构建 so，而不用考虑 android studio，可以结合自动化脚本搭建自动构建。
+这样就可以单独构建 so，而不用考虑 IDE 提供的继承环境，可以结合自动化脚本搭建自动构建。
 
 
 
 ### 快速构建
 
-对于一个主要由 native 代码构成的应用来说，修改 native 代码的动作较为频繁，如果每次都 clean 然后重新 build，再依赖于 android studio 的运行安装会比较麻烦和耗时。有时还需要依赖于其他 IDE 来构建 NDK 工程，那么可以采用如下方法：
+对于一个主要由 native 代码构成的应用来说，修改 native 代码的动作较为频繁，如果每次都 clean 然后重新 build，再依赖于 Android studio 的运行安装会比较麻烦和耗时。有时还需要依赖于其他 IDE 来构建 NDK 工程，那么可以采用如下方法：
 
 首次构建 NDK 工程后安装运行到手机上，然后后面每次构建出 so，使用 adb 命令直接将 so 文件 push 到应用的沙盒目录下，重新启动应用进程即可使用新版的 so 文件。
 
-```
+```shell
 adb push libfoo.so /data/data/io.l0neman.mkexample/lib/
 ```
 
 注意 so 文件的架构应与当前应用对应。
 
-不过这样做的前提是设备拥有 root 权限，也可直接使用官方的 Android 模拟器，下载带有 google api 的模拟器 ROM，输入如下命令即可获取 root 权限。
+不过这样做的前提是设备拥有 root 权限，也可直接使用官方的 Android 模拟器，选择下载带有 GoogleApis 的模拟器 ROM，输入如下命令即可获取 root 权限：
 
 ```
 adb root
@@ -837,6 +837,10 @@ APP_WRAP_SH_x86_64
 
 # 引入预编译库
 
+有时需要引入提前编译好或者第三方提供的 so 共享库，或是引入现成的 .a 静态库，需要根据情况进行如下配置。
+
+
+
 ## 引入动态库
 
 1. 首先在独立的 ndk 工程编译出一个共享库 libbar.so，提供给别人使用。
@@ -933,7 +937,7 @@ APP_OPTIM := debug
   +libfoo.cpp
 ```
 
-3. 编写 libfoo.so 的 Android.mk 文件，$(TARGET_ARCH_ABI) 为 ndk 编译时每种架构的名字。
+3. 编写 libfoo.so 的 Android.mk 文件，`$(TARGET_ARCH_ABI)` 为 ndk 编译时每种架构的名字。
 
 ```makefile
 LOCAL_PATH := $(call my-dir)
@@ -1008,7 +1012,7 @@ NativeHandler.test();
 
 1. 首先编译出 .a 后缀的静态库 libbar.a。
 
-工程结构和上面引入动态库中的 libbar 工程一致，只需要将 Android.mk 文件中引入的 BUILD_SHARED_LIBRARY 变量修改为 BUILD_STATIC_LIBRARY 即可指定编译出静态库。
+工程结构和上面引入动态库中的 libbar 工程一致，只需要将 Android.mk 文件中引入的 `BUILD_SHARED_LIBRARY` 变量修改为 `BUILD_STATIC_LIBRARY` 即可指定编译出静态库。
 
 ```makefile
 # module-libbar Android.mk
