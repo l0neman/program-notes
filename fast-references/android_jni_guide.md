@@ -523,6 +523,16 @@ void testAccessJava(JNIEnv *env, jclass nativeHandler, jobject jniCallExample) {
 }
 ```
 
+打印出如下结果：
+
+```
+JniCallExample.sFlag: 256
+jniCallExample.mData: data
+isSetHello 1
+```
+
+
+
 其中注释 `Java: xxx` 表示与 Java 代码有相同作用。
 
 其中包含一部分对于字符串的操作：
@@ -533,7 +543,101 @@ void testAccessJava(JNIEnv *env, jclass nativeHandler, jobject jniCallExample) {
 
 
 
-### 最佳实践
+### 访问优化
+
+在对 Java 层进行访问时，不管是访问 Java 类成员还是调用 Java 方法，都需要首先使用 `FindClass` 找到目标 Java 类，然后获取对应的成员 ID 和方法 ID， 对于 `FindClass` 和查找相关 ID 的函数，每次调用它们可能都需要进行多次的字符串比较，而使用这些 ID 去访问对于的 Java 类成员和方法速度却是很快的。
+
+那么如果需要多次访问相同的 Java 目标，那么考虑将这些 `jclass`（FindClass 的结果）和相关 ID 缓存起来。 这些变量在被访问的 Java 类被卸载之前保证是有效的。只有在与 ClassLoader 关联的所有类都满足垃圾回收条件时，系统才会卸载这些类，这种情况比较少见，但在 Android 中是有可能出现的。
+
+Android 推荐的方法是，在 Java 类中声明一个名叫 `nativeInit` 的 JNI 方法，在类的静态块内调用，这个 JNI 方法就负责提前缓存要使用的 Java 类型，那么一个类被加载时，`nativeInit` 就会被调用。
+
+可以在 Android 系统源码中看到许多名叫 `nativeInit` 的 JNI 方法，它们就是负责此用途的。
+
+一般使用 `static` 结构来缓存这些 ID 和 `jclass`，`jclass` 作为 Java 引用，需要使用 `NewGlobalRef` 函数创建一个全局引用来保护它不被回收。
+
+那么现在改进之前的 Java 访问实例，如下：
+
+首先 `NativeHandler` 中增加 `nativeInit` 方法。
+
+
+```java
+// io.hexman.jniexample.NativeHandler
+
+public class NativeHandler {
+
+  static {
+    System.loadLibrary("hello");
+    nativeInit();
+  }
+  
+  public static native void nativeInit();
+
+  public static native void testAccessJava(JniCallExample jniCallExample);
+}
+```
+
+然后是源代码，注册部分只修改 `JNINativeMethod` 数组即可：
+
+```cpp
+static JNINativeMethod gMethods[] = {
+    {"testAccessJava", "(Lio/l0neman/jniexample/JniCallExample;)V", (void *) testAccessJava},
+    {"nativeInit",     "()V",                                       (void *) nativeInit}
+};
+```
+
+然后是 `nativeInit` 的逻辑和修改过的 `testAccessJava` 函数的实现。
+
+```cpp
+// hello.cpp
+
+// 缓存结构体
+struct JniCallExampleHolder {
+    jclass jniCallExampleClass;
+    jfieldID sFlagStaticFieldId;
+    jfieldID mDataFieldId;
+    jmethodID getDataMethodId;
+    jmethodID setHelloStaticMethodId;
+};
+
+static JniCallExampleHolder gJniCallExampleHolder;
+
+// 提前缓存 jclass 和访问 ID
+void nativeInit(JNIEnv *env, jclass clazz) {
+  jclass jniCallExampleClass = env->FindClass("io/l0neman/jniexample/JniCallExample");
+  gJniCallExampleHolder.jniCallExampleClass = (jclass) env->NewGlobalRef(jniCallExampleClass);
+  gJniCallExampleHolder.sFlagStaticFieldId = env->GetStaticFieldID(jniCallExampleClass, "sFlag", "I");;
+  gJniCallExampleHolder.mDataFieldId = env->GetFieldID(jniCallExampleClass, "mData", "Ljava/lang/String;");
+  gJniCallExampleHolder.getDataMethodId = env->GetMethodID(jniCallExampleClass, "getData", "()Ljava/lang/String;");;
+  gJniCallExampleHolder.setHelloStaticMethodId = env->GetStaticMethodID(jniCallExampleClass, "setHello", "(Ljava/lang/String;)Z");
+}
+
+void testAccessJava(JNIEnv *env, jclass nativeHandler, jobject jniCallExample) {
+
+  // Java: int sFlag = JniCallExample.sFlag;
+  jint sFlag = env->GetStaticIntField(gJniCallExampleHolder.jniCallExampleClass,
+                                      gJniCallExampleHolder.sFlagStaticFieldId);
+  __android_log_print(ANDROID_LOG_DEBUG, TAG, "JniCallExample.sFlag: %d", sFlag);
+
+  // Java: newData = "data;
+  jstring newData = env->NewStringUTF("data");
+  // Java: jniCallExample.mData = newData;
+  env->SetObjectField(jniCallExample, gJniCallExampleHolder.mDataFieldId, newData);
+
+  // Java: String newMData = jniCallExample.getData();
+  jstring newMData = (jstring) env->CallObjectMethod(jniCallExample, gJniCallExampleHolder.getDataMethodId);
+  utilPrintJavaStr(env, newMData);
+
+  // JavaL helloParam = "hello";
+  jstring helloParam = env->NewStringUTF("hello");
+  // Java: JniCallExample.setHello(helloParam);
+  jboolean isSetHello = (jboolean) env->CallStaticBooleanMethod(gJniCallExampleHolder.jniCallExampleClass,
+                                                                gJniCallExampleHolder.setHelloStaticMethodId,
+                                                                helloParam);
+  __android_log_print(ANDROID_LOG_DEBUG, TAG, "isSetHello %d", isSetHello);
+}
+```
+
+
 
 ### JNI 类型
 
