@@ -1,5 +1,7 @@
 # Android JNI 指南
 
+[TOC]
+
 JNI（Java Native Interface，Java 原生接口），是 Java 和 C++ 组件用以互相通信的接口。
 
 Android 平台下的 JNI 支持由 Android NDK 提供，它是一套能将 C 或 C++（原生代码）嵌入到 Android 应用中的工具。
@@ -604,7 +606,7 @@ static JniCallExampleHolder gJniCallExampleHolder;
 // 提前缓存 jclass 和访问 ID
 void nativeInit(JNIEnv *env, jclass clazz) {
   jclass jniCallExampleClass = env->FindClass("io/l0neman/jniexample/JniCallExample");
-  gJniCallExampleHolder.jniCallExampleClass = (jclass) env->NewGlobalRef(jniCallExampleClass);
+  gJniCallExampleHolder.jniCallExampleClass = (jclass) env->NewGlobalRef(jniCallExampleClass);   // gr+
   gJniCallExampleHolder.sFlagStaticFieldId = env->GetStaticFieldID(jniCallExampleClass, "sFlag", "I");;
   gJniCallExampleHolder.mDataFieldId = env->GetFieldID(jniCallExampleClass, "mData", "Ljava/lang/String;");
   gJniCallExampleHolder.getDataMethodId = env->GetMethodID(jniCallExampleClass, "getData", "()Ljava/lang/String;");;
@@ -637,11 +639,202 @@ void testAccessJava(JNIEnv *env, jclass nativeHandler, jobject jniCallExample) {
 }
 ```
 
+其中有一个地方使用了 `env->NewGlobalRef` 建立了一个全局引用，它会保护这个 `jclass` 不会在 JNI 函数执行完之后被回收，注意需要在不使用的时候使用 `env->ReleaseGlobalRef` 释放引用，例如 `JNI_OnUnload` 中。
+
 
 
 ### JNI 类型
 
+每种 Java 类型，在 JNI 中都有对应的本地数据类型，C/C++ 通过 JNI 方法与 Java 层进行交互时，均是使用这些类型进行参数传递，此时虚拟机再根据每种类型翻译为相应的 Java 类型传递给 Java 层方法.
+
+还有一些特殊的数据类型用来存储 Java 方法 ID 和类成员 ID。
+
+
+
+- 基本数据类型
+
+| Java 类型 | 本地类型 | 说明            |
+| --------- | -------- | --------------- |
+| boolean   | jboolean | unsigned 8 bits |
+| byte      | jbyte    | signed 8 bits   |
+| char      | jchar    | signed 16 bits  |
+| short     | jshort   | signed 16 bits  |
+| int       | jint     | signed 32 bits  |
+| long      | jlong    | signed 64 bits  |
+| float     | jfloat   | 32 bits         |
+| double    | jdouble  | 64 bits         |
+| void      | void     | 无              |
+
+`jboolean` 的两种取值：
+
+```c++
+#define JNI_FALSE  0 
+#define JNI_TRUE   1 
+```
+
+`jsize` 类型用于描述数组大小或者索引。
+
+
+
+从 `jni.h` 中看它们和真实 C/C++ 数据类型的对应关系：
+
+```c++
+// jni.h
+
+/* Primitive types that match up with Java equivalents. */
+typedef uint8_t  jboolean; /* unsigned 8 bits */
+typedef int8_t   jbyte;    /* signed 8 bits */
+typedef uint16_t jchar;    /* unsigned 16 bits */
+typedef int16_t  jshort;   /* signed 16 bits */
+typedef int32_t  jint;     /* signed 32 bits */
+typedef int64_t  jlong;    /* signed 64 bits */
+typedef float    jfloat;   /* 32-bit IEEE 754 */
+typedef double   jdouble;  /* 64-bit IEEE 754 */
+
+/* "cardinal indices and sizes" */
+typedef jint     jsize;
+```
+
+
+
+- 引用类型
+
+在 C++ 中，Java 引用类型使用一些类表示，它们的继承关系如下：
+
+```c++
+jobject                     (所有 Java 对象)
+  |
+  +-- jclass                (java.lang.Class 对象)
+  +-- jstring               (java.lang.String 对象)
+  +-- jarray                (数组)
+  |    |
+  |    +-- jobjectArray     (object 数组)
+  |    +-- jbooleanArray    (boolean 数组)
+  |    +-- jbyteArray       (byte 数组)
+  |    +-- jcharArray       (char 数组)
+  |    +-- jshortArray      (short 数组)
+  |    +-- jintArray        (int 数组)
+  |    +-- jlongArray       (long 数组)
+  |    +-- jfloatArray      (float 数组)
+  |    +-- jdoubleArray     (double 数组)
+  |
+  +-jthrowable              (java.lang.Throwable 对象)
+```
+
+
+
+源码中定义如下：
+
+```c++
+// jni.h
+
+class _jobject {};
+class _jclass : public _jobject {};
+class _jstring : public _jobject {};
+class _jarray : public _jobject {};
+class _jobjectArray : public _jarray {};
+class _jbooleanArray : public _jarray {};
+class _jbyteArray : public _jarray {};
+class _jcharArray : public _jarray {};
+class _jshortArray : public _jarray {};
+class _jintArray : public _jarray {};
+class _jlongArray : public _jarray {};
+class _jfloatArray : public _jarray {};
+class _jdoubleArray : public _jarray {};
+class _jthrowable : public _jobject {};
+
+typedef _jobject*       jobject;
+typedef _jclass*        jclass;
+typedef _jstring*       jstring;
+typedef _jarray*        jarray;
+typedef _jobjectArray*  jobjectArray;
+typedef _jbooleanArray* jbooleanArray;
+typedef _jbyteArray*    jbyteArray;
+typedef _jcharArray*    jcharArray;
+typedef _jshortArray*   jshortArray;
+typedef _jintArray*     jintArray;
+typedef _jlongArray*    jlongArray;
+typedef _jfloatArray*   jfloatArray;
+typedef _jdoubleArray*  jdoubleArray;
+typedef _jthrowable*    jthrowable;
+typedef _jobject*       jweak;
+```
+
+
+
+在 C 语言中，所有 JNI 引用类型都与 jobject 的定义相同。
+
+```c
+// jni.h
+
+typedef void*           jobject;
+typedef jobject         jclass;
+typedef jobject         jstring;
+typedef jobject         jarray;
+typedef jarray          jobjectArray;
+typedef jarray          jbooleanArray;
+typedef jarray          jbyteArray;
+typedef jarray          jcharArray;
+typedef jarray          jshortArray;
+typedef jarray          jintArray;
+typedef jarray          jlongArray;
+typedef jarray          jfloatArray;
+typedef jarray          jdoubleArray;
+typedef jobject         jthrowable;
+typedef jobject         jweak;
+```
+
+
+
+- 方法和类成员 ID
+
+它们是不透明结构体指针类型：
+
+```c++
+// jni.h
+
+struct _jfieldID;
+typedef struct _jfieldID *jfieldID;
+ 
+struct _jmethodID;
+typedef struct _jmethodID *jmethodID;
+```
+
+
+
+- 数组元素
+
+`jvalue` 用于作为参数数组中的元素类型：
+
+```c++
+// jni.h
+
+typedef union jvalue {
+    jboolean    z;
+    jbyte       b;
+    jchar       c;
+    jshort      s;
+    jint        i;
+    jlong       j;
+    jfloat      f;
+    jdouble     d;
+    jobject     l;
+} jvalue;
+```
+
+
+
 ### 引用管理
+
+Java 对象在 JNI 中有两种引用方式，一种是局部引用；一种是全局引用。
+
+Java 层通过 JNI 方法传递给 C/C++ 函数的每个对象参数，以及 C/C++ 通过 JNI 函数（`Call<type>Method`）调用接收的 Java 方法的对象返回值都属于局部引用。
+
+局部引用仅在当前线程中的当前 C/C++ 函数运行期间有效。在 C/C++ 函数返回后，即使对象本身继续存在，该引用也无效。
+
+局部引用适用于 `jobject` 的所有子类，包括 `jclass`、`jstring` 和 `jarray`。
+
+todo
 
 
 ======== 分隔线 ==========
