@@ -344,7 +344,7 @@ env->Set<type>Field();          // 写入 Java 类型为 type 的类对象成员
 
 当需要访问静态成员时需要提供一个代表 Java 类型的 `jclass` 作为参数，访问类对象成员时则需要一个表示 Java 对象的 `jobject` 作为参数。
 
-同时两者都需要首先提供目标 Java 类成员的 JNI 类型签名（符合上面的 JNI 签名表规则），用来获取一个不透明的 `jFieldID` 类型，传递给 JNI 函数，用于找到目标成员，之后才能使用上述 JNI 函数访问 Java 类成员。
+同时两者都需要首先提供目标 Java 类成员的 JNI 类型签名（符合上面的 JNI 签名表规则），用来获取一个不透明（具体结构未知，由实现者决定）的 `jFieldID` 类型，传递给 JNI 函数，用于找到目标成员，之后才能使用上述 JNI 函数访问 Java 类成员。
 
 ```c++
 jfieldID GetStaticFieldID(jclass clazz, const char* name, const char* sig);
@@ -639,7 +639,7 @@ void testAccessJava(JNIEnv *env, jclass nativeHandler, jobject jniCallExample) {
 }
 ```
 
-其中有一个地方使用了 `env->NewGlobalRef` 建立了一个全局引用，它会保护这个 `jclass` 不会在 JNI 函数执行完之后被回收，注意需要在不使用的时候使用 `env->ReleaseGlobalRef` 释放引用，例如 `JNI_OnUnload` 中。
+其中有一个地方使用了 `env->NewGlobalRef` 建立了一个全局引用，它会保护这个 `jclass` 不会在 JNI 函数执行完之后被回收，注意需要在不使用的时候使用 `env->DeleteGlobalRef` 释放引用，例如 `JNI_OnUnload` 中。
 
 
 
@@ -718,7 +718,7 @@ jobject                     (所有 Java 对象)
   |    +-- jfloatArray      (float 数组)
   |    +-- jdoubleArray     (double 数组)
   |
-  +-jthrowable              (java.lang.Throwable 对象)
+  +- jthrowable             (java.lang.Throwable 对象)
 ```
 
 
@@ -828,23 +828,61 @@ typedef union jvalue {
 
 Java 对象在 JNI 中有两种引用方式，一种是局部引用；一种是全局引用。
 
+- 局部引用
+
 Java 层通过 JNI 方法传递给 C/C++ 函数的每个对象参数，以及 C/C++ 通过 JNI 函数（`Call<type>Method`）调用接收的 Java 方法的对象返回值都属于局部引用。
 
 局部引用仅在当前线程中的当前 C/C++ 函数运行期间有效。在 C/C++ 函数返回后，即使对象本身继续存在，该引用也无效。
 
 局部引用适用于 `jobject` 的所有子类，包括 `jclass`、`jstring` 和 `jarray`。
 
+
+
+- 全局引用
+
+创建全局引用只能使用 `NewGlobalRef` 和 `NewWeakGlobalRef` 函数。
+
+如果希望长时间的持有某个引用，那么必须使用全局引用，使用 `NewGlobalRef` 函数时将局部引用作为参数传入，换取全局引用。在调用 `DeleteGlobalRef` 删除全局引用之前，此引用保证有效。
+
+通常用于缓存 `FindClass` 返回的 `jclass`，就像前面的 Java 访问优化中所做的措施一样。
+
+```cpp
+jclass localClass = env->FindClass("MyClass");
+jclass globalClass = reinterpret_cast<jclass>(env->NewGlobalRef(localClass)); 
+```
+
+
+
+- 提示
+
+对于同一个对象的引用可能存在多个不同的值，例如，对于同一个对象多次调用 `NewGlobalRef` 所返回的值可能不同。
+
+如果需要比较两个引用是否指向同一个对象，必须使用 `IsSameObject` 函数，切勿在 C/C++ 代码中使用 `==` 比较各个引用。
+
+在两次调用 `NewGlobalRef` 对同一个对象创建全局引用时，表示这个对象的 32 位值可能不同；而在多次调用 `NewGlobalRef` 创建不同对象的全局引用时，它们可能具有相同的 32 位值，所以不能将 `jobject` 用作 key 使用。
+
+不要过度分配局部引用，如果需要创建大量引用，应该主动调用 `DeleteLocalRef` 删除它们，而不是期望 JNI 自动删除。JNI 默认实现只能保留 16 个局部引用，如果需要保存更多数量，可以按照需要删除，或使用 `EnsureLocalCapacity/PushLocalFrame` 申请保留更多引用数量。
+
+`jfieldID` 和 `jmethodID` 为不透明类型，不属于对象引用，所以不能使用 `NewGlobalRef` 保护。`GetStringUTFChars` 和 `GetByteArrayElements` 返回的原始数据指针也不属于对象。
+
+一种特殊情况是，如果使用 `AttachCurrentThread` 附加到 C/C++ 线程，那么在线程分离之前，运行中的代码一定不会自动释放局部引用。代码创建的任何局部引用都必须手动删除。通常，在循环中创建局部引用的任何 C/C++ 代码需要执行某些手动删除操作。
+
+谨慎使用全局引用。全局引用不可避免，但它们很难调试，并且可能会导致难以诊断的内存（不良）行为。在所有其他条件相同的情况下，全局引用越少，解决方案的效果可能越好。
+
+
+
+## Java 常用数据访问
+
+对 Java 字符串和数组的访问方法。不会访问这些数据，就无法进行 JNI 开发。
+
+访问字符串
+访问数组
+
 todo
 
 
 ======== 分隔线 ==========
 
-
-
-## Java 数据访问
-
-访问字符串
-访问数组
 
 保存 JavaVM
 -获取 JNIEnv
