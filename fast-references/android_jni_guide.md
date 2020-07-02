@@ -24,6 +24,18 @@ Android 平台下的 JNI 支持由 Android NDK 提供，它是一套能将 C 或
 
 
 
+## 名词说明
+
+下面叙述中使用到的名词说明。
+
+- JNI 方法，在 Java 层使用 native 声明，使用 C/C++ 中实现的方法。
+
+- JNI 函数，JNI 提供的与 Java 层交互的工具一系列函数，例如 `RegisterNatives`。
+
+- 不透明，具体结构未知，由相应的虚拟机实现决定。
+
+
+
 ## JavaVM 和 JNIEnv
 
 JNI 定义了两个关键的数据结构，`JavaVM` 和 `JNIEnv`，它们的本质都是指向函数表的二级指针（在 C++ 版本中，两者都是类，类中都有一个指向函数表的指针，它们的成员函数封装了通过函数表进行访问的 JNI 函数），可以使用 `JavaVM` 类进行创建和销毁 JavaVM 的操作。理论上，每个进程可以有多个 JavaVM，但 Android 只允许有一个。
@@ -46,7 +58,7 @@ typedef const struct JNIInvokeInterface* JavaVM;
 #endif
 ```
 
-因此，不建议同时在这两种语言包含的标头文件中添加 `JNIEnv` 参数（导致混乱）。或者当源文件中出现 `#ifdef __cplusplus` ，且该文件中所有的内容都引用了 `JNIEnv` 时，那么可能需要做额外的处理。
+因此，不建议同时在这两种语言包含的头文件中添加 `JNIEnv` 参数（导致混乱）。或者当源文件中出现 `#ifdef __cplusplus` ，且该文件中所有的内容都引用了 `JNIEnv` 时，那么可能需要做额外的处理。
 
 
 
@@ -102,6 +114,8 @@ include $(BUILD_SHARED_LIBRARY)
 ### 静态注册
 
 静态注册只需要按照 JNI 接口规范，在 C/C++ 代码中声明一个 `Java_[全类名中 的 . 替换为 _]_[方法名]` 函数，然后添加 `JNIEXPORT` 前缀即可。
+
+当系统加载 so 文件后，将根据名字对应规则，自动注册 JNI 方法。
 
 下面采用了 C++ 代码，需要使用 `extern "C"` 来声明（为了兼容 C 语言的符号签名规则，使 C 语言能够正常链接调用它）。
 
@@ -204,7 +218,7 @@ JNIEXPORT void JNI_OnUnload(JavaVM *vm, void *reserved) {
 
 从 `JNI_OnLoad` 开始看。
 
-1. 首先 `registerNatives` 这个函数由 `JNIEnv` 类型提供，而 `JNI_OnLoad` 第一个参数是 `JavaVM *`，所以，这里首先获取 `JNIEnv` 类型指针，使用 `JavaVM` 的 `GetEnv` 函数获取（由于系统默认已经附加到线程，所以这里才能直接 `GetEnv`）;
+1. 首先 `RegisterNatives` 这个函数由 `JNIEnv` 类型提供，而 `JNI_OnLoad` 第一个参数是 `JavaVM *`，所以，这里首先获取 `JNIEnv` 类型指针，使用 `JavaVM` 的 `GetEnv` 函数获取（由于系统默认已经附加到线程，所以这里才能直接 `GetEnv`）;
 2. 下面需要使用 `RegisterNatives` 注册 JNI 函数了，看一下它的用法：
 
 ```c++
@@ -344,7 +358,7 @@ env->Set<type>Field();          // 写入 Java 类型为 type 的类对象成员
 
 当需要访问静态成员时需要提供一个代表 Java 类型的 `jclass` 作为参数，访问类对象成员时则需要一个表示 Java 对象的 `jobject` 作为参数。
 
-同时两者都需要首先提供目标 Java 类成员的 JNI 类型签名（符合上面的 JNI 签名表规则），用来获取一个不透明（具体结构未知，由实现者决定）的 `jFieldID` 类型，传递给 JNI 函数，用于找到目标成员，之后才能使用上述 JNI 函数访问 Java 类成员。
+同时两者都需要首先提供目标 Java 类成员的 JNI 类型签名（符合上面的 JNI 签名表规则），用来获取一个不透明的 `jFieldID` 类型，传递给 JNI 函数，用于找到目标成员，之后才能使用上述 JNI 函数访问 Java 类成员。
 
 ```c++
 jfieldID GetStaticFieldID(jclass clazz, const char* name, const char* sig);
@@ -875,8 +889,12 @@ jclass globalClass = reinterpret_cast<jclass>(env->NewGlobalRef(localClass));
 
 对 Java 字符串和数组的访问方法。不会访问这些数据，就无法进行 JNI 开发。
 
-访问字符串
-访问数组
+### 访问字符串
+
+当 Java 层已 jstring 的形式传入 
+
+
+### 访问数组
 
 todo
 
