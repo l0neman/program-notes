@@ -555,7 +555,7 @@ isSetHello 1
 
 `env->NewStringUTF("data")` 用于创建一个 Java 字符串（new String()），它的内存由 Java 虚拟机管理，它使用 `jstring` 类型来描述，是一个 JNI 提供的不透明类型，用于映射一个 Java 字符串，每种 Java 类型都有对应的映射类型（下面会提供映射表），这里用作 Java 变量来给 Java 变量赋值或者作为参数传递。
 
-`env->GetStringUTFChars(jStr, nullptr);` 用于从 Java 字符串中取得 C 形式的标准 `UTF8` 字符串，它将会在本地分配内存，而不是由 Java 虚拟机管理，所以使用后需要手动使用 `ReleaseStringUTFChars` 释放。
+`env->GetStringUTFChars(jStr, nullptr);` 用于从 Java 字符串中取得 C 形式的标准 `UTF8` 字符串，它将会在 native 层分配内存，而不是由 Java 虚拟机管理，所以使用后需要手动使用 `ReleaseStringUTFChars` 释放。
 
 
 
@@ -887,16 +887,152 @@ jclass globalClass = reinterpret_cast<jclass>(env->NewGlobalRef(localClass));
 
 ## Java 常用数据访问
 
-对 Java 字符串和数组的访问方法。不会访问这些数据，就无法进行 JNI 开发。
+对 Java 字符串和数组的访问方法。访问这些数据是 JNI 开发的基础。
 
 ### 访问字符串
 
-当 Java 层已 jstring 的形式传入 
+访问字符串有如下两种情况：
+
+1. Java 层调用 JNI 方法，String 对象以 `jstring` 的形式传入 JNI 方法，此时 C/C++ 语言接收使用；
+2. C/C++ 产生字符串数据，返回给 Java 层使用。
+
+代码如下：
+
+```java
+// Java Code
+
+// hello = "result"
+final String hello = NativeHandler.testAccessString("hello");
+```
+
+```c++
+// C++ Code
+
+jstring testAccessString(JNIEnv *env, jclass clazz, jstring hello) {
+  const char *stringChars = env->GetStringUTFChars(hello, nullptr);  // str+
+  __android_log_print(ANDROID_LOG_DEBUG, TAG, "java string: %s", stringChars);
+  env->ReleaseStringUTFChars(hello, stringChars);                    // str-
+
+  return env->NewStringUTF("result");
+}
+```
+
+
+
+- 获取字符串
+
+`GetStringUTFChars` 将返回 C/C++ 语言可以直接使用的 [Modified_UTF-8](https://docs.oracle.com/javase/7/docs/technotes/guides/jni/spec/types.html#wp16542) 格式字符串（Modified_UTF-8 格式是 JNI 提供的优化后的 UTF-8 格式字符串，优化后的编码对 C 代码友好，因为它将 `\u0000` 编码为 `0xc0 0x80`，而不是 `0x00`。这样做的好处是，可以依靠以 `\0` 终止的 C 样式字符串，非常适合与标准 libc 字符串函数配合使用。但缺点是，无法将任意 UTF-8 的数据传递给 JNI 函数）。
+
+在使用 `GetStringUTFChars` 获取字符串后，JavaVM 为字符串在 native 层分配了内存，在字符串使用完毕后，必须使用 `ReleaseStringUTFChars` 释放内存，否则将会造成内存泄漏。
+
+从 C/C++ 获取 Java 字符串的长度有两种方式，可直接使用 `GetStringUTFLength` 对 `jstring` 计算长度：
+
+```c++
+jstring hello;
+jsize utfLength = env->GetStringUTFLength(hello);
+```
+
+或者使用 C/C++ 的 `strlen` 计算：
+
+```c++
+const char *stringChars = env->GetStringUTFChars(hello, nullptr);
+size_t utfLength = strlen(stringChars);
+```
+
+`GetStringUTFChars` 函数的第 2 个参数是一个 `jboolean` 类型的指针，表示关心是否创建了字符串的副本，如果创建了字符串的副本它会返回 `JNI_TRUE`，否则为 `JNI_FALSE`，不管是否创建，都需要 Release 操作，所以一般不会关心它的结果，传递 `nullptr` 即可（C 语言传递 `NULL`）。
+
+```c++
+jboolean isCopy;
+const char *stringChars = env->GetStringUTFChars(hello,);  // str+
+if (isCopy == JNI_TRUE) {
+  // 创建了字符串副本
+} else if (isCopy == JNI_FALSE) {
+  // 未创建字符串副本
+}
+```
+
+
+
+- 提示
+
+JNI 还提供了 `GetStringChars` 函数，它返回的是 UTF-16 字符串，使用 UTF-16 字符串执行操作通常会更快，但是 UTF-16 字符串不是以零终止的，并且允许使用 `\u0000`，因此需要保留字符串长度和返回的 `jchar` 指针。
+
+一般的开发中几乎都使用 `GetStringUTFChars` 获取字符串。
+
+
+
+- 返回字符串
+
+如果需要返回给 Java 层字符串，使用 `env->NewStringUTF("result")` 即可，JavaVM 将会基于 C 字符串创建一个新的 `String` 的对象，它的内存由虚拟机管理。
+
+注意传递给 `NewStringUTF` 的数据必须采用 Modified_UTF-8 格式。一种常见的错误是从文件或网络数据流中读取字符数据，在未过滤的情况下将其传递给 `NewStringUTF`。除非确定数据是有效的 Modified_UTF-8 格式（或 7 位 ASCII，这是一个兼容子集），否则需要剔除无效字符或将它们转换为适当的 Modified_UTF-8 格式。如果不这样做，UTF-16 转换可能会产生意外的结果（Java 语言使用的是 UTF-16）。默认状态下 CheckJNI 会为模拟器启用，它会扫描并在收到无效字符串输入时中止虚拟机。
+
 
 
 ### 访问数组
 
-todo
+和访问 Java 成员类似，JNI 提供了一系列访问数组的函数：
+
+```c++
+env->GetIntArrayElements(...)
+env->GetBooleanArrayElements(...)
+env->GetDoubleArrayElements(...)
+// ..
+```
+
+总结为：
+
+```c++
+env->Get<type>ArrayElements(...)
+```
+
+但是 `<type>` 中只能是 Java 的基本类型，不包含 `String` 以及其他引用类型。
+
+下面分别使用 C/C++ 获取 Java 传递的 `int` 类型和 `String` 的数组，作为获取 Java 基本类型和引用类型数组的典型示例：
+
+```java
+int[] array0 = {1, 2, 3, 4, 5};
+String[] array1 = {"a", "b", "c", "d", "e"};
+NativeHandler.testAccessArray(array0, array1);
+```
+
+```c++
+void testAccessArray(JNIEnv *env, jclass clazz, jintArray array0, jobjectArray array1) {
+  jint *elements0 = env->GetIntArrayElements(array0, nullptr);
+  jsize array0Length = env->GetArrayLength(array0);
+  for (jint i = 0; i < array0Length; i++) {
+    __android_log_print(ANDROID_LOG_DEBUG, TAG, "array0[%d] = %d", i, elements0[i]);
+  }
+
+  jsize array1Length = env->GetArrayLength(array1);
+  for (jint i = 0; i < array1Length; i++) {
+    jstring element = (jstring) env->GetObjectArrayElement(array1, i);
+    const char *chars = env->GetStringUTFChars(element, nullptr);  // str+
+    __android_log_print(ANDROID_LOG_DEBUG, TAG, "array1[%d] = %s", i, chars);
+    env->ReleaseStringUTFChars(element, chars);                    // str-
+  }
+}
+```
+
+输出如下：
+
+```
+array0[0] = 1
+array0[1] = 2
+array0[2] = 3
+array0[3] = 4
+array0[4] = 5
+array1[0] = a
+array1[1] = b
+array1[2] = c
+array1[3] = d
+array1[4] = e
+```
+
+代码比较清晰，可以看到基本类型的数组，直接可以使用 `Get<type>ArrayElements(...)` 获得一个数组的首地址，使用 `GetArrayLength` 获取数组长度后，即可像 C/C++ 数组一样访问。
+
+对象数组则没有提供 `Get<type>ArrayElements(...)` 的方法，但是它提供了获取单个元素的 `GetObjectArrayElement` 方法，那么也可以使用循环获取每个 `jobject` 元素。
+
 
 
 ======== 分隔线 ==========
