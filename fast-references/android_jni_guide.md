@@ -986,7 +986,7 @@ env->GetDoubleArrayElements(...)
 env->Get<type>ArrayElements(...)
 ```
 
-但是 `<type>` 中只能是 Java 的基本类型，不包含 `String` 以及其他引用类型。
+其中 `<type>` 中只能是 Java 的基本类型，不包含 `String` 以及其他引用类型。
 
 下面分别使用 C/C++ 获取 Java 传递的 `int` 类型和 `String` 的数组，作为获取 Java 基本类型和引用类型数组的典型示例：
 
@@ -998,12 +998,18 @@ NativeHandler.testAccessArray(array0, array1);
 
 ```c++
 void testAccessArray(JNIEnv *env, jclass clazz, jintArray array0, jobjectArray array1) {
+  // 访问原始数组
   jint *elements0 = env->GetIntArrayElements(array0, nullptr);
-  jsize array0Length = env->GetArrayLength(array0);
-  for (jint i = 0; i < array0Length; i++) {
-    __android_log_print(ANDROID_LOG_DEBUG, TAG, "array0[%d] = %d", i, elements0[i]);
+  if(elements0 != nullptr) {
+    jsize array0Length = env->GetArrayLength(array0);
+    for (jint i = 0; i < array0Length; i++) {
+      __android_log_print(ANDROID_LOG_DEBUG, TAG, "array0[%d] = %d", i, elements0[i]);
+    }
+
+    env->ReleaseIntArrayElements(array0, elements0, 0);
   }
 
+  // 访问对象数组
   jsize array1Length = env->GetArrayLength(array1);
   for (jint i = 0; i < array1Length; i++) {
     jstring element = (jstring) env->GetObjectArrayElement(array1, i);
@@ -1029,9 +1035,32 @@ array1[3] = d
 array1[4] = e
 ```
 
-代码比较清晰，可以看到基本类型的数组，直接可以使用 `Get<type>ArrayElements(...)` 获得一个数组的首地址，使用 `GetArrayLength` 获取数组长度后，即可像 C/C++ 数组一样访问。
+代码比较清晰，可以看到基本类型的数组，直接可以使用 `Get<type>ArrayElements(...)` 获得一个数组的首地址，使用 `GetArrayLength` 获取数组长度后，即可像 C/C++ 原生数组一样使用指针遍历每一个元素。
 
-对象数组则没有提供 `Get<type>ArrayElements(...)` 的方法，但是它提供了获取单个元素的 `GetObjectArrayElement` 方法，那么也可以使用循环获取每个 `jobject` 元素。
+在对原生类型的数组访问之后，需要调用 `Release<type>ArrayElements` 请求释放内存。
+
+对象数组则没有提供 `Get<type>ArrayElements(...)` 的方法，但是它提供了获取单个元素的 `GetObjectArrayElement` 方法，那么也可以使用循环获取每个 `jobject` 元素，然后转换为原本的类型。
+
+如果需要更改原生类型的数组元素值，直接修改获取 C/C++ 数组元素的值，JNI 将会把值复制回原始数据区中。
+
+如果需要更改引用类型的数组元素值，JNI 提供了 `SetObjectArrayElement` 函数，可直接修改原始元素对象。
+
+```c++
+env->SetObjectArrayElement(array1, 1, env->NewStringUTF("hello"));
+```
+
+
+
+- 提示
+
+JNI 为了在不限制虚拟机实现的情况下使接口尽可能高效，允许 `Get<type>ArrayElements(...)` 函数的调用在运行时直接返回指向实际数据元素的指针，或者分配一些内存创建数据的副本。
+
+其中 `GetIntArrayElements` 的第 2 个参数，它类似于 `GetStringUTFChars` 的第 2 个参数，也是 `isCopy`，表示获取数组时是否创建了数据副本。
+
+通常检查 `isCopy` 标志的原因有两个：
+
+1. 为了了解是否需要在对数组进行更改后使用 `JNI_COMMIT` 调用 Release 函数；
+
 
 
 
