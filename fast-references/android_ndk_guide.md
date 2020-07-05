@@ -915,6 +915,8 @@ APP_OPTIM := debug
     +libbar.so
 ```
 
+
+
 2. 将每种架构目录复制到需要使用此库的 ndk 工程中（libfoo.so），在工程中新建 include 目录，将 libbar 的头文件复制过来，为了提供调用的接口。
 
 工程目录结构：
@@ -937,6 +939,8 @@ APP_OPTIM := debug
   +libfoo.cpp
 ```
 
+
+
 3. 编写 libfoo.so 的 Android.mk 文件，`$(TARGET_ARCH_ABI)` 为 ndk 编译时每种架构的名字。
 
 ```makefile
@@ -956,6 +960,8 @@ include $(BUILD_SHARED_LIBRARY)
 ```
 
 此时当工程编译时，对应的 libbar.so 将会自动被加入到 apk 包中。
+
+
 
 4. 代码调用
 
@@ -987,6 +993,8 @@ void Java_io_l0neman_mkexample_NativeHandler_test(JNIEnv *env, jclass clazz) {
 }
 ```
 
+
+
 5. Java 层调用测试
 
 ```java
@@ -1008,6 +1016,8 @@ public class NativeHandler {
 NativeHandler.test();
 ```
 
+
+
 ## 引入静态库
 
 1. 首先编译出 .a 后缀的静态库 libbar.a。
@@ -1027,7 +1037,7 @@ LOCAL_SRC_FILES := libbar.cpp
 include $(BUILD_SHARED_LIBRARY)
 ```
 
-使用 ndk-build 编译后，不会产生和 jni 同级的 libs 目录，每种架构的 libbar.a 文件在和 jni 同级的 obj 目录中。
+使用 ndk-build 编译后，不会产生和 jni 同级的 libs 目录，每种架构的 libbar.a 文件将出现在和 jni 同级的 obj 目录中。
 
 目录结构如下：
 
@@ -1044,7 +1054,55 @@ include $(BUILD_SHARED_LIBRARY)
     +libbar.a
 ```
 
-2. 在 libfoo.so 工程中引入静态库，步骤和引入动态库大同小异，把 obj 目录
+
+
+2. 在 libfoo.so 工程中引入静态库，步骤和引入动态库大同小异，把 obj 中每种架构的目录复制到需要使用此库的 ndk 工程中（libfoo.so），在工程中新建 include 目录，将 libbar 的头文件复制过来，为了提供调用的接口。
+
+工程目录结构：
+
+```
+-jni/
+  -armeabi-v7a/
+    +libbar.a
+  -arm64-v8a/
+    +libbar.a
+  -x86/
+    +libbar.a
+  -x86_64/
+    +libbar.a
+  -include/
+    +libbar.h
+  +Android.mk
+  +Application.mk
+  +libfoo.h
+  +libfoo.cpp
+```
+
+
+
+3. 编写 libfoo.so 的 Android.mk 文件，`$(TARGET_ARCH_ABI)` 为 ndk 编译时每种架构的名字。
+
+```makefile
+LOCAL_PATH := $(call my-dir)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := libbar-pre
+LOCAL_SRC_FILES := $(TARGET_ARCH_ABI)/libbar.a
+LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
+include $(PREBUILT_STATIC_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := foo
+LOCAL_SRC_FILES := main.cpp
+LOCAL_SHARED_LIBRARIES := libbar-pre
+include $(BUILD_SHARED_LIBRARY)
+```
+
+此时当工程编译时，对应的 libbar.a 将会自动编译到 libfoo.so 中，成为它的一部分。
+
+
+
+4. 最后引用头文件正常调用即可，参考引用动态库中的步骤 4。
 
 
 
