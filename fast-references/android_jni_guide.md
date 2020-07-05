@@ -1,6 +1,45 @@
 # Android JNI 指南
 
-[TOC]
+- [Android JNI 指南](#android-jni-指南)
+- [JNI 优化原则](#jni-优化原则)
+- [名词说明](#名词说明)
+- [JavaVM 和 JNIEnv](#javavm-和-jnienv)
+- [JNI 方法注册](#jni-方法注册)
+  - [静态注册](#静态注册)
+  - [动态注册](#动态注册)
+  - [类静态方法和类成员方法](#类静态方法和类成员方法)
+- [Java 层访问](#java-层访问)
+  - [Java 成员变量访问](#java-成员变量访问)
+  - [Java 类方法访问](#java-类方法访问)
+  - [Java 层访问实例](#java-层访问实例)
+- [此行表示依赖 liblog 库](#此行表示依赖-liblog-库)
+  - [访问优化](#访问优化)
+  - [JNI 类型](#jni-类型)
+    - [基本数据类型](#基本数据类型)
+    - [引用类型](#引用类型)
+    - [方法和类成员 ID](#方法和类成员-id)
+    - [数组元素](#数组元素)
+  - [引用管理](#引用管理)
+    - [局部引用](#局部引用)
+    - [全局引用](#全局引用)
+    - [提示](#提示)
+- [Java 常用数据访问](#java-常用数据访问)
+  - [访问字符串](#访问字符串)
+    - [获取字符串](#获取字符串)
+    - [提示](#提示)
+    - [返回字符串](#返回字符串)
+  - [访问数组](#访问数组)
+    - [提示](#提示)
+    - [注意](#注意)
+    - [数组区域调用](#数组区域调用)
+- [线程](#线程)
+    - [附加到本地线程](#附加到本地线程)
+- [JNI 异常](#jni-异常)
+    - [检查异常](#检查异常)
+    - [抛出异常](#抛出异常)
+- [参考](#参考)
+
+
 
 JNI（Java Native Interface，Java 原生接口），是 Java 和 C++ 组件用以互相通信的接口。
 
@@ -15,7 +54,7 @@ Android 平台下的 JNI 支持由 Android NDK 提供，它是一套能将 C 或
 
 
 
-## JNI 优化原则
+# JNI 优化原则
 
 1. 尽可能减少跨 JNI 层的编组（Marshalling）数据资源的次数，因为跨 JNI 层进行编组的开销很大。尽可能设计一种接口，减少需要编组的数据量以及必须进行数据编组的频率；
 2. 尽量避免在使用受管理的编程语言（在虚拟机中运行）中与 C/C++ 编写的代码之间进行异步通信（例如 C/C++ 中开启线程后直接回调 Java 语言），这样可以使 JNI 接口更容易维护。通常使用与编写界面的相同语言进行异步更新，以简化异步界面的更新，例如，使用 Java 语言创建线程，然后发出对 C++ 层的阻塞调用，然后再阻塞完成后通知界面线程；
@@ -24,7 +63,7 @@ Android 平台下的 JNI 支持由 Android NDK 提供，它是一套能将 C 或
 
 
 
-## 名词说明
+# 名词说明
 
 下面叙述中使用到的名词说明。
 
@@ -36,7 +75,7 @@ Android 平台下的 JNI 支持由 Android NDK 提供，它是一套能将 C 或
 
 
 
-## JavaVM 和 JNIEnv
+# JavaVM 和 JNIEnv
 
 JNI 定义了两个关键的数据结构，`JavaVM` 和 `JNIEnv`，它们的本质都是指向函数表的二级指针（在 C++ 版本中，两者都是类，类中都有一个指向函数表的指针，它们的成员函数封装了通过函数表进行访问的 JNI 函数），可以使用 `JavaVM` 类进行创建和销毁 JavaVM 的操作。理论上，每个进程可以有多个 JavaVM，但 Android 只允许有一个。
 
@@ -62,7 +101,7 @@ typedef const struct JNIInvokeInterface* JavaVM;
 
 
 
-## JNI 方法注册
+# JNI 方法注册
 
 JNI 方法是 Java 与 C/C++ 代码沟通的桥梁，使用它时必须首先注册。JNI 方法的声明在 Java 类中，实现在 C/C++ 代码中，在 Java 层的方法声明必须添加 `native` 关键字，然后才能注册。
 
@@ -84,7 +123,7 @@ public class NativeHandler {
 }
 ```
 
-建立 NDK 工程描述如下：
+NDK 工程描述如下：
 
 ```
 -jni
@@ -107,11 +146,11 @@ LOCAL_SRC_FILES := hello.cpp
 include $(BUILD_SHARED_LIBRARY)
 ```
 
-那么下面针对上面搭建的 NDK 工程，采用两种方式在 C/C++ 代码中实现 Java 类 `NativeHandler` 中的 `getString` 方法并注册。
+下面将针对上面搭建的 NDK 工程，采用两种方式在 C/C++ 代码中实现 Java 类 `NativeHandler` 中的 `getString` 方法并注册。
 
 
 
-### 静态注册
+## 静态注册
 
 静态注册只需要按照 JNI 接口规范，在 C/C++ 代码中声明一个 `Java_[全类名中 的 . 替换为 _]_[方法名]` 函数，然后添加 `JNIEXPORT` 前缀即可。
 
@@ -160,7 +199,7 @@ return (*env)->NewStringUTF(env, "hello");
 
 
 
-### 动态注册
+## 动态注册
 
 动态注册与静态注册不同，它是用 `JNIEnv` 类型提供的 `registerNatives` 方法来将 JNI 方法动态绑定到指定的 C/C++ 函数上。
 
@@ -287,7 +326,7 @@ long f (int n, String s, int[] arr);
 
 
 
-### 类静态方法和类成员方法
+## 类静态方法和类成员方法
 
 注册 Java 中的静态 native 方法和类成员 native 方法的区别是，对应的 C/C++ 函数的回调参数不同。
 
@@ -325,13 +364,13 @@ jstring getHello(JNIEnv *env, jobject thiz) {
 
 
 
-## Java 层访问
+# Java 层访问
 
 在 C/C++ 代码中，需要对 Java 层进行访问，最基本的两种访问操作就是读写 Java 类型的成员和调用 Java 类的方法。
 
 
 
-### Java 成员变量访问
+## Java 成员变量访问
 
 JNI 提供了一系列访问 Java 类的静态成员和对象成员的函数，例如。
 
@@ -366,7 +405,7 @@ jfieldID GetStaticFieldID(jclass clazz, const char* name, const char* sig);
 
 
 
-### Java 类方法访问
+## Java 类方法访问
 
 JNI 同时也提供了一系列调用 Java 类的静态方法和对象方法的函数，例如：
 
@@ -395,7 +434,7 @@ env->Call<type>Method(...);      // 调用返回值类型为 type 的成员方�
 
 
 
-### Java 层访问实例
+## Java 层访问实例
 
 下面对实际的 Java 类成员和方法进行访问和调用。
 
@@ -559,7 +598,7 @@ isSetHello 1
 
 
 
-### 访问优化
+## 访问优化
 
 在对 Java 层进行访问时，不管是访问 Java 类成员还是调用 Java 方法，都需要首先使用 `FindClass` 找到目标 Java 类，然后获取对应的成员 ID 和方法 ID， 对于 `FindClass` 和查找相关 ID 的函数，每次调用它们可能都需要进行多次的字符串比较，而使用这些 ID 去访问对于的 Java 类成员和方法速度却是很快的。
 
@@ -657,7 +696,7 @@ void testAccessJava(JNIEnv *env, jclass nativeHandler, jobject jniCallExample) {
 
 
 
-### JNI 类型
+## JNI 类型
 
 每种 Java 类型，在 JNI 中都有对应的本地数据类型，C/C++ 通过 JNI 方法与 Java 层进行交互时，均是使用这些类型进行参数传递，此时虚拟机再根据每种类型翻译为相应的 Java 类型传递给 Java 层方法.
 
@@ -665,7 +704,7 @@ void testAccessJava(JNIEnv *env, jclass nativeHandler, jobject jniCallExample) {
 
 
 
-- 基本数据类型
+### 基本数据类型
 
 | Java 类型 | 本地类型 | 说明            |
 | --------- | -------- | --------------- |
@@ -711,7 +750,7 @@ typedef jint     jsize;
 
 
 
-- 引用类型
+### 引用类型
 
 在 C++ 中，Java 引用类型使用一些类表示，它们的继承关系如下：
 
@@ -800,7 +839,7 @@ typedef jobject         jweak;
 
 
 
-- 方法和类成员 ID
+### 方法和类成员 ID
 
 它们是不透明结构体指针类型：
 
@@ -816,7 +855,7 @@ typedef struct _jmethodID *jmethodID;
 
 
 
-- 数组元素
+### 数组元素
 
 `jvalue` 用于作为参数数组中的元素类型：
 
@@ -838,11 +877,11 @@ typedef union jvalue {
 
 
 
-### 引用管理
+## 引用管理
 
 Java 对象在 JNI 中有两种引用方式，一种是局部引用；一种是全局引用。
 
-- 局部引用
+### 局部引用
 
 Java 层通过 JNI 方法传递给 C/C++ 函数的每个对象参数，以及 C/C++ 通过 JNI 函数（`Call<type>Method`）调用接收的 Java 方法的对象返回值都属于局部引用。
 
@@ -852,7 +891,7 @@ Java 层通过 JNI 方法传递给 C/C++ 函数的每个对象参数，以及 C/
 
 
 
-- 全局引用
+### 全局引用
 
 创建全局引用只能使用 `NewGlobalRef` 和 `NewWeakGlobalRef` 函数。
 
@@ -867,7 +906,7 @@ jclass globalClass = reinterpret_cast<jclass>(env->NewGlobalRef(localClass));
 
 
 
-- 提示
+### 提示
 
 对于同一个对象的引用可能存在多个不同的值，例如，对于同一个对象多次调用 `NewGlobalRef` 所返回的值可能不同。
 
@@ -885,11 +924,11 @@ jclass globalClass = reinterpret_cast<jclass>(env->NewGlobalRef(localClass));
 
 
 
-## Java 常用数据访问
+# Java 常用数据访问
 
 对 Java 字符串和数组的访问方法。访问这些数据是 JNI 开发的基础。
 
-### 访问字符串
+## 访问字符串
 
 访问字符串有如下两种情况：
 
@@ -919,7 +958,7 @@ jstring testAccessString(JNIEnv *env, jclass clazz, jstring hello) {
 
 
 
-- 获取字符串
+### 获取字符串
 
 `GetStringUTFChars` 将返回 C/C++ 语言可以直接使用的 [Modified_UTF-8](https://docs.oracle.com/javase/7/docs/technotes/guides/jni/spec/types.html#wp16542) 格式字符串（Modified_UTF-8 格式是 JNI 提供的优化后的 UTF-8 格式字符串，优化后的编码对 C 代码友好，因为它将 `\u0000` 编码为 `0xc0 0x80`，而不是 `0x00`。这样做的好处是，可以依靠以 `\0` 终止的 C 样式字符串，非常适合与标准 libc 字符串函数配合使用。但缺点是，无法将任意 UTF-8 的数据传递给 JNI 函数）。
 
@@ -953,7 +992,7 @@ if (isCopy == JNI_TRUE) {
 
 
 
-- 提示
+### 提示
 
 JNI 还提供了 `GetStringChars` 函数，它返回的是 UTF-16 字符串，使用 UTF-16 字符串执行操作通常会更快，但是 UTF-16 字符串不是以零终止的，并且允许使用 `\u0000`，因此需要保留字符串长度和返回的 `jchar` 指针。
 
@@ -961,7 +1000,7 @@ JNI 还提供了 `GetStringChars` 函数，它返回的是 UTF-16 字符串，�
 
 
 
-- 返回字符串
+### 返回字符串
 
 如果需要返回给 Java 层字符串，使用 `env->NewStringUTF("result")` 即可，JavaVM 将会基于 C 字符串创建一个新的 `String` 的对象，它的内存由虚拟机管理。
 
@@ -969,7 +1008,7 @@ JNI 还提供了 `GetStringChars` 函数，它返回的是 UTF-16 字符串，�
 
 
 
-### 访问数组
+## 访问数组
 
 和访问 Java 成员类似，JNI 提供了一系列访问数组的函数：
 
@@ -991,12 +1030,16 @@ env->Get<type>ArrayElements(...)
 下面分别使用 C/C++ 获取 Java 传递的 `int` 类型和 `String` 的数组，作为获取 Java 基本类型和引用类型数组的典型示例：
 
 ```java
+// Java Code
+
 int[] array0 = {1, 2, 3, 4, 5};
 String[] array1 = {"a", "b", "c", "d", "e"};
 NativeHandler.testAccessArray(array0, array1);
 ```
 
 ```c++
+// C++ Code
+
 void testAccessArray(JNIEnv *env, jclass clazz, jintArray array0, jobjectArray array1) {
   // 访问原始数组
   jint *elements0 = env->GetIntArrayElements(array0, nullptr);
@@ -1051,32 +1094,271 @@ env->SetObjectArrayElement(array1, 1, env->NewStringUTF("hello"));
 
 
 
-- 提示
+### 提示
 
 JNI 为了在不限制虚拟机实现的情况下使接口尽可能高效，允许 `Get<type>ArrayElements(...)` 函数的调用在运行时直接返回指向实际数据元素的指针，或者分配一些内存创建数据的副本。
+
+在调用 Release 之前，返回的原生数组指针保证可用，如果没有创建数据的副本，那么原生数组将被固定，在虚拟机整理内存碎片时不会调整原生数组的位置，Release 的时候需要进行判空操作，防止在 Get 数组失败时 Release 空指针。
+
+`ReleaseIntArrayElements` 函数的最后一个函数的 `mode` 参数有三个，运行时执行的操作取决于返回的指针指向实际数据还是指向数据副本。
+
+`mode` 以及对应的 Release 行为：
+
+1. `0`
+
+实际数据：取消数组元素固定。
+数据副本：将数据复制回原始数据，释放包含副本的缓冲区。
+
+2. `JNI_COMMIT`
+
+实际数据：不执行任何操作。
+数据副本：将数据复制回原始数据，不释放包含副本的缓冲区。
+
+3. `JNI_ABORT`
+
+实际数据：取消数组元素固定，不中止早期的写入数据。
+数据副本：释放包含相应副本的缓冲区；对该副本所做的任何更改都会丢失。
+
+
+
+通常传递 `0` 来保持固定和复制数组的行为一致，其他选项可以用来更好地控制内存，需要谨慎传递。
+
 
 其中 `GetIntArrayElements` 的第 2 个参数，它类似于 `GetStringUTFChars` 的第 2 个参数，也是 `isCopy`，表示获取数组时是否创建了数据副本。
 
 通常检查 `isCopy` 标志的原因有两个：
 
-1. 为了了解是否需要在对数组进行更改后使用 `JNI_COMMIT` 调用 Release 函数；
+1. 了解是否需要在对数组进行更改后使用 `JNI_COMMIT` 调用 Release 函数，如果需要在对数组进行更改和仅使用数组内容的代码之间切换，则可以跳过空操作提交；
+2. 有效处理 `JNI_ABORT`，考虑可能需要获取一个数组，然后进行适当修改后，将数组的一部分传递给其他函数使用，最后舍弃对数组的修改。如果知道 JNI 为数组创建了副本，那么就不需要自己创建一个可被修改的副本，如果 JNI 传递的是实际数据的指针，那么就需要自己创建数组的副本。
 
 
 
+### 注意
 
-======== 分隔线 ==========
+不能认为 `*isCopy` 为 `JNI_FALSE` 时就不需要调用 Release，这是一种常见误区。
+
+如果 JNI 没有分配任何副本缓冲区，返回指向实际数据的指针，那么虚拟机必须固定实际数组的内存，此时垃圾回收器将不能移动内存，造成内存不能释放。
+
+`JNI_COMMIT` 标记不会释放数组，最终还需要使用其他标记再次调用 Release。
 
 
-保存 JavaVM
--获取 JNIEnv
 
-线程访问
--附加线程
+### 数组区域调用
 
-## 处理 Java 异常
+如果只想复制 Java 数组，使用 `Get<type>ArrayRegion` 更好。
 
-保存 Java 对象
-- 全局引用
-- 局部引用
+通常使用 `Get<type>ArrayElements` 时，如果需要复制数组数据到外部的缓冲区中，代码如下：
 
-JNI 规范文档 https://docs.oracle.com/javase/7/docs/technotes/guides/jni/spec/jniTOC.html
+```c++
+jbyte* data = env->GetByteArrayElements(array, NULL);
+if (data != nullptr) {
+  memcpy(buffer, data, len);
+  env->ReleaseByteArrayElements(array, data, JNI_ABORT);
+}
+```
+
+这样会复制数组 `len` 长度的字节到 `buffer` 中，然后释放数组内存。其中 Get 调用可能会返回实际数组或者实际数组的副本，取决于运行时的情况，代码复制数据（那么上面的代码可能是第 2 次复制），那么这种情况下，使用 `JNI_ABORT` 确保不会再出现第 3 次复制。
+
+使用 `Get<type>ArrayRegion` 函数不仅可以完成相同操作，而且不必考虑 Release 调用：
+
+```c++
+// 复制数组 len 长度的字节到缓冲区 buffer 中
+env->GetByteArrayRegion(array, 0, len, buffer);
+```
+
+区域调用优点：
+
+1. 只需要一个 JNI 调用，而不是两个，减少开销；
+2. 不需要固定实际数组或额外复制数据；
+3. 降低风险，不存在操作失败后忘记调用 Release 的风险。
+
+
+
+除此之外，JNI 还提供了针对于字符串的区域调用函数，`GetStringUTFRegion` 或 `GetStringRegion` 将字符数据复制到 `String` 对象之外。
+
+
+
+# 线程
+
+所有线程都是 Linux 线程，由内核调度。线程通常从受虚拟机管理的代码启动（使用 `Thread#start()` 方法），但也可以在 native 层创建，然后通过 JNI 函数附加到 JavaVM。在 C/C++ 代码中例如使用 `pthread_create` 启动本地线程，然后调用 JNI 提供的 `AttachCurrentThread` 或 `AttachCurrentThreadAsDeamon` 函数，在附加之前，这个线程不会包含任何 `JNIEnv`，所以无法调用 `JNI`（`JNIEnv` 指针不能在多个线程中共享，只能分别附加，主线程默认已被附加）。
+
+被附加成功的本地线程会构建 `java.lang.Thread` 对象并被添加到 Main ThreadGroup，从而使调试程序能够看到它。在已附加的线程上调用 `AttachCurrentThread` 属于空操作。
+
+通过 JNI 附加的线程在退出之前必须调用 `DetachCurrentThread` 分离附加。如果直接对此进行编写代码会很麻烦，可以使用 `pthread_key_create` 定义在线程退出之前调用的析构函数，之后再调用 `DetachCurrentThread`。（将该 key 与 `pthread_setspecific` 配合使用，以将 `JNIEnv` 存储在线程本地存储中；这样一来，该 key 将作为参数传递到线程的析构函数中。）
+
+
+
+### 附加到本地线程
+
+下面是一个附加到线程的示例，使用 `pthread_create` 创建一个线程，并在线程执行代码中附加：
+
+```java
+// Java Code:
+
+NativeHandler.testThread();
+```
+
+```c++
+// C++ Code:
+
+// 线程函数
+static void *threadTest(void *arg) {
+  JNIEnv *env = nullptr;
+  // 尝试获得已附加的 JNIEnv
+  jint ret = gJavaVM->GetEnv((void **) &env, JNI_VERSION_1_6);
+  switch (ret) {
+    case JNI_OK:
+      __android_log_print(ANDROID_LOG_DEBUG, TAG, "获得了 JNIEnv.");
+      break;
+
+    case JNI_EDETACHED:
+      ret = gJavaVM->AttachCurrentThread(&env, nullptr);
+      if (ret == JNI_OK) {
+        __android_log_print(ANDROID_LOG_DEBUG, TAG, "线程已附加. %ld", (long) pthread_getspecific(gKey));
+      } else {
+        __android_log_print(ANDROID_LOG_ERROR, TAG, "线程附加失败，code: %d.", ret);
+      }
+      break;
+
+    case JNI_EVERSION:
+      __android_log_print(ANDROID_LOG_DEBUG, TAG, "错误 JNI_EVERSION.");
+      break;
+
+    default:
+      __android_log_print(ANDROID_LOG_ERROR, TAG, "未知错误：%d", ret);
+      break;
+  }
+
+  return nullptr;
+}
+
+// 线程销毁函数
+static void threadDestroy(void *arg) {
+  JNIEnv *env = nullptr;
+  jint ret = gJavaVM->GetEnv((void **) &env, JNI_VERSION_1_6);
+
+  if (ret == JNI_OK) {
+    __android_log_print(ANDROID_LOG_DEBUG, TAG, "线程分离.");
+    gJavaVM->DetachCurrentThread();
+  }
+}
+
+void testThread(JNIEnv *env, jclass clazz) {
+  // 获取 JavaVM 指针
+  env->GetJavaVM(&gJavaVM);
+  // 创建线程本地存储，指定线程析构函数
+  pthread_key_create(&gKey, &threadDestroy);
+  // 创建线程
+  pthread_t tid;
+  int ret = pthread_create(&tid, nullptr, &threadTest, nullptr);
+  if (ret != 0) {
+    __android_log_print(ANDROID_LOG_DEBUG, TAG, "thread [%ld] create err", tid);
+    return;
+  }
+
+  // 等待线程结束
+  pthread_join(tid, nullptr);
+  // 移除线程本地存储
+  pthread_key_delete(gKey);
+}
+```
+
+上述代码，首先使用 `GetEnv` 尝试从线程获得 `JNIEnv`，返回值将有 3 种结果：
+
+1. `JNI_OK`，说明此线程已附加，可直接使用获得的 `JNIEnv`；
+2. `JNI_EDETACHED`，说明此线程未附加，那么需要使用 `AttachCurrentThread` 进行附加；
+3. `JNI_EVERSION`，说明不支持指定的版本。
+
+在获得 `JNIEnv` 之后线程就执行完毕了，那么 `pthread_create` 中指定的线程析构函数 `threadDestroy` 将被回调，在这里确认线程已被附加后，使用 `DetachCurrentThread` 分离线程。
+
+`AttachCurrentThread` 的第 2 个参数一般可以指定为空，它是一个 `JavaVMAttachArgs` 结构指针，用于指定格外信息。
+
+```c++
+// jni.h
+
+struct JavaVMAttachArgs {
+    jint        version;    /* must be >= JNI_VERSION_1_2 */
+    const char* name;       /* NULL or name of thread as modified UTF-8 str */
+    jobject     group;      /* global ref of a ThreadGroup object, or NULL */
+};
+```
+
+
+
+# JNI 异常
+
+当原生代码出现异常挂起时，大多数 JNI 函数无法被调用。通过 C/C++ 代码可以检查到是否出现了异常（通过 `ExceptionCheck` 或者 `ExceptionOccurred` 的返回值）；或者直接清除异常。
+
+在异常挂起时，只能调用如下 JNI 函数：
+
+```
+DeleteGlobalRef
+DeleteLocalRef
+DeleteWeakGlobalRef
+ExceptionCheck
+ExceptionClear
+ExceptionDescribe
+ExceptionOccurred
+MonitorExit
+PopLocalFrame
+PushLocalFrame
+Release<PrimitiveType>ArrayElements
+ReleasePrimitiveArrayCritical
+ReleaseStringChars
+ReleaseStringCritical
+ReleaseStringUTFChars
+```
+
+许多 JNI 调用都会抛出异常，但通常可以使用一种更简单的方法来检查失败调用，例如 `NewString` 函数返回非空，则表示不需要检查异常。如果使用 `CallObjectMethod` 函数，则始终必须检查异常，如果系统抛出异常，那么函数返回值无效。
+
+
+
+### 检查异常
+
+使用 `ExceptionCheck` 函数可检查上一次代码调用是否出现了异常，如果出现异常，`ExceptionCheck` 将返回 `JNI_TRUE`，否则为 `JNI_FALSE`；或使用 `ExceptionOccurred` 函数，如果出现异常，它会返回一个 `jthrowable` 对象，否则为空。
+
+通常使用 `ExceptionCheck` 函数，因为它不需要创建局部引用（`jthrowable`）。
+
+在捕获到异常之后，使用 `ExceptionDescribe` 打印异常信息，如果调用 `ExceptionClear` 清除异常，那么异常将被忽略（不过在未处理的情况下盲目地忽略异常可能会出现问题）。
+
+```c++
+// 检查异常
+bool checkException(JNIEnv *env) {
+  if (env->ExceptionCheck() == JNI_TRUE) {
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+    return true;
+  }
+
+  return false;
+}
+```
+
+
+
+### 抛出异常
+
+目前 Android 并不支持 C++ 异常。
+
+JNI 提供了 `Throw` 和 `ThrowNew` 用来抛出 Java 异常，但不会在调用后就抛出异常，只是在当前线程中设置了异常指针。从本地代码返回到受虚拟机管理的代码后，会观察到这些异常指针并进行相应处理（抛出异常）。
+
+JNI 没有提供直接操作 Java `Throwable` 对象本身的内置函数（直接创建对象或者获取异常信息）。
+
+如果想要抛出指定异常，则需要自己找到 `Throwable` 类后，调用 `ThrowNew` 函数产生异常：
+
+```c++
+// 抛出 NullPointerException
+env->ThrowNew(env->FindClass("java/lang/NullPointerException"), msg);
+// 抛出 RuntimeException
+env->ThrowNew(env->FindClass(env, "java/lang/RuntimeException"), msg);
+```
+
+如果需要获取异常信息，那么需要查找 `Throwable#getMessage()` 的方法 ID 并调用。
+
+
+
+# 参考
+
+- [https://docs.oracle.com/javase/7/docs/technotes/guides/jni/spec/jniTOC.html](https://docs.oracle.com/javase/7/docs/technotes/guides/jni/spec/jniTOC.html)
+
+- [https://developer.android.google.cn/training/articles/perf-jni](https://developer.android.google.cn/training/articles/perf-jni)

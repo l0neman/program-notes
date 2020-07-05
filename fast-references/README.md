@@ -16,6 +16,8 @@
 
 [Android NDK 指南](./android_ndk_guide.md)
 
+[Android JNI 指南](./android_jni_guide.md)
+
 ## 其他
 
 [Android 版本](./android_version_sdkversion.md)
