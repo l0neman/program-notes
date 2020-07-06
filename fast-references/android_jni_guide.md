@@ -45,11 +45,11 @@ JNI（Java Native Interface，Java 原生接口），是 Java 和 C++ 组件用�
 
 Android 平台下的 JNI 支持由 Android NDK 提供，它是一套能将 C 或 C++（原生代码）嵌入到 Android 应用中的工具。
 
-使用 JNI 在 Android 平台下进行编程的用处：
+为什么要使用 JNI 在 Android 平台下进行编程：
 
 1. 在平台之间移植应用；
 2. 重复使用现有库，或者提供自己的库供重复使用；
-3. 在某些情况下提供高性能，特别是像游戏这种密集型应用；
+3. 在某些情况下提供高性能，特别是像游戏这种计算密集型应用；
 4. 提供安全性保障，在二进制层面比字节码层面的逆向工作更加困难。
 
 
@@ -57,21 +57,21 @@ Android 平台下的 JNI 支持由 Android NDK 提供，它是一套能将 C 或
 # JNI 优化原则
 
 1. 尽可能减少跨 JNI 层的编组（Marshalling）数据资源的次数，因为跨 JNI 层进行编组的开销很大。尽可能设计一种接口，减少需要编组的数据量以及必须进行数据编组的频率；
-2. 尽量避免在使用受管理的编程语言（在虚拟机中运行）中与 C/C++ 编写的代码之间进行异步通信（例如 C/C++ 中开启线程后直接回调 Java 语言），这样可以使 JNI 接口更容易维护。通常使用与编写界面的相同语言进行异步更新，以简化异步界面的更新，例如，使用 Java 语言创建线程，然后发出对 C++ 层的阻塞调用，然后再阻塞完成后通知界面线程；
-3. 尽可能减少需要访问 JNI 或被 JNI 访问的线程数。如果确实需要以 Java 和 C++ 两种语言来利用线程池，请尝试在池所有者之间（而不是各个工作线程之间）保持 JNI 通信。
+2. 尽量避免在使用受管理的编程语言（在虚拟机中运行）中与 C/C++ 编写的代码之间进行异步通信（例如 C/C++ 中开启线程后直接回调 Java 语言），这样可以使 JNI 接口更容易维护。通常使用与编写界面的相同语言进行异步更新，以简化异步界面的更新，例如，使用 Java 语言创建线程，然后发出对 C++ 层的阻塞调用，然后在阻塞完成后通知界面线程；
+3. 尽可能减少需要访问 JNI 或被 JNI 访问的线程数。如果确实需要以 Java 和 C++ 两种语言来利用线程池，请尝试在池所有者之间（而不是各个工作线程之间）保持 JNI 通信；
 4. 将接口保存在少量的容易识别的 C++ 和 Java 源位置，以便于将来进行重构。
 
 
 
 # 名词说明
 
-下面叙述中使用到的名词说明。
+下文叙述中使用到的名词说明：
 
 - JNI 方法，在 Java 层使用 native 声明，使用 C/C++ 中实现的方法。
 
 - JNI 函数，JNI 提供的与 Java 层交互的工具一系列函数，例如 `RegisterNatives`。
 
-- 不透明，具体结构未知，由相应的虚拟机实现决定。
+- 不透明，具体结构未知，由具体的虚拟机实现决定。
 
 
 
@@ -82,6 +82,8 @@ JNI 定义了两个关键的数据结构，`JavaVM` 和 `JNIEnv`，它们的本�
 `JNIEnv` 的指针将在每个 JNI 函数的第一个参数中。
 
 这个 `JNIEnv` 只能用于线程本地存储（Thread Local），所以无法在线程之间共享 `JNIEnv`，如果需要在其他线程中访问 `JNIEnv`，可以通过 `JavaVM` 调用 `GetEnv` 函数获得相应的 `JNIEnv` 指针（需要在之前使用过 `AttachCurrentThread` 对此线程进行附加后调用）。
+
+`JavaVM` 指针是全局的，可以在线程之间共享，通过保存 `JavaVM` 用于在其他线程中获取 `JNIEnv`。
 
 `JNIEnv` 和 `JavaVM` 在 C 源文件和 C++ 源文件中的声明不同，使用 C 文件和 C++ 文件包含 `jni.h` 时，会有不同的类型定义。
 
@@ -97,15 +99,15 @@ typedef const struct JNIInvokeInterface* JavaVM;
 #endif
 ```
 
-因此，不建议同时在这两种语言包含的头文件中添加 `JNIEnv` 参数（导致混乱）。或者当源文件中出现 `#ifdef __cplusplus` ，且该文件中所有的内容都引用了 `JNIEnv` 时，那么可能需要做额外的处理。
+因此，不建议同时在这两种语言包含的头文件中添加 `JNIEnv` 参数（容易导致混乱）。或者当源文件中出现 `#ifdef __cplusplus` ，且该文件中所有的内容都引用了 `JNIEnv` 时，那么可能需要做额外的处理。
 
 
 
 # JNI 方法注册
 
-JNI 方法是 Java 与 C/C++ 代码沟通的桥梁，使用它时必须首先注册。JNI 方法的声明在 Java 类中，实现在 C/C++ 代码中，在 Java 层的方法声明必须添加 `native` 关键字，然后才能注册。
+JNI 方法是 Java 代码与 C/C++ 代码沟通的桥梁，使用它时必须首先注册。JNI 方法的声明在 Java 类中，实现在 C/C++ 代码中，在 Java 层的方法声明前面必须添加 `native` 关键字，然后才能进行注册。
 
-注册方式分为静态注册（根据 JNI 命令规范直接定义对应名字的 C/C++ 函数）和动态注册（使用 `RegisterNatives` 函数注册到 C/C++ 函数上）。
+注册方式分为静态注册（根据 JNI 命令规范直接定义对应名字的 C/C++ 函数）和动态注册（使用 `RegisterNatives` 函数注册到 C/C++ 函数上）两种方式。
 
 例如，Java 声明了如下 JNI 方法：
 
@@ -126,11 +128,15 @@ public class NativeHandler {
 NDK 工程描述如下：
 
 ```
--jni
-  Android.mk
-  Application.mk
-  hello.cpp
-  hello.h
+src/main/
+ |
+ +-- java
+ +-- jni
+      |
+      +-- Android.mk
+      +-- Application.mk
+      +-- hello.cpp
+      +-- hello.h
 ```
 
 ```makefile
@@ -156,7 +162,7 @@ include $(BUILD_SHARED_LIBRARY)
 
 当系统加载 so 文件后，将根据名字对应规则，自动注册 JNI 方法。
 
-下面采用了 C++ 代码，需要使用 `extern "C"` 来声明（为了兼容 C 语言的符号签名规则，使 C 语言能够正常链接调用它）。
+下面采用了 C++ 代码描述，其中的函数需要使用 `extern "C"` 来包括（为了兼容 C 语言的符号签名规则，让 C 语言能够正常链接调用它）。
 
 ```c++
 // hello.h
@@ -258,7 +264,7 @@ JNIEXPORT void JNI_OnUnload(JavaVM *vm, void *reserved) {
 从 `JNI_OnLoad` 开始看。
 
 1. 首先 `RegisterNatives` 这个函数由 `JNIEnv` 类型提供，而 `JNI_OnLoad` 第一个参数是 `JavaVM *`，所以，这里首先获取 `JNIEnv` 类型指针，使用 `JavaVM` 的 `GetEnv` 函数获取（由于系统默认已经附加到线程，所以这里才能直接 `GetEnv`）;
-2. 下面需要使用 `RegisterNatives` 注册 JNI 函数了，看一下它的用法：
+2. 下面需要使用 `RegisterNatives` 注册 JNI 函数，看一下它的声明：
 
 ```c++
 // jni.h
@@ -316,11 +322,11 @@ long f (int n, String s, int[] arr);
 (ILjava/lang/String;[I)J 
 ```
 
-那么上面的代码，即表明了要把 `NativeHandler` 中的 `getString` 注册到 C++ 中的 `getString` 函数上。
+那么前面的代码中的 `gMethods` 数组，即表明了要把 `NativeHandler` 中的 `getString` 注册绑定到 C++ 中的 `getString` 函数上。
 
-5. 最后直接调用 `env->RegisterNatives` 函数就可以了，一般情况下，注册成功，返回 `JNI_OK`。
+5. 最后调用 `env->RegisterNatives` 函数就可以了，一般情况下，注册成功，那么返回 `JNI_OK`。
 
-可以允许在 `JNI_OnLoad` 中绑定多个 Java 类中的 native 方法，但是建议不要这样做，会导致难以维护，一般一个 Java 类中包含多个 native 方法，这个 Java 类管理的 native 方法对应一个 so，在静态块中直接调用 `System.loadLibrary`，如果一个 so 包含多个 Java 类的 JNI 方法，那么 `System.loadLibrary` 将放在 `Application` 中初始化，造成代码分散。
+可以允许在 `JNI_OnLoad` 中绑定多个 Java 类中的 native 方法，建议不要这样做，会导致难以维护。
 
 动态注册的好处是，可以只导出 `JNI_OnLoad`（注册的 C/C++ 函数可以进行符号优化，不导出），生成速度更快且更小的代码，且可避免与加载到应用中的其他库发生潜在冲突。
 
@@ -328,7 +334,7 @@ long f (int n, String s, int[] arr);
 
 ## 类静态方法和类成员方法
 
-注册 Java 中的静态 native 方法和类成员 native 方法的区别是，对应的 C/C++ 函数的回调参数不同。
+注册 Java 中的静态 JNI 方法和类成员 JNI 方法的区别是，对应的 C/C++ 函数的回调参数不同。
 
 ```c++
 // io.l0neman.jniexample.NativeHander
@@ -358,7 +364,7 @@ jstring getHello(JNIEnv *env, jobject thiz) {
 }
 ```
 
-静态方法传递的是代码 Java 类的 `jclass`，而类方法传递的是表示 Java `this` 对象的 `jobject`，那么就可以使用它来访问 `this` 对象内的成员变量和相关方法。如果需要访问 `jclass`，使用 JNI 提供的 `GetObjectClass` 函数获取。
+静态方法传递的是代码 Java 类的 `jclass`，而类方法传递的是表示 Java `this` 对象的 `jobject`，可以使用它来访问对应的 `this` 对象内的成员变量和相关方法。如果需要访问 `jclass`，使用 JNI 提供的 `GetObjectClass` 函数获取。
 
 在注册工作完成后，就可以从 Java 层调用 JNI 方法，使用 C/C++ 语言处理逻辑了。
 
@@ -366,7 +372,7 @@ jstring getHello(JNIEnv *env, jobject thiz) {
 
 # Java 层访问
 
-在 C/C++ 代码中，需要对 Java 层进行访问，最基本的两种访问操作就是读写 Java 类型的成员和调用 Java 类的方法。
+在 C/C++ 代码中，需要对 Java 层进行访问，最基本的两种访问操作就是读写 Java 类成员和调用 Java 类方法。
 
 
 
@@ -375,29 +381,29 @@ jstring getHello(JNIEnv *env, jobject thiz) {
 JNI 提供了一系列访问 Java 类的静态成员和对象成员的函数，例如。
 
 ```c++
-env->GetStaticIntField(...);     // 读取 Java 类型为 int 的类静态成员
-env->SetStaticIntField(...);     // 写入 Java 类型为 int 的类静态成员
-env->GetStaticObjectField(...);  // 读取类型为 Java 引用的类静态成员
-env->SetStaticObjectField(...);  // 写入类型为 Java 引用的类静态成员
+GetStaticIntField();     // 读取 Java 类型为 int 的类静态成员
+SetStaticIntField();     // 写入 Java 类型为 int 的类静态成员
+GetStaticObjectField();  // 读取类型为 Java 引用的类静态成员
+SetStaticObjectField();  // 写入类型为 Java 引用的类静态成员
 
-env->GetIntField(...);           // 读取 Java 类型为 int 的类对象成员
-env->SetIntField(...);           // 写入 Java 类型为 int 的类对象成员
-env->GetObjectField(...);        // 读取类型为 Java 引用的类对象成员
-env->SetObjectField(...);        // 写入类型为 Java 引用的类对象成员
+GetIntField();           // 读取 Java 类型为 int 的类对象成员
+SetIntField();           // 写入 Java 类型为 int 的类对象成员
+GetObjectField();        // 读取类型为 Java 引用的类对象成员
+SetObjectField();        // 写入类型为 Java 引用的类对象成员
 ```
 
 总结为：
 
 ```c++
-env->GetStatic<type>Field();    // 读取 Java 类型为 type 的类静态成员
-env->SetStatic<type>Field();    // 写入 Java 类型为 type 的类静态成员
-env->Get<type>Field();          // 读取 Java 类型为 type 的类对象成员
-env->Set<type>Field();          // 写入 Java 类型为 type 的类对象成员
+GetStatic<type>Field();    // 读取 Java 类型为 type 的类静态成员
+SetStatic<type>Field();    // 写入 Java 类型为 type 的类静态成员
+Get<type>Field();          // 读取 Java 类型为 type 的类对象成员
+Set<type>Field();          // 写入 Java 类型为 type 的类对象成员
 ```
 
 当需要访问静态成员时需要提供一个代表 Java 类型的 `jclass` 作为参数，访问类对象成员时则需要一个表示 Java 对象的 `jobject` 作为参数。
 
-同时两者都需要首先提供目标 Java 类成员的 JNI 类型签名（符合上面的 JNI 签名表规则），用来获取一个不透明的 `jFieldID` 类型，传递给 JNI 函数，用于找到目标成员，之后才能使用上述 JNI 函数访问 Java 类成员。
+同时两者都需要首先提供目标 Java 类成员的 JNI 类型签名（符合上面的 JNI 签名表规则），用来获取一个不透明的 `jfieldID` 类型，传递给 JNI 函数，用于找到目标成员，之后才能使用上述 JNI 函数访问 Java 类成员。
 
 ```c++
 jfieldID GetStaticFieldID(jclass clazz, const char* name, const char* sig);
@@ -410,22 +416,22 @@ jfieldID GetStaticFieldID(jclass clazz, const char* name, const char* sig);
 JNI 同时也提供了一系列调用 Java 类的静态方法和对象方法的函数，例如：
 
 ```c++
-env->CallStaticVoidMethod(...); // 调用返回值类型为 void 的静态方法
-env->CallStaticIntMethod(...);  // 调用返回值类型为 int 的静态方法
-env->CallObjectMethod(...);     // 调用返回值类型为 Java 引用的静态方法
+CallStaticVoidMethod(); // 调用返回值类型为 void 的静态方法
+CallStaticIntMethod();  // 调用返回值类型为 int 的静态方法
+CallObjectMethod();     // 调用返回值类型为 Java 引用的静态方法
 // ...
 
-env->CallVoidMethod(...);       // 调用返回值类型为 void 的对象方法
-env->CallIntMethod(...);        // 调用返回值类型为 int 的对象方法
-env->CallObjectMethod(...);     // 调用返回值类型为 Java 引用的成员方法
+CallVoidMethod();       // 调用返回值类型为 void 的对象方法
+CallIntMethod();        // 调用返回值类型为 int 的对象方法
+CallObjectMethod();     // 调用返回值类型为 Java 引用的成员方法
 // ...
 ```
 
 总结为：
 
 ```c++
-env->CallStatic<type>Method(...) // 调用返回值类型为 type 的静态方法
-env->Call<type>Method(...);      // 调用返回值类型为 type 的成员方法
+env->CallStatic<type>Method(); // 调用返回值类型为 type 的静态方法
+env->Call<type>Method();       // 调用返回值类型为 type 的成员方法
 ```
 
 当需要调用静态方法时需要提供一个代表 Java 类型的 `jclass` 作为参数，调用类成员方法时则需要一个表示 Java 对象的 `jobject` 作为参数。
@@ -441,6 +447,8 @@ env->Call<type>Method(...);      // 调用返回值类型为 type 的成员方�
 首先定义一个 Java 类，`JniCallExample`。
 
 ```java
+// io.hexman.jniexample.JniCallExample
+
 public class JniCallExample {
   private static int sFlag = 256;
 
@@ -482,7 +490,7 @@ include $(BUILD_SHARED_LIBRARY)
 
 下面开始编写源代码。
 
-首先在 `NativeHandler` 类里面，声明 JNI 方法 `void testAccessJava(JniCallExample jniCallExample)`，用于调用 C/C++ 代码启动测试。
+首先在 `NativeHandler` 类里面，声明 JNI 方法 `void testAccessJava(JniCallExample jniCallExample)`，用于调用 C/C++ 代码来启动测试。
 
 其中提供一个 `JniCallExample` 对象，是因为需要访问它的成员值。
 
@@ -592,9 +600,9 @@ isSetHello 1
 
 其中包含一部分对于字符串的操作：
 
-`env->NewStringUTF("data")` 用于创建一个 Java 字符串（new String()），它的内存由 Java 虚拟机管理，它使用 `jstring` 类型来描述，是一个 JNI 提供的不透明类型，用于映射一个 Java 字符串，每种 Java 类型都有对应的映射类型（下面会提供映射表），这里用作 Java 变量来给 Java 变量赋值或者作为参数传递。
+`env->NewStringUTF("data")` 用于创建一个 Java 字符串（new String()），它的内存由 Java 虚拟机管理，它使用 `jstring` 类型来描述，是一个 JNI 提供的不透明类型，用于映射一个 Java 字符串。每种 Java 类型都有对应的映射类型（下面会提供映射表），这里用作 Java 变量来给 Java 变量赋值或者作为参数传递。
 
-`env->GetStringUTFChars(jStr, nullptr);` 用于从 Java 字符串中取得 C 形式的标准 `UTF8` 字符串，它将会在 native 层分配内存，而不是由 Java 虚拟机管理，所以使用后需要手动使用 `ReleaseStringUTFChars` 释放。
+`env->GetStringUTFChars(jStr, nullptr);` 用于从 Java 字符串中取得 C 形式的 Modified_UTF-8（下文介绍）字符串，它将会在 native 层分配内存，而不是由 Java 虚拟机管理，所以使用后需要手动使用 `ReleaseStringUTFChars` 释放。
 
 
 
@@ -610,9 +618,11 @@ Android 推荐的方法是，在 Java 类中声明一个名叫 `nativeInit` 的 
 
 一般使用 `static` 结构来缓存这些 ID 和 `jclass`，`jclass` 作为 Java 引用，需要使用 `NewGlobalRef` 函数创建一个全局引用来保护它不被回收。
 
+
+
 那么现在改进之前的 Java 访问实例，如下：
 
-首先 `NativeHandler` 中增加 `nativeInit` 方法。
+首先在 `NativeHandler` 中增加 `nativeInit` 方法。
 
 
 ```java
@@ -698,7 +708,7 @@ void testAccessJava(JNIEnv *env, jclass nativeHandler, jobject jniCallExample) {
 
 ## JNI 类型
 
-每种 Java 类型，在 JNI 中都有对应的本地数据类型，C/C++ 通过 JNI 方法与 Java 层进行交互时，均是使用这些类型进行参数传递，此时虚拟机再根据每种类型翻译为相应的 Java 类型传递给 Java 层方法.
+每种 Java 类型在 JNI 中都有对应的本地数据类型，C/C++ 通过 JNI 方法与 Java 层进行交互时，均是使用这些类型进行参数传递，此时虚拟机再根据每种类型翻译为相应的 Java 类型传递给 Java 层方法.
 
 还有一些特殊的数据类型用来存储 Java 方法 ID 和类成员 ID。
 
@@ -756,22 +766,22 @@ typedef jint     jsize;
 
 ```c++
 jobject                     (所有 Java 对象)
-  |
-  +-- jclass                (java.lang.Class 对象)
-  +-- jstring               (java.lang.String 对象)
-  +-- jarray                (数组)
-  |    |
-  |    +-- jobjectArray     (object 数组)
-  |    +-- jbooleanArray    (boolean 数组)
-  |    +-- jbyteArray       (byte 数组)
-  |    +-- jcharArray       (char 数组)
-  |    +-- jshortArray      (short 数组)
-  |    +-- jintArray        (int 数组)
-  |    +-- jlongArray       (long 数组)
-  |    +-- jfloatArray      (float 数组)
-  |    +-- jdoubleArray     (double 数组)
-  |
-  +- jthrowable             (java.lang.Throwable 对象)
+ |
+ +-- jclass                (java.lang.Class 对象)
+ +-- jstring               (java.lang.String 对象)
+ +-- jarray                (数组)
+ |    |
+ |    +-- jobjectArray     (object 数组)
+ |    +-- jbooleanArray    (boolean 数组)
+ |    +-- jbyteArray       (byte 数组)
+ |    +-- jcharArray       (char 数组)
+ |    +-- jshortArray      (short 数组)
+ |    +-- jintArray        (int 数组)
+ |    +-- jlongArray       (long 数组)
+ |    +-- jfloatArray      (float 数组)
+ |    +-- jdoubleArray     (double 数组)
+ |
+ +- jthrowable             (java.lang.Throwable 对象)
 ```
 
 
@@ -967,6 +977,8 @@ jstring testAccessString(JNIEnv *env, jclass clazz, jstring hello) {
 从 C/C++ 获取 Java 字符串的长度有两种方式，可直接使用 `GetStringUTFLength` 对 `jstring` 计算长度：
 
 ```c++
+// Java Code
+
 jstring hello;
 jsize utfLength = env->GetStringUTFLength(hello);
 ```
@@ -974,6 +986,8 @@ jsize utfLength = env->GetStringUTFLength(hello);
 或者使用 C/C++ 的 `strlen` 计算：
 
 ```c++
+// C++ Code
+
 const char *stringChars = env->GetStringUTFChars(hello, nullptr);
 size_t utfLength = strlen(stringChars);
 ```
@@ -981,6 +995,8 @@ size_t utfLength = strlen(stringChars);
 `GetStringUTFChars` 函数的第 2 个参数是一个 `jboolean` 类型的指针，表示关心是否创建了字符串的副本，如果创建了字符串的副本它会返回 `JNI_TRUE`，否则为 `JNI_FALSE`，不管是否创建，都需要 Release 操作，所以一般不会关心它的结果，传递 `nullptr` 即可（C 语言传递 `NULL`）。
 
 ```c++
+// C++ Code
+
 jboolean isCopy;
 const char *stringChars = env->GetStringUTFChars(hello,);  // str+
 if (isCopy == JNI_TRUE) {
@@ -1013,16 +1029,16 @@ JNI 还提供了 `GetStringChars` 函数，它返回的是 UTF-16 字符串，�
 和访问 Java 成员类似，JNI 提供了一系列访问数组的函数：
 
 ```c++
-env->GetIntArrayElements(...)
-env->GetBooleanArrayElements(...)
-env->GetDoubleArrayElements(...)
-// ..
+GetIntArrayElements();
+GetBooleanArrayElements();
+GetDoubleArrayElements();
+// ...
 ```
 
 总结为：
 
 ```c++
-env->Get<type>ArrayElements(...)
+Get<type>ArrayElements();
 ```
 
 其中 `<type>` 中只能是 Java 的基本类型，不包含 `String` 以及其他引用类型。
@@ -1128,7 +1144,7 @@ JNI 为了在不限制虚拟机实现的情况下使接口尽可能高效，允�
 
 通常检查 `isCopy` 标志的原因有两个：
 
-1. 了解是否需要在对数组进行更改后使用 `JNI_COMMIT` 调用 Release 函数，如果需要在对数组进行更改和仅使用数组内容的代码之间切换，则可以跳过空操作提交；
+1. 了解是否需要在对数组进行更改后使用 `JNI_COMMIT` 调用 Release 函数，如果需要在对数组进行更改和仅使用数组内容的代码之间切换，则可以跳过释放缓冲区提交（更改数组数据后需要继续访问数组）；
 2. 有效处理 `JNI_ABORT`，考虑可能需要获取一个数组，然后进行适当修改后，将数组的一部分传递给其他函数使用，最后舍弃对数组的修改。如果知道 JNI 为数组创建了副本，那么就不需要自己创建一个可被修改的副本，如果 JNI 传递的是实际数据的指针，那么就需要自己创建数组的副本。
 
 
@@ -1263,7 +1279,7 @@ void testThread(JNIEnv *env, jclass clazz) {
 }
 ```
 
-上述代码，首先使用 `GetEnv` 尝试从线程获得 `JNIEnv`，返回值将有 3 种结果：
+上述代码，首先保存 `JavaVM`，然后启动线程，在线程中使用 `GetEnv` 函数尝试从线程获得 `JNIEnv`，返回值将有 3 种结果：
 
 1. `JNI_OK`，说明此线程已附加，可直接使用获得的 `JNIEnv`；
 2. `JNI_EDETACHED`，说明此线程未附加，那么需要使用 `AttachCurrentThread` 进行附加；
