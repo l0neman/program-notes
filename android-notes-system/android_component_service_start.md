@@ -12,20 +12,22 @@
     - [ActivityManagerNative](#activitymanagernative)
     - [ActivityManagerService](#activitymanagerservice)
     - [ActiveServices](#activeservices)
-    - [ActivityManagerService](#activitymanagerservice)
-    - [ActiveServices](#activeservices)
+    - [ActivityManagerService](#activitymanagerservice-1)
+    - [ActiveServices](#activeservices-1)
     - [ApplicationThreadProxy](#applicationthreadproxy)
-  - [Client](#client)
+  - [Client](#client-1)
     - [ApplicationThreadNative](#applicationthreadnative)
     - [ApplicationThread](#applicationthread)
-    - [ActivityThread.H](#activitythread.h)
+    - [ActivityThread.H](#activitythreadh)
     - [ActivityThread](#activitythread)
-  - [Server](#server)
-    - [ActivityManagerService](#activitymanagerservice)
-    - [ActiveServices](#activeservices)
-  - [Client](#client)
-    - [ActivityThread](#activitythread)
+  - [Server](#server-1)
+    - [ActivityManagerService](#activitymanagerservice-2)
+    - [ActiveServices](#activeservices-2)
+  - [Client](#client-2)
+    - [ActivityThread](#activitythread-1)
 - [时序图](#时序图)
+
+
 
 ## 前言
 
