@@ -2,22 +2,23 @@
 
 - [Android NDK 指南](#android-ndk-指南)
 - [NDK 工程构建](#ndk-工程构建)
-  - [Android.mk](#android.mk)
+  - [Android.mk](#androidmk)
   - [CMake](#cmake)
   - [独立工具链](#独立工具链)
   - [构建技巧](#构建技巧)
     - [独立构建](#独立构建)
     - [快速构建](#快速构建)
-- [Android.mk 变量参考](#android.mk-变量参考)
+- [Android.mk 变量参考](#androidmk-变量参考)
   - [变量命名规范](#变量命名规范)
   - [NDK 定义的 include 变量](#ndk-定义的-include-变量)
   - [目标信息变量](#目标信息变量)
   - [模块描述变量](#模块描述变量)
   - [NDK 提供的函数宏](#ndk-提供的函数宏)
-- [Application.mk 变量参考](#application.mk-变量参考)
+- [Application.mk 变量参考](#applicationmk-变量参考)
 - [引入预编译库](#引入预编译库)
   - [引入动态库](#引入动态库)
   - [引入静态库](#引入静态库)
+- [参考](#参考)
 
 # NDK 工程构建
 
