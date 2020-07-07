@@ -1,27 +1,29 @@
 # Android View事件分发机制
 
-* [触摸事件处理框架](#触摸事件处理框架)
-  * [核心方法](#核心方法)
-  * [调用关系](#调用关系)
-  * [触摸事件流向](#触摸事件流向)
-* [部分方法的默认实现](#部分方法的默认实现)
-  * [Activity-dispatchTouchEvent](#activity-dispatchtouchevent)
-  * [ViewGroup-onInterceptTouchEvent](#viewgroup-onintercepttouchevent)
-  * [View-dispatchTouchEvent](#view-dispatchtouchevent)
-  * [View-onTouchEvent](#view-ontouchevent)
-* [ViewGroup-dispatchTouchEvent 分析](#viewgroup-dispatchtouchevent-分析)
-* [结论](#结论)
-* [编码验证](#编码验证)
-* [触摸事件冲突处理](#触摸事件冲突处理)
-  * [外部拦截法](#外部拦截法)
-  * [内部拦截法](#内部拦截法)
-* [事件冲突处理实例](#事件冲突处理实例)
+- [Android View事件分发机制](#android-view事件分发机制)
+- [触摸事件处理框架](#触摸事件处理框架)
+  - [核心方法](#核心方法)
+  - [调用关系](#调用关系)
+  - [触摸事件流向](#触摸事件流向)
+- [部分方法内部实现](#部分方法内部实现)
+  - [Activity-dispatchTouchEvent](#activity-dispatchtouchevent)
+  - [View-dispatchTouchEvent](#view-dispatchtouchevent)
+  - [Viewgroup-onInterceptTouchEvent](#viewgroup-onintercepttouchevent)
+  - [View-onTouchEvent](#view-ontouchevent)
+- [ViewGroup-dispatchTouchEvent 分析](#viewgroup-dispatchtouchevent-分析)
+- [编码验证](#编码验证)
+- [触摸事件冲突处理](#触摸事件冲突处理)
+  - [外部拦截法](#外部拦截法)
+  - [内部拦截法](#内部拦截法)
+- [事件冲突处理实例](#事件冲突处理实例)
 
-## 触摸事件处理框架
+
+
+# 触摸事件处理框架
 
 Android 的 View 和 ViewGroup 采用了 Composite(组合) 设计模式，View 的组合具有高度动态性，在这种情况下，由于触摸事件是从底层驱动传递至上层 View 对象，如果按照普通对象间传递信息的方式，将会很复杂，很难处理，这里 Android 采用了 Chain of Responsibility(责任链) 设计模式，触摸事件流将通过视图树，使每个 View 对象都有机会处理事件，一旦某个 View 选择接收事件流，那么整个事件将交给它处理，如果 View 选择不处理，那么事件流会继续传递，直到找到最后的处理者，在处理触摸事件时有几个重要的方法，在弄懂 Android 事件分发机制之前，需要先了解这几个方法的作用及关系。
 
-### 核心方法
+## 核心方法
 
 - ViewGroup 的三个重载方法
 
@@ -37,7 +39,7 @@ Android 的 View 和 ViewGroup 采用了 Composite(组合) 设计模式，View �
 >
 > `boolean onTouchEvent(MotionEvent e)` 与 ViewGroup 作用相同
 
-### 调用关系
+## 调用关系
 
 上面介绍了每个方法的作用，下面用伪代码来描述他们的大致关系
 
@@ -58,15 +60,15 @@ public boolean dispatchTouchEvent(MotionEvent event) {
 
 上面的伪代码将事件处理模型描述了出来，事件总体是按照这个方式处理的，但涉及到 DOWN，MOVE 等具体事件时还需要详细探讨
 
-### 触摸事件流向
+## 触摸事件流向
 
 上面介绍了触摸事件处理结构，下面介绍当一个触摸事件产生时，触摸事件的传递方向，当触摸屏幕产生触摸事件时，事件将会首先到达顶层 Activity 并交给它的 `dispatchTouchEvent` 方法来处理，虽然 Activity 不是 View，但它同样具有 `dispatchTouchEvent`和 `onTouchEvent` 方法，`dispatchTouchEvent` 会辗转调用顶层 View 的 `dispatchTouchEvent` 方法，并传递触摸事件，即开始按照上面伪代码描述的流程来传递事件，如果顶层 View 的 `dispatchTouchEvent` 返回 `false` 即事件没有被消耗，则会最终交给 Activity 自身的 `onTouchEvent` 方法处理
 
-## 部分方法内部实现                                 
+# 部分方法内部实现
 
 在遇到事件冲突问题时，通常需要在自定义的 ViewGroup 或 View 中重写部分事件处理方法改变部分原有规则。
 
-### Activity-dispatchTouchEvent
+## Activity-dispatchTouchEvent
 
 可以看到 Activity 的 `dispatchTouchEvent` 的处理，就是之前所描述的
 
@@ -84,7 +86,7 @@ public boolean dispatchTouchEvent(MotionEvent ev) {
  }
 ```
 
-### View-dispatchTouchEvent
+## View-dispatchTouchEvent
 
 View 的 dispatchEventEvent 方法，当 OnTouchListener 未处理事件，事件将交给 onTouchEvent 处理。 
 
@@ -124,7 +126,7 @@ public boolean dispatchTouchEvent(MotionEvent event) {
 }
 ```
 
-### Viewgroup-onInterceptTouchEvent
+## Viewgroup-onInterceptTouchEvent
 
 ViewGroup 的 `onInterceptTouchEvent` 的方法实现，
 
@@ -142,7 +144,7 @@ public boolean onInterceptTouchEvent(MotionEvent ev) {
 
 常用的几个布局,包括 LiearnLayout，RelativeLayout，FrameLayout，都没有重写 `onInterceptTouchEvent` 方法，使用的都是ViewGroup的实现，只有在手指或者鼠标触摸时返回 true 选择拦截事件，其他情况都返回  false，不拦截事件，事件将交给子view处理，当需要拦截事件交给ViewGroup处理的时候，可以重写这个方法，改变它默认的规则。
 
-### View-onTouchEvent
+## View-onTouchEvent
 
 ViewGroup 和 View 使用相同的 `onTouchEvent` 方法实现，可以看出 View 默认实现了点击事件的处理，对于设置了 DISABLE 属性的 view，如果设置了可点击，例如 `CLICKABLE` 或 `LONGCLICKABLE` 属性，则会消耗事件，
 
@@ -250,7 +252,7 @@ public boolean onTouchEvent(MotionEvent event) {
 }
 ```
 
-## ViewGroup-dispatchTouchEvent 分析
+# ViewGroup-dispatchTouchEvent 分析
 
 上面是事件分发的流程和参与事件分发的部分方法实现，最后对 ViewGroup 的 dispatchTouchEvent 方法进行分析，它是事件分发机制的核心实现。
 
@@ -522,11 +524,11 @@ private boolean dispatchTransformedTouchEvent(MotionEvent event, boolean cancel,
 从以上代码分析可得出一些结论；
 
 1. 如果 ViewGroup 在 DOWN事件 时拦截了事件，那么子 View 再也无法拦截事件，因为 
-  `actionMasked == MotionEvent.ACTION_DOWN || mFirstTouchTarget != null` 这个条件不会再次被满足。
+    `actionMasked == MotionEvent.ACTION_DOWN || mFirstTouchTarget != null` 这个条件不会再次被满足。
 
 2. 如果在 DOWN事件 时被设置 `FLAG_DISALLOW_INTERCEPT`，则可以阻止 ViewGroup 拦截事件。
 
-## 编码验证
+# 编码验证
 
 现在在代码中通过一些用例对上面的分析即结论进行验证。
 
@@ -698,7 +700,7 @@ public boolean onTouchEvent(MotionEvent event) {
    以上测试了几个典型例子，对结论进行了论证，下面是Android事件分发机制在处理事件冲突时的应用。
 
 
-## 触摸事件冲突处理
+# 触摸事件冲突处理
 
 一般在项目中可能会遇到界面比较复杂的情况，而且可能是可滑动的布局相互嵌套的情况，比如，ScrollView里面有一个 ListView，两个 view 都是纵向划动的，一定会有冲突，还有 ViewPager 里面有 ScrollView，或 ScrollView里面有 ViewPager，这两个是横向和纵向划动的冲突，这种情况可能与用户体验相关，应该根据滑动的动作来决定事件交给哪个View来处理，为了解决这个问题，就需要对事件分发机制有所熟悉。
 
@@ -716,7 +718,7 @@ if (x > y /*横向滑动*/) {
 
 针对此情况，一般有两种拦截的方法，也就是触摸事件冲突处理的方法。
 
-### 外部拦截法
+## 外部拦截法
 
 外部拦截法以嵌套布局外层 ViewGroup 为主，重写 `onInterceptTouchEvent` 方法，事件是否拦截，完全由ViewGroup 决定。
 
@@ -747,7 +749,7 @@ public void onInterceptTouch(MotionEvent ev){
 
 这种方法的事件决定权完全在外部 ViewGroup 上，其中为什么不拦截 DOWN 事件呢，因为一旦拦截，那么事件就一定会给自己处理了，子 view 就没有选择的余地了。
 
-### 内部拦截法
+## 内部拦截法
 
 内部拦截法以嵌套布局内层View为主，主要重写子 view 的 `dispatchTouchEvent` 方法，这种方法需要 ViewGroup 不拦截 DOWN 事件，然后通过调用 ViewGroup 的 `requestDisallowInterceptTouchEvent` 来控制事件传递。
 
@@ -817,7 +819,7 @@ private void requestParentDisallowInterceptTouchEvent(boolean disallowIntercept)
 
 在实际运用中，需要对于情况来选择合适的方法。
 
-## 事件冲突处理实例
+# 事件冲突处理实例
 
 这里假设一种情况，ScrollView 里面有一个 ListView，这两个 view 嵌套一定会出现问题，首先正常的在 Activity 里面放上一个 ScrollView 然后在里面放上一个 ListView，其中 ScrollView 是可以滚动的，ListView 高度限制为200dp，内部子元素有20个，代码很简单，核心部分如下：
 
