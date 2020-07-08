@@ -156,7 +156,7 @@ todo：暂未补充
 
 ### 独立构建
 
-在前面 Android.mk 的工程中，需要在 Module 级别的 gradle 配置如下 Android.mk 路径：
+在前面 Android.mk 的工程中，需要依赖 Android Studio 在 Module 级别的 .gradle 文件中配置如下 Android.mk 路径：
 
 ```groovy
 // app-build.gradle
@@ -170,11 +170,9 @@ android {
 }
 ```
 
-这样 Android Studio 就会在构建时主动调用 NDK 提供的 ndk-build 脚本，为工程生成 libfoo.so 文件。对于 NDK 工程来说，使用每次构建都需要先在 Studio 中点击 Clean，然后点击 Build 整个工程，否则 so 文件不会主动刷新。
+这样 Android Studio 就会在构建时主动调用 NDK 提供的 ndk-build 脚本，为工程生成 libfoo.so 文件，当点击清理时也会把构建出来的 .so 文件一同清理掉。
 
-而且这样必须依赖于 Android Studio 这个 IDE 所提供的集成环境，使用如下办法要避免以这种方式构建：
-
-首先把上面的路径 Android.mk 在 gradle 中的配置去除。
+如果需要脱离 Android Studio 的构建过程单独构建，不受 Studio 编译清理的影响，那么可以将上面 Android.mk 的路径的配置在 gradle 文件中去除。
 
 在默认的依赖配置里面可以看到，libs 目录已被加入依赖，就是说如果 libs 目录中有 so 文件，那么会被自动加入 apk 中。
 
@@ -186,17 +184,23 @@ dependencies {
 }
 ```
 
-那么就可以采用这种方式构建 libfoo.so 文件，首先确认 NDK 的环境变量（NDK 根目录加入系统 PATH 变量），然后直接 在 jni 目录下打开终端（Windows 为 CMD），输入 `ndk-build clean`，然后 `ndk-build` 即可构建出所需要的 libfoo.so，此时可以直接运行 apk 工程，新的 libfoo.so 将自动被加入 apk 的 libs 目录中。
+那么首先确认 NDK 的环境变量（NDK 根目录加入系统 PATH 变量），然后可以直接在 jni 目录下打开终端（Windows 为 CMD），输入 `ndk-build clean`，然后 `ndk-build` 即可构建出所需要的 libfoo.so，此时可以直接运行 apk 工程，新的 libfoo.so 将自动被加入 apk 的 libs 目录中。
 
-可以发现在构建过程中，和 jni 同级的目录中产生了 obj 目录，这是构建产生的一些临时目标文件，`ndk-build clean` 的作用是清里这些临时文件，同时清理上一次构建的 libfoo.so。
-
-这样就可以单独构建 so，而不用考虑 IDE 提供的继承环境，可以结合自动化脚本搭建自动构建。
+此时 Android Studio 构建和清理军不会影响 libs 中的 .so 文件，Java 代码和 NDK 开发代码可分别独立构建。
 
 
 
-### 快速构建
+- 提示
 
-对于一个主要由 native 代码构成的应用来说，修改 native 代码的动作较为频繁，如果每次都 clean 然后重新 build，再依赖于 Android studio 的运行安装会比较麻烦和耗时。有时还需要依赖于其他 IDE 来构建 NDK 工程，那么可以采用如下方法：
+在构建过程中，和 jni 同级的目录中产生了 obj 目录，这是构建产生的一些临时目标文件，`ndk-build clean` 的作用是清理这些临时文件，同时清理上一次构建的 libfoo.so。
+
+这样就完成了独立构建 so 库，可以结合自动化脚本搭建自动构建系统。
+
+
+
+### 快速部署
+
+对于一个主要由 native 代码构成的应用来说，修改 native 代码的动作较为频繁，如果每次都 clean 然后重新 build，再依赖于 Android studio 的运行安装会比较麻烦和耗时。有时还需要依赖于其他 IDE 来构建 NDK 工程（例如 Visual Studio），那么可以采用如下方法：
 
 首次构建 NDK 工程后安装运行到手机上，然后后面每次构建出 so，使用 adb 命令直接将 so 文件 push 到应用的沙盒目录下，重新启动应用进程即可使用新版的 so 文件。
 
