@@ -1,10 +1,10 @@
 # ActivityManagerService 初始化分析
 
 - [前言](#前言)
-- [startBootstrapServices](#startbootstrapservices)
+- [startBootstrapServices ](#startbootstrapservices-)
   - [SystemServer](#systemserver)
   - [SystemServiceManager](#systemservicemanager)
-  - [AMS.Lifecycle](#ams.lifecycle)
+  - [AMS.Lifecycle](#amslifecycle)
   - [ActivityManagerService](#activitymanagerservice)
   - [ActivityThread](#activitythread)
   - [ContextImpl](#contextimpl)
@@ -13,6 +13,8 @@
 - [startOtherServices](#startotherservices)
 - [总结](#总结)
 - [参考](#参考)
+
+
 
 ## 前言
 

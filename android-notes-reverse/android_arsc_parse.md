@@ -2,7 +2,7 @@
 
 - [apk 文件结构](#apk-文件结构)
 - [资源编译过程](#资源编译过程)
-  - [1. Parse AndroidManifst.xml](#1-parse-androidmanifst.xml)
+  - [1. Parse AndroidManifst.xml](#1-parse-androidmanifstxml)
   - [2. Add Included Resources](#2-add-included-resources)
   - [3. Collection Resource Files](#3-collection-resource-files)
   - [4. Add Resources to Resource Table](#4-add-resources-to-resource-table)
@@ -16,7 +16,6 @@
   - [12. Write APK](#12-write-apk)
 - [arsc 文件结构](#arsc-文件结构)
 - [arsc 文件解析](#arsc-文件解析)
-  - [工具](#工具)
   - [解析方法](#解析方法)
   - [parse RES_TABLE_TYPE](#parse-res_table_type)
   - [parse RES_STRING_POOL_TYPE](#parse-res_string_pool_type)
@@ -25,6 +24,8 @@
   - [parse RES_TABLE_TYPE_TYPE](#parse-res_table_type_type)
 - [源码](#源码)
 - [参考](#参考)
+
+
 
 ## apk 文件结构
 

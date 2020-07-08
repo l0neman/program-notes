@@ -6,16 +6,28 @@
   - [String Pool Chunk](#string-pool-chunk)
   - [Resource Ids Chunk](#resource-ids-chunk)
   - [Xml Content Chunk](#xml-content-chunk)
+    - [ResXMLTree_node](#resxmltree_node)
+    - [Start Element Chunk](#start-element-chunk)
+    - [CData Chunk](#cdata-chunk)
+    - [End Element Chunk](#end-element-chunk)
+    - [End Namespace Chunk](#end-namespace-chunk)
   - [Chunk Header Type](#chunk-header-type)
 - [Xml 文件解析](#xml-文件解析)
   - [解析方法](#解析方法)
-  - [Xml Chunk Header](#xml-chunk-header)
-  - [String Pool Chunk](#string-pool-chunk)
-  - [Resource Ids Chunk](#resource-ids-chunk)
-  - [Xml Content Chunk](#xml-content-chunk)
+  - [Xml Chunk Header](#xml-chunk-header-1)
+  - [String Pool Chunk](#string-pool-chunk-1)
+  - [Resource Ids Chunk](#resource-ids-chunk-1)
+  - [Xml Content Chunk](#xml-content-chunk-1)
+    - [Start Namespace Chunk](#start-namespace-chunk)
+    - [Start Element Chunk](#start-element-chunk-1)
+    - [CData Chunk](#cdata-chunk-1)
+    - [End Element Chunk](#end-element-chunk-1)
+    - [End Namespace Chunk](#end-namespace-chunk-1)
   - [Xml 文档输出](#xml-文档输出)
 - [源码](#源码)
 - [参考](#参考)
+
+
 
 ## 前言
 

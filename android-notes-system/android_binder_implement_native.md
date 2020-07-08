@@ -8,10 +8,22 @@
   - [getService](#getservice)
 - [Server Binder](#server-binder)
   - [ServiceManager 的获取](#servicemanager-的获取)
+    - [defaultServiceManager](#defaultservicemanager)
+    - [ProcessState](#processstate)
+    - [BpBinder](#bpbinder)
+    - [BpServiceManager](#bpservicemanager)
+    - [时序图](#时序图)
   - [Server Binder 的注册](#server-binder-的注册)
+    - [addService](#addservice-1)
+    - [IPCThreadState](#ipcthreadstate)
+    - [时序图](#时序图-1)
   - [Server Binder 的消息处理](#server-binder-的消息处理)
+    - [startThreadPool](#startthreadpool)
+    - [joinThreadPool](#jointhreadpool)
 - [Client Binder](#client-binder)
 - [源码列表](#源码列表)
+
+
 
 ## 前言
 

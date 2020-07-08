@@ -1,10 +1,12 @@
 # Binder 和 AIDL 的使用
 
-[Binder简介](#binder简介)
+- [Binder简介](#binder简介)
 
-[Binder使用](#binder使用)
+- [Binder使用](#binder使用)
 
-[AIDL工具](#aidl工具)
+- [AIDL工具](#aidl工具)
+
+
 
 ## binder简介
 

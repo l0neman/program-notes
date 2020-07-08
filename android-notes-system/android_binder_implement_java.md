@@ -1,6 +1,5 @@
 # Android Binder 的设计、实现与应用 - Java 层实现分析
 
-- [前言](#前言)
 - [Binder 框架准备工作](#binder-框架准备工作)
   - [AndroidRuntime](#androidruntime)
   - [Binder-jni](#binder-jni)
@@ -15,7 +14,7 @@
   - [时序图](#时序图)
 - [Binder 通信框架](#binder-通信框架)
 - [Binder 服务端](#binder-服务端)
-- [ActivityManagerService](#activitymanagerservice)
+  - [ActivityManagerService](#activitymanagerservice)
   - [JavaBBinder](#javabbinder)
   - [Binder](#binder)
   - [ActivityManagetNative](#activitymanagetnative)
@@ -25,12 +24,14 @@
   - [ActivityManager](#activitymanager)
   - [ActivityManagerNative](#activitymanagernative)
   - [ActivityManagerProxy](#activitymanagerproxy)
-  - [ActivityManagerNative](#activitymanagernative)
+  - [ActivityManagerNative](#activitymanagernative-1)
 - [java 层 Binder 框架总结](#java-层-binder-框架总结)
   - [数据流图](#数据流图)
   - [框架类图](#框架类图)
 
-# 前言
+
+
+## 前言
 
 Binder 的核心逻辑都在 Native 层进行实现，例如 Binder 服务端总管 ServiceManager 以及相关服务端和客户端的 Binder 表示类型 `BBinder` 和 `BpBinder` 类型，那么 java 层的 Binder 没有必要重新实现一遍这些过程，所以 java 层 Binder 框架作为上层服务与 Native 层 Binder 框架的交互接口而存在，java 层 Binder 框架是对 Native 层 Binder 框架的一个映射。
 

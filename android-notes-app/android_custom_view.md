@@ -3,20 +3,22 @@
 - [概述](#概述)
 - [MeasureSpec](#measurespec)
 - [自定义 View 属性](#自定义-view-属性)
-  * [概述](#概述-1)
-  * [基本类型](#基本类型)
-  * [色彩和尺寸类型](#色彩和尺寸类型)
-  * [引用类型](#引用类型)
-  * [百分比类型](#百分比类型)
-  * [flag类型](#flag类型)
-  * [枚举类型](#枚举类型)
+  - [概述](#概述-1)
+  - [ 基本类型](#-基本类型)
+  - [色彩和尺寸类型](#色彩和尺寸类型)
+  - [引用类型](#引用类型)
+  - [百分比类型](#百分比类型)
+  - [flag类型](#flag类型)
+  - [枚举类型](#枚举类型)
 - [自定义 View](#自定义-view)
-  * [SimpleButtonTest 实例](#simplebuttontest-实例)
+  - [SimpleButtonTest 实例](#simplebuttontest-实例)
 - [LayoutParams](#layoutparams)
 - [自定义 ViewGroup](#自定义-viewgroup)
-  * [BorderLayoutSample 实例](#borderlayoutsample-实例)
+  - [BorderLayoutSample 实例](#borderlayoutsample-实例)
 - [常用方法总结](#常用方法总结)
 - [参考](#参考)
+
+
 
 ## 概述
 

@@ -29,6 +29,8 @@
   - [数据包接收队列与（线程）等待队列实现](#数据包接收队列与线程等待队列实现)
 - [结语](#结语)
 
+
+
 ## 前言
 
 以下 Binder 设计部分整理至 universus 的博客 [Android Bander设计与实现 - 设计篇](https://blog.csdn.net/universus/article/details/6211589)。

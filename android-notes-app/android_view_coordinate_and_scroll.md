@@ -1,22 +1,24 @@
 # Android 坐标系和view滑动方法
 
-* [Android二维坐标系](#android二维坐标系) 
-  * [Parent View](#parent-view)
-  * [Motion Event](#motion-event)
-  * [Child View](#child-view)
-* [view滑动方法](#view滑动方法)
-  * [拖拽滑动实例](#拖拽滑动实例)
-  * [Translation](#translation)
-  * [Scroll To](#scroll-to)
-  * [Layout Fun](#layout-fun)
-  * [offsetXXAndXX](#offsetXXAndXX)
-  * [Layout Params](#layout-params)
-* [弹性滑动](#弹性滑动)
-  * [Animator](#animator)
-  * [Scroller](#scroller)
-  * [Handler](#handler)
-* [滑动方法总结](#滑动方法总结)
-* [源码](#源码)
+- [Android二维坐标系](#android二维坐标系)
+  - [Parent View](#parent-view)
+  - [Motion Event](#motion-event)
+  - [Child View](#child-view)
+- [view滑动方法](#view滑动方法)
+  - [拖拽滑动实例](#拖拽滑动实例)
+  - [Translation](#translation)
+  - [Scroll To](#scroll-to)
+  - [Layout Fun](#layout-fun)
+  - [offsetXXAndXX](#offsetxxandxx)
+  - [Layout Params](#layout-params)
+- [弹性滑动](#弹性滑动)
+  - [Animator](#animator)
+  - [Scroller](#scroller)
+  - [Handler](#handler)
+- [滑动方法总结](#滑动方法总结)
+- [源码](#源码)
+
+
 
 ## Android二维坐标系
 

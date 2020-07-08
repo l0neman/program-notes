@@ -9,8 +9,8 @@
   - [MediaPlayerService](#mediaplayerservice)
   - [BnMediaPlayerService](#bnmediaplayerservice)
   - [Parcel](#parcel)
-  - [BpMediaPlayerService](#bpmediaplayerservice)
-  - [MediaPlayer-cpp](#mediaplayer-cpp)
+  - [BpMediaPlayerService](#bpmediaplayerservice-1)
+  - [MediaPlayer-cpp](#mediaplayer-cpp-1)
   - [BnMediaPlayerClient](#bnmediaplayerclient)
   - [时序图](#时序图)
   - [UML 类图](#uml-类图)
@@ -27,6 +27,8 @@
   - [注册服务端](#注册服务端)
   - [提供服务端接口](#提供服务端接口)
   - [开启服务线程](#开启服务线程)
+
+
 
 ## 前言
 

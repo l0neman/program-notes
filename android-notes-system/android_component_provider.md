@@ -16,15 +16,17 @@
     - [ActivityManagerService](#activitymanagerservice)
 - [时序图](#时序图)
 - [Provider 的安装](#provider-的安装)
-  - [Client](#client)
+  - [Client](#client-1)
     - [ApplicationThread](#applicationthread)
-    - [ActivityThread.H](#activitythread.h)
-    - [ActivityThread](#activitythread)
+    - [ActivityThread.H](#activitythreadh)
+    - [ActivityThread](#activitythread-1)
 - [Provider 的发布](#provider-的发布)
-  - [Server](#server)
-    - [ActivityManagerNative](#activitymanagernative)
-    - [ActivityManagerService](#activitymanagerservice)
-- [时序图](#时序图)
+  - [Server](#server-1)
+    - [ActivityManagerNative](#activitymanagernative-1)
+    - [ActivityManagerService](#activitymanagerservice-1)
+- [时序图](#时序图-1)
+
+
 
 ## 前言
 

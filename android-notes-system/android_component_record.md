@@ -1,5 +1,14 @@
 # Android 组件记录类型分析
 
+ [前言](#前言)
+- [ProcessRecord](#processrecord)
+- [ServiceRecord](#servicerecord)
+- [ActivityRecord](#activityrecord)
+- [ContentProviderRecord](#contentproviderrecord)
+- [BroadcastRecord](#broadcastrecord)
+
+
+
 ## 前言
 
 在分析 Android 系统四大组件的交互过程中，包含很多组件状态的记录数据结构类型，了解这些类型有助于更深层次的理解 Android 系统组件的工作原理，系统与应用进程的交互过程，以及对四大组件管理服务 ActivityManagerService 的理解。
