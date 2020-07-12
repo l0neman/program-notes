@@ -5,6 +5,7 @@
   - [Android.mk](#androidmk)
   - [CMake](#cmake)
   - [独立工具链](#独立工具链)
+    - [obfuscator-llvm 构建](#obfuscator-llvm-构建)
   - [构建技巧](#构建技巧)
     - [独立构建](#独立构建)
     - [快速部署](#快速部署)
@@ -32,7 +33,7 @@
 
 1. 基于 Make 的 ndk-build，这是传统的 ndk-build 构建方式，使用 Makefile 形式进行构建，简洁高效；
 2. CMake 是新型的构建方式，CMake 具有跨平台的特性，通过 CMake 生成 Makefile 后再进行构建，CMake 的配置文件可读性更高；
-3. 其他编译系统，通过引入其他编译系统可对编译过程进行定制，例如引入 Obfuscator-LLVM 对源码进行混淆和压缩，增强源代码安全性。
+3. 其他编译系统，通过引入其他编译系统可对编译过程进行定制，例如引入 obfuscator-llvm 对源码进行混淆和压缩，增强源代码安全性。
 
 下面是每种构建方式的指南，使用 Android Studio 4.0 和 NDK 21 进行如下构建。
 
@@ -213,9 +214,135 @@ add_library(
 
 ## 独立工具链
 
-有时编译 NDK 工程有一些特殊需求，例如对代码进行混淆，加入依赖于第三方编译器 Obfuscator-LLVM 对 NDK 工程代码进行混淆，这时就需要搭建第三方工具链的编译环境，将它加入 NDK 的一般构建过程中。
+有时编译 NDK 工程有一些特殊需求，例如对代码进行混淆，加入第三方编译器 obfuscator-llvm 对 NDK 工程进行编译，这时就需要搭建第三方工具链的编译环境，将它加入 NDK 的一般构建过程中。
 
-todo：暂未补充
+下面是一个引入第三方工具链 obfuscator-llvm 编译代码的示例。
+
+### obfuscator-llvm 构建
+
+环境：android-ndk-r14b，目前已知此版本可支持 obfuscator-llvm 的编译配置
+
+ndk r14b 下载地址：[https://developer.android.google.cn/ndk/downloads/older_releases](https://developer.android.google.cn/ndk/downloads/older_releases)
+
+
+
+- 下面首先下载编译器，指定最新版本的 obfuscator-llvm 分支将仓库克隆至本地
+
+```shell
+git clone -b llvm-4.0 https://github.com/obfuscator-llvm/obfuscator.git
+```
+
+- 编译出编译器的可执行文件
+
+通用过程如下，以下命令 DOS 和 Shell 中可通用：
+
+1. 进入编译器仓库目录中 `cd obfuscator`；
+2. 创建临时文件目录 `mkdir build`；
+3. 进入临时文件目录 `cd build`；
+4. 使用 CMake 生成 Makefile 或者 Vs 解决方案：
+
+如果没有按照 CMake，可去 CMake 官网下载安装。
+
+```shell
+cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_INCLUDE_TESTS=OFF ../obfuscator/
+```
+
+CMake 将会自动检测电脑上的编译器环境，如果是 Linux，一般生成 Makefile，如果 Windows 上安装了 Visual Studio，将生成解决方案文件。
+
+5. 编译编译器源代码：
+
+Linux 上执行：
+
+```
+make -j4
+```
+
+Windows 推荐使用 Visual Studio 进行编译，直接打开 build 中的 LLVM.sln，然后生成解决方案（Build Solution）。
+
+编译过程根据当时环境因素，可能出现错误，需要自行解决出现的情况，编译完成后将生成所需的 bin 和 lib 目录。
+
+
+
+- 配置 NDK 环境
+
+进入 android-ndk-r14b/toolchains 目录中，复制已存在的 llvm 目录到 ollvm-4.0，Linux 使用 `cp llvm ollvm-4.0`，Windows 复制文件出现 `llvm-副本` 后重命名为 `ollvm-4.0`。
+
+将上面编译出来的 bin 和 lib 放入 ollvm-4.0/prebuilt/windows-x86_64 中。
+
+进入 android-ndk-r14b/build/core/toolchains 中，复制如下目录：
+
+```
+arm-linux-androideabi-clang -> arm-linux-androideabi-clang-ollvm4.0
+aarch64-linux-android-clang -> aarch64-linux-android-clang-ollvm4.0
+x86-clang                   -> x86-clang-ollvm4.0
+x86_64-clang                -> x86_64-clang-ollvm4.0
+```
+
+修改复制后的两个目录中的 setup.mk 文件：
+
+android-ndk-r14b/build/core/toolchains/arm-linux-androideabi-clang-ollvm4.0/setup.mk
+android-ndk-r14b/build/core/toolchains/aarch64-linux-android-clang-ollvm4.0/setup.mk
+android-ndk-r14b/build/core/toolchains/arm-linux-androideabi-clang-ollvm4.0/setup.mk
+android-ndk-r14b/build/core/toolchains/x86_64-clang-ollvm4.0/setup.mk
+
+修改如下内容：
+
+```
+...
+LLVM_TOOLCHAIN_PREBUILT_ROOT := $(call get-toolchain-root,llvm)
+...
+```
+
+替换为：
+
+```
+OLLVM_NAME := ollvm-4.0
+LLVM_TOOLCHAIN_PREBUILT_ROOT := $(call get-toolchain-root,$(OLLVM_NAME))
+```
+
+此时使用 ndk-build 将可以识别编译器。复制 4 个目录的原因是为了编译出支持每种 ABI，（armeabi、armeabi-v7a、arm64-v8a，x86、x86_64）。
+
+
+
+- 编译代码测试
+
+进入 NDK 工程中，修改 Application.mk 和 Android.mk 如下：
+
+```makefile
+# Application.mk
+
+APP_ABI := armeabi-v7a arm64-v8a
+# 主要是此句指定编译器
+NDK_TOOLCHAIN_VERSION := clang-ollvm4.0
+```
+
+```makefile
+# Android.mk
+
+LOCAL_PATH := $(call my-dir)
+
+include $(CLEAR_VARS)
+
+LOCAL_MODULE := foo
+LOCAL_SRC_FILES := libfoo.cpp
+
+# 添加 obfuscator-llvm 支持的各种参数，伪控制流、控制流平展化，指令替换
+LOCAL_CFLAGS += -mllvm -bcf -mllvm -bcf_loop=3 \
+                -mllvm -fla -mllvm -split \
+                -mllvm -sub -mllvm -sub_loop=3
+
+include $(BUILD_SHARED_LIBRARY)
+```
+
+调用配置好的 NDK r14b 中的 ndk-build 编译即可。
+
+
+
+- 验证结果
+
+编译后，在 libs 中将出现 ABI 目录，使用 IDA Pro 打开 libfoo.so，左侧 Functions windos 中找一个简单函数（例如 JNI_OnLoad）打开，发现程序逻辑流程已被混淆的面目全非。
+
+左下角的 Graph overview 可以直观的看到整个函数的控制流程，像一棵奇怪的树。
 
 
 
@@ -253,7 +380,7 @@ dependencies {
 
 那么首先确认 NDK 的环境变量（NDK 根目录加入系统 PATH 变量），然后可以直接在 jni 目录下打开终端（Windows 为 CMD），输入 `ndk-build clean`，然后 `ndk-build` 即可构建出所需要的 libfoo.so，此时可以直接运行 apk 工程，新的 libfoo.so 将自动被加入 apk 的 libs 目录中。
 
-此时 Android Studio 构建和清理军不会影响 libs 中的 .so 文件，Java 代码和 NDK 开发代码可分别独立构建。
+此时 Android Studio 构建和清理均不会影响 libs 中的 .so 文件，Java 代码和 NDK 开发代码可分别独立构建。
 
 
 
