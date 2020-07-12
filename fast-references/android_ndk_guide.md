@@ -29,31 +29,34 @@
 
 # NDK 工程构建
 
-可采用三种方式进行 NDK 工程的构建。
+可采用三种方式进行 NDK 工程的构建：
 
-1. 基于 Make 的 ndk-build，这是传统的 ndk-build 构建方式，使用 Makefile 形式进行构建，简洁高效；
+1. 基于 Make 的 ndk-build，这是传统的 ndk-build 构建方式，使用 Makefile 方式进行构建，简洁高效；
 2. CMake 是新型的构建方式，CMake 具有跨平台的特性，通过 CMake 生成 Makefile 后再进行构建，CMake 的配置文件可读性更高；
 3. 其他编译系统，通过引入其他编译系统可对编译过程进行定制，例如引入 obfuscator-llvm 对源码进行混淆和压缩，增强源代码安全性。
 
-下面是每种构建方式的指南，使用 Android Studio 4.0 和 NDK 21 进行如下构建。
+下面是每种构建方式的基础示例，使用 Android Studio 4.0 和 NDK 21 进行如下构建。
 
 
 
 ## Android.mk
 
-基于 Android.mk 的 libfoo.so 的 NDK 基本工程搭建。
+基于 Android.mk 的产物为 libfoo.so 的 NDK 基本工程搭建。
 
-在 Android 工程的 src/main 下建立 jni 目录（Android.mk 工程的默认文件目录为 jni，也可指定其他目录进行构建，使用 `ndk-build -C 目录`），工程结构如下：
+在 Android 工程的 src/main 下建立 jni 目录（Android.mk 工程的默认文件目录为 jni，也可指定其他目录进行构建，使用命令 `ndk-build -C 目录`），工程结构如下：
 
-包含两个 .mk 文件用来描述 NDK 工程，和两个基本的 C++ 语言源文件。
+包含两个 .mk 文件用来描述 NDK 工程，和两个基本的 C++ 语言源文件，结构如下：
 
 ```
-jni
+src/main
  |
- +-- Android.mk
- +-- Application.mk
- +-- libfoo.h
- +-- libfoo.cpp
+ +-- java
+ +-- jni
+      |
+      +-- Android.mk
+      +-- Application.mk
+      +-- libfoo.h
+      +-- libfoo.cpp
 ```
 
 在 Android Studio 的当前 Module 配置中指明 Android.mk 文件路径:
@@ -82,7 +85,7 @@ include $(CLEAR_VARS)
 
 # 指定共享库名字，产出物为 libfoo.so
 LOCAL_MODULE := foo
-# 指定源代码文件，多个源代码文件使用空格分隔
+# 指定源代码文件，多个源代码文件使用空格分隔，换行在行尾使用 \
 LOCAL_SRC_FILES := main.cpp
 
 include $(BUILD_SHARED_LIBRARY)
@@ -98,7 +101,7 @@ APP_ABI := armeabi-v7a arm64-v8a
 APP_OPTIM := debug
 ```
 
-添加 Java 层代码，用于声明 JNI 方法。
+在 java 目录创建 Java 类，用于声明 JNI 方法，提供给其他类调用。
 
 ```java
 // class io.l0neman.mkexample.NativeHandler
@@ -146,6 +149,8 @@ jstring Java_io_l0neman_mkexample_NativeHandler_getHello(JNIEnv *env, jclass cla
 这样的话就完成了一个基本的 NDK 工程搭建，编译后调用代码即可得到 java 字符串 `"Hello-jni"`。
 
 ```java
+// MainActivity.java
+
 String hello = NativeHandler.getHello();
 ```
 
@@ -162,24 +167,27 @@ Android.mk 只是 Makefile 的片段，对于 Makefile 本身的熟悉有助于�
 
 使用 CMake 和 Android.mk 在 Android Studio 中的构建步骤类似，如下：
 
-基于 Cmake 的 libfoo.so 的 NDK 基本工程搭建。
+基于 CMake 的产出物为 libfoo.so 的 NDK 基本工程搭建。
 
 在 Android 工程的 src/main 下建立 cpp 目录，工程结构如下：
 
 包含一个 CMakeLists.txt 文件来描述 NDK 工程，和两个基本的 C++ 语言文件。
 
 ```
-jni
+src/main
  |
- +-- CMakeLists.txt
- +-- libfoo.h
- +-- libfoo.cpp
+ +-- java
+     jni
+      |
+      +-- CMakeLists.txt
+      +-- libfoo.h
+      +-- libfoo.cpp
 ```
 
-在 Android Studio 的当前 Module 配置中指明 CMakeList.txt 文件路径:
+在 Android Studio 的当前 Module 配置中指明 CMakeLists.txt 文件路径:
 
 ```groovy
-// app-build.gradle
+// app/build.gradle
 
 android {
   ...
@@ -201,22 +209,22 @@ cmake_minimum_required(VERSION 3.4.3)
 add_library(
         # 共享库名字，生产物为 libfoo.so
         foo
-        # 编译为共享库
+        # 编译为共享库 .so
         SHARED
-        # 源代码文件，多个文件使用空格分隔
+        # 源代码文件，多个文件使用空格分隔或换行
         main.cpp
 )
 ```
 
-此时将 Android.mk 工程中的源文件 NativeHandler.java 类复制过来，将 libfoo.cpp 和 libfoo.h 复制 cpp 目录中即可直接编译运行。
+此时将 Android.mk 工程中的 Java 源文件 NativeHandler.java 复制过来，将 libfoo.cpp 和 libfoo.h 内容填入中即可直接编译测试。
 
 
 
 ## 独立工具链
 
-有时编译 NDK 工程有一些特殊需求，例如对代码进行混淆，加入第三方编译器 obfuscator-llvm 对 NDK 工程进行编译，这时就需要搭建第三方工具链的编译环境，将它加入 NDK 的一般构建过程中。
+有时编译 NDK 工程有一些特殊需求，例如对代码进行混淆，加入第三方编译器 obfuscator-llvm 对 NDK 工程进行编译。这时就需要搭建第三方工具链的编译环境，将它加入 NDK 的一般构建过程中。
 
-下面是一个引入第三方工具链 obfuscator-llvm 编译代码的示例。
+下面是一个引入 obfuscator-llvm 编译器编译代码的示例。
 
 ### obfuscator-llvm 构建
 
@@ -226,7 +234,7 @@ ndk r14b 下载地址：[https://developer.android.google.cn/ndk/downloads/older
 
 
 
-- 下面首先下载编译器，指定最新版本的 obfuscator-llvm 分支将仓库克隆至本地
+- 首先下载编译器，指定最新版本的 obfuscator-llvm 分支，将仓库克隆至本地
 
 ```shell
 git clone -b llvm-4.0 https://github.com/obfuscator-llvm/obfuscator.git
@@ -234,7 +242,7 @@ git clone -b llvm-4.0 https://github.com/obfuscator-llvm/obfuscator.git
 
 - 编译出编译器的可执行文件
 
-通用过程如下，以下命令 DOS 和 Shell 中可通用：
+过程如下，以下命令 Windows DOS 和 Linux Shell 中可通用：
 
 1. 进入编译器仓库目录中 `cd obfuscator`；
 2. 创建临时文件目录 `mkdir build`；
@@ -244,10 +252,10 @@ git clone -b llvm-4.0 https://github.com/obfuscator-llvm/obfuscator.git
 如果没有按照 CMake，可去 CMake 官网下载安装。
 
 ```shell
-cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_INCLUDE_TESTS=OFF ../obfuscator/
+cmake -DCMAKE_BUILD_TYPE=Release -DLLVM_INCLUDE_TESTS=OFF ../
 ```
 
-CMake 将会自动检测电脑上的编译器环境，如果是 Linux，一般生成 Makefile，如果 Windows 上安装了 Visual Studio，将生成解决方案文件。
+CMake 将会自动检测电脑上的编译器环境，如果是 Linux，生成 Makefile，如果 Windows 上安装了 Visual Studio，将生成解决方案文件。
 
 5. 编译编译器源代码：
 
@@ -257,19 +265,23 @@ Linux 上执行：
 make -j4
 ```
 
-Windows 推荐使用 Visual Studio 进行编译，直接打开 build 中的 LLVM.sln，然后生成解决方案（Build Solution）。
+Windows 平台建议使用 Visual Studio 进行编译，直接打开 build 中的 LLVM.sln，然后生成解决方案（Build Solution）。
 
-编译过程根据当时环境因素，可能出现错误，需要自行解决出现的情况，编译完成后将生成所需的 bin 和 lib 目录。
+编译过程需要持续 30 分钟或更长时间，取决于电脑配置 CPU 性能。
+
+编译过程中有可能出现错误，需要自己解决出现的不同情况，编译完成后将生成所需的 bin 和 lib 目录（Release 中）。
 
 
 
 - 配置 NDK 环境
 
+设原始 NDK 工具链根目录为 android-ndk-r14b。
+
 进入 android-ndk-r14b/toolchains 目录中，复制已存在的 llvm 目录到 ollvm-4.0，Linux 使用 `cp llvm ollvm-4.0`，Windows 复制文件出现 `llvm-副本` 后重命名为 `ollvm-4.0`。
 
-将上面编译出来的 bin 和 lib 放入 ollvm-4.0/prebuilt/windows-x86_64 中。
+Windows 平台将上面编译出来的 bin 和 lib 放入 ollvm-4.0/prebuilt/windows-x86_64 中，Linux 平台放入 ollvm-4.0/prebuilt/linux-x86_64 中，macOS 为 ollvm-4.0/prebuilt/darwin-x86_64。
 
-进入 android-ndk-r14b/build/core/toolchains 中，复制如下目录：
+进入 android-ndk-r14b/build/core/toolchains 中，在当前目录复制出如下目录：
 
 ```
 arm-linux-androideabi-clang -> arm-linux-androideabi-clang-ollvm4.0
@@ -280,17 +292,17 @@ x86_64-clang                -> x86_64-clang-ollvm4.0
 
 修改复制后的两个目录中的 setup.mk 文件：
 
+```
 android-ndk-r14b/build/core/toolchains/arm-linux-androideabi-clang-ollvm4.0/setup.mk
 android-ndk-r14b/build/core/toolchains/aarch64-linux-android-clang-ollvm4.0/setup.mk
 android-ndk-r14b/build/core/toolchains/arm-linux-androideabi-clang-ollvm4.0/setup.mk
 android-ndk-r14b/build/core/toolchains/x86_64-clang-ollvm4.0/setup.mk
+```
 
-修改如下内容：
+将每个 `setup.mk` 中的如下内容：
 
 ```
-...
 LLVM_TOOLCHAIN_PREBUILT_ROOT := $(call get-toolchain-root,llvm)
-...
 ```
 
 替换为：
@@ -300,7 +312,7 @@ OLLVM_NAME := ollvm-4.0
 LLVM_TOOLCHAIN_PREBUILT_ROOT := $(call get-toolchain-root,$(OLLVM_NAME))
 ```
 
-此时使用 ndk-build 将可以识别编译器。复制 4 个目录的原因是为了编译出支持每种 ABI，（armeabi、armeabi-v7a、arm64-v8a，x86、x86_64）。
+此时使用 ndk-build 将可以识别编译器。复制 4 个目录的原因是为了支持编译出每种 ABI，（armeabi、armeabi-v7a、arm64-v8a，x86、x86_64）。
 
 
 
@@ -326,7 +338,7 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := foo
 LOCAL_SRC_FILES := libfoo.cpp
 
-# 添加 obfuscator-llvm 支持的各种参数，伪控制流、控制流平展化，指令替换
+# 添加 obfuscator-llvm 支持的各种参数，伪控制流、控制流展开、指令替换
 LOCAL_CFLAGS += -mllvm -bcf -mllvm -bcf_loop=3 \
                 -mllvm -fla -mllvm -split \
                 -mllvm -sub -mllvm -sub_loop=3
@@ -334,7 +346,7 @@ LOCAL_CFLAGS += -mllvm -bcf -mllvm -bcf_loop=3 \
 include $(BUILD_SHARED_LIBRARY)
 ```
 
-调用配置好的 NDK r14b 中的 ndk-build 编译即可。
+在包含源代码的 jni 目录下执行配置好的 NDK r14b 中的 ndk-build 编译即可。
 
 
 
@@ -342,7 +354,7 @@ include $(BUILD_SHARED_LIBRARY)
 
 编译后，在 libs 中将出现 ABI 目录，使用 IDA Pro 打开 libfoo.so，左侧 Functions windos 中找一个简单函数（例如 JNI_OnLoad）打开，发现程序逻辑流程已被混淆的面目全非。
 
-左下角的 Graph overview 可以直观的看到整个函数的控制流程，像一棵奇怪的树。
+左下角的 Graph overview 可以直观的看到整个函数的逻辑流程，非常复杂，无法直接了解到原始逻辑。
 
 
 
@@ -350,51 +362,41 @@ include $(BUILD_SHARED_LIBRARY)
 
 ### 独立构建
 
-在前面 Android.mk 的工程中，需要依赖 Android Studio 在 Module 级别的 .gradle 文件中配置如下 Android.mk 路径：
+通常 NDK 构建过程需要依赖于 Android Studio 进行清理，构建等工作。
+
+有时需要脱离 Android Studio，例如在无界面的服务器上独立构建，那么可以直接使用 `ndk-build` 命令行进行构建。
+
+首先确认 NDK 的环境变量（将 NDK 工具链的根路径加入系统 PATH 变量）。然后直接在 jni 目录下打开终端（Windows 为 cmd），输入 `ndk-build clean`，将自动清理产生的 obj 文件和 libs 文件。
+
+然后执行 `ndk-build` 即可构建出所需要的 so 文件，例如 libs/arm64-v8a/libfoo.so。
+
+如果不想在 jni 目录中构建，可使用 `-C` 选项指定路径构建 `ndk-build -C jni_new`。
+
+其他参数可参考官方文档：[https://developer.android.google.cn/ndk/guides/ndk-build](https://developer.android.google.cn/ndk/guides/ndk-build)
+
+- 提示
+
+对于普通 Android Studio 中的工程，也可以使用这种方法构建。
+
+首先把 gradle 中 Android.mk 路径配置去除。在默认的依赖配置里面可以看到，libs 目录已被加入依赖，就是说如果 libs 目录中有 so 文件，那么会被自动加入 apk 中。
 
 ```groovy
-// app-build.gradle
-android {
-  ...
-  externalNativeBuild {
-    ndkBuild {
-      path 'src/main/jni/Android.mk'
-    }
-  }
-}
-```
-
-这样 Android Studio 就会在构建时主动调用 NDK 提供的 ndk-build 脚本，为工程生成 libfoo.so 文件，当点击清理时也会把构建出来的 .so 文件一同清理掉。
-
-如果需要脱离 Android Studio 的构建过程单独构建，不受 Studio 编译清理的影响，那么可以将上面 Android.mk 的路径的配置在 gradle 文件中去除。
-
-在默认的依赖配置里面可以看到，libs 目录已被加入依赖，就是说如果 libs 目录中有 so 文件，那么会被自动加入 apk 中。
-
-```groovy
-// app-build.gradle
+// app/build.gradle
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
     ...
 }
 ```
 
-那么首先确认 NDK 的环境变量（NDK 根目录加入系统 PATH 变量），然后可以直接在 jni 目录下打开终端（Windows 为 CMD），输入 `ndk-build clean`，然后 `ndk-build` 即可构建出所需要的 libfoo.so，此时可以直接运行 apk 工程，新的 libfoo.so 将自动被加入 apk 的 libs 目录中。
+那么经过 `ndk-build` 构建后，可以直接运行 apk 工程，新的 libfoo.so 将被加入 apk 的 libs 目录中。
 
 此时 Android Studio 构建和清理均不会影响 libs 中的 .so 文件，Java 代码和 NDK 开发代码可分别独立构建。
 
 
 
-- 提示
-
-在构建过程中，和 jni 同级的目录中产生了 obj 目录，这是构建产生的一些临时目标文件，`ndk-build clean` 的作用是清理这些临时文件，同时清理上一次构建的 libfoo.so。
-
-这样就完成了独立构建 so 库，可以结合自动化脚本搭建自动构建系统。
-
-
-
 ### 快速部署
 
-对于一个主要由 native 代码构成的应用来说，修改 native 代码的动作较为频繁，如果每次都 clean 然后重新 build，再依赖于 Android studio 的运行安装会比较麻烦和耗时。有时还需要依赖于其他 IDE 来构建 NDK 工程（例如 Visual Studio），那么可以采用如下方法：
+对于一个主要由 native 代码构成的应用来说，修改 native 代码的动作较为频繁，如果每次都 clean 然后重新 build，再依赖于 Android studio 的运行安装会可能会比较麻烦。有时也需要依赖于其他 IDE 来构建 NDK 工程（例如使用 Visual Studio），那么可以采用如下方法：
 
 首次构建 NDK 工程后安装运行到手机上，然后后面每次构建出 so，使用 adb 命令直接将 so 文件 push 到应用的沙盒目录下，重新启动应用进程即可使用新版的 so 文件。
 
@@ -402,7 +404,7 @@ dependencies {
 adb push libfoo.so /data/data/io.l0neman.mkexample/lib/
 ```
 
-注意 so 文件的架构应与当前应用对应。
+注意 so 文件的架构应与当前应用采用的 ABI 对应。
 
 不过这样做的前提是设备拥有 root 权限，也可直接使用官方的 Android 模拟器，选择下载带有 GoogleApis 的模拟器 ROM，输入如下命令即可获取 root 权限：
 
@@ -1036,9 +1038,9 @@ APP_WRAP_SH_x86_64
 
 # NDK API
 
-NDK 开发几乎必须要使用到 NDK 提供的原生 API，最常用的就是 `liblog`，用来打印日志，下面分别使用 Android.mk 和 Cmake 引入日志库。
+NDK 开发几乎必须要使用到 NDK 提供的原生 API，最常用的就是 `liblog`，用来在 logcat 中打印日志，下面分别使用 Android.mk 和 CMake 引入日志库。
 
-引入其他库方法一致，所有 NDK 库列表可参考官方文档：[https://developer.android.google.cn/ndk/guides/stable_apis](https://developer.android.google.cn/ndk/guides/stable_apis)
+引入其他库方法一致，可用 NDK 库列表可参考官方文档：[https://developer.android.google.cn/ndk/guides/stable_apis](https://developer.android.google.cn/ndk/guides/stable_apis)
 
 
 
@@ -1056,7 +1058,7 @@ $(warning $(TARGET_PLATFORM))
 include $(CLEAR_VARS)
 
 LOCAL_MODULE := foo
-LOCAL_SRC_FILES := main.cpp
+LOCAL_SRC_FILES := libfoo.cpp
 
 # 添加日志库，需要添加其他库可直接使用空格分隔
 LOCAL_LDLIBS := -llog
@@ -1077,7 +1079,7 @@ static const char *TAG = "NDK";
 
 extern "C" {
 
-jstring Java_io_l0neman_cmakeexample_NativeHandler_getHello(JNIEnv *env, jclass clazz) {
+jstring Java_io_l0neman_mkexample_NativeHandler_getHello(JNIEnv *env, jclass clazz) {
   __android_log_print(ANDROID_LOG_DEBUG, TAG, "log test.");
   return env->NewStringUTF("Hello-jni");
 }
@@ -1089,7 +1091,7 @@ jstring Java_io_l0neman_cmakeexample_NativeHandler_getHello(JNIEnv *env, jclass 
 
 ## CMake
 
-CMake 描述如下：
+CMake 描述如下，首先使用 `find_library` 描述 NDK 库，再用 `target_link_libraries` 指定链接库：
 
 ```cmake
 # CMakeLists.txt
@@ -1116,7 +1118,7 @@ target_link_libraries(
 )
 ```
 
-如果需要添加多个库，新增 `find_library` 块，添加另描述另一个库后，在 `target_link_libraries` 加入即可：
+如果需要添加多个库，新增 `find_library` 块，添加另一个库的描述后，在 `target_link_libraries` 加入即可：
 
 ```cmake
 # CMakeLists.txt
@@ -1139,13 +1141,13 @@ target_link_libraries(
 
 # 引入预编译库
 
-有时需要引入提前编译好或者第三方提供的 so 共享库，或是引入现成的 .a 静态库，需要根据情况进行如下配置。
+有时需要引入提前编译好或者第三方提供的 so 共享库，或是引入现成的 .a 静态库，那么根据情况进行如下配置。
 
 
 
 ## 引入动态库
 
-1. 首先在独立的 NDK 工程编译出一个共享库 libbar.so，提供给别人使用。
+1. 首先在独立的 NDK 工程编译出一个共享库 libbar.so（创建 libbar Module），作为第三方库提供给其他 Module 使用。
 
 工程目录结构：
 
@@ -1184,7 +1186,7 @@ int bar_add(int a, int b) {
 ```
 
 ```makefile
-# module-libbar Android.mk
+# libbar/src/main/jni/Android.mk
 
 LOCAL_PATH := $(call my-dir)
 
@@ -1197,7 +1199,7 @@ include $(BUILD_SHARED_LIBRARY)
 ```
 
 ```makefile
-# module-libbar Application.mk
+# libbar/src/main/jni/Application.mk
 
 APP_ABI := armeabi-v7a arm64-v8a x86 x86_64
 APP_OPTIM := debug
@@ -1213,10 +1215,10 @@ libs
  |    +-- libbar.so
  |
  +-- arm64-v8a
- |   +-- libbar.so
+ |    +-- libbar.so
  |
  +-- x86
- |   +-- libbar.so
+ |    +-- libbar.so
  |
  +-- x86_64
       +-- libbar.so
@@ -1224,7 +1226,7 @@ libs
 
 
 
-2. 将每种架构目录复制到需要使用此库的 NDK 工程中（libfoo.so），在工程中新建 include 目录，将 libbar 的头文件复制过来，为了提供调用的接口。
+2. 将每种架构目录复制到需要使用此库的 NDK 工程中（libfoo.so Module），在工程中新建 include 目录，将 libbar 的头文件复制过来，为了提供调用的接口。
 
 工程目录结构：
 
@@ -1244,7 +1246,7 @@ jni
  |    +-- libbar.so
  |
  +-- include
- |     +-- libbar.h
+ |    +-- libbar.h
  |
  +-- Android.mk
  +-- Application.mk
@@ -1254,20 +1256,24 @@ jni
 
 
 
-3. 编写 libfoo.so 的 Android.mk 文件，`$(TARGET_ARCH_ABI)` 为 NDK 编译时每种架构的名字。
+3. 编写 libfoo.so Module 的 Android.mk 文件，`$(TARGET_ARCH_ABI)` 为 NDK 编译时每种架构的名字。
 
 ```makefile
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
+# 描述预编译库动态库的名称
 LOCAL_MODULE := libbar-pre
+# 描述预编译动态库路径
 LOCAL_SRC_FILES := $(TARGET_ARCH_ABI)/libbar.so
+# 描述预编译动态库引入的头文件
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
 include $(PREBUILT_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE := foo
 LOCAL_SRC_FILES := main.cpp
+# 描述要使用的共享库名称
 LOCAL_SHARED_LIBRARIES := libbar-pre
 include $(BUILD_SHARED_LIBRARY)
 ```
@@ -1280,6 +1286,7 @@ include $(BUILD_SHARED_LIBRARY)
 
 ```cpp
 // libfoo.h
+
 #ifndef NDKTPROJECT_LIBFOO_H
 #define NDKTPROJECT_LIBFOO_H
 
@@ -1297,6 +1304,7 @@ Java_io_l0neman_mkexample_NativeHandler_test(JNIEnv *env, jclass clazz);
 
 ```cpp
 // libfoo.cpp
+
 #include "libbar.h"
 #include "libfoo.h"
 
@@ -1338,7 +1346,7 @@ NativeHandler.test();
 工程结构和上面引入动态库中的 libbar 工程一致，只需要将 Android.mk 文件中引入的 `BUILD_SHARED_LIBRARY` 变量修改为 `BUILD_STATIC_LIBRARY` 即可指定编译出静态库。
 
 ```makefile
-# module-libbar Android.mk
+# libbar/src/main/Android.mk
 
 LOCAL_PATH := $(call my-dir)
 
@@ -1347,7 +1355,8 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := bar
 LOCAL_SRC_FILES := libbar.cpp
 
-include $(BUILD_SHARED_LIBRARY)
+# 指定编译出静态库
+include $(BUILD_STATIC_LIBRARY)
 ```
 
 使用 ndk-build 编译后，不会产生和 jni 同级的 libs 目录，每种架构的 libbar.a 文件将出现在和 jni 同级的 obj 目录中。
@@ -1356,6 +1365,7 @@ include $(BUILD_SHARED_LIBRARY)
 
 ```
 jni
+obj
  |
  +-- armeabi-v7a
  |    +-- libbar.a
@@ -1408,15 +1418,19 @@ jni
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
+# 描述预编译静态库的名字
 LOCAL_MODULE := libbar-pre
+# 描述预编译静态库的位置
 LOCAL_SRC_FILES := $(TARGET_ARCH_ABI)/libbar.a
+# 描述预编译静态库引入的头文件
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
 include $(PREBUILT_STATIC_LIBRARY)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE := foo
 LOCAL_SRC_FILES := main.cpp
-LOCAL_SHARED_LIBRARIES := libbar-pre
+# 描述要使用的静态库名称
+LOCAL_STATIC_LIBRARIES := libbar-pre
 include $(BUILD_SHARED_LIBRARY)
 ```
 
@@ -1424,7 +1438,7 @@ include $(BUILD_SHARED_LIBRARY)
 
 
 
-4. 最后引用头文件正常调用即可，参考引用动态库中的步骤 4。
+4. 最后引用头文件正常调用编译即可，参考引用动态库中的步骤 4。
 
 
 ## CMake
@@ -1448,19 +1462,19 @@ main
  |    +-- libfoo.h
  |    +-- CMakeLists.txt
  |
- |+-- jniLibs
-       |
-       +-- armeabi-v7a
-       |    +-- libbar.so
-       |
-       +-- arm64-v8a
-       |    +-- libbar.so
-       |
-       +-- x86
-       |    +-- libbar.so
-       |
-       +-- x86_64
-            +-- libbar.so
+ +-- jniLibs
+      |
+      +-- armeabi-v7a
+      |    +-- libbar.so
+      |
+      +-- arm64-v8a
+      |    +-- libbar.so
+      |
+      +-- x86
+      |    +-- libbar.so
+      |
+      +-- x86_64
+           +-- libbar.so
 ```
 
 将预编译库放在 jniLibs 下面是为了在编译时打包到 apk 中。
@@ -1517,7 +1531,6 @@ cpp
  +-- libfoo.h
  +-- CMakeLists.txt
  |
- |
  +-- armeabi-v7a
  |    +-- libbar.a
  |
@@ -1528,7 +1541,7 @@ cpp
  |    +-- libbar.a
  |
  +-- x86_64
-     +-- libbar.a
+      +-- libbar.a
 ```
 
 由于静态库 .a 直接编译到目标文件 libfoo 中，所以不用放在 jniLibs 打包至 apk 中。
