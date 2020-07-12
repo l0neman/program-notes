@@ -282,7 +282,7 @@ make -file Make.abc
 
 ## 引用其他的 Makfile
 
-使用 `include` 关键值字包含别的 Makefile，类似 C 语言中的 #include，被包含的文件内容会被扩展到当前包含的位置。
+使用 `include` 关键字包含别的 Makefile，类似 C 语言中的 #include，被包含的文件内容会被扩展到当前包含的位置。
 
 ```makefile
 include <filename>
