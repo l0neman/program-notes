@@ -112,7 +112,7 @@ Binder 可分为实名 Binder 和匿名 Binder。
 
 Binder 协议使用 `ioctl(fd, cmd, arg)` 函数实现，fd 为驱动的文件描述符，cmd 参数为命令，arg 为参数，每种 cmd 对应的 arg 结构也不同。当通过驱动进行通信时，首先使用 `open` 打开驱动文件，然后使用返回的文件描述符调用 `ioctl` 进行通信。
 
-| cmd                    | 解释                                                         | 参数 `````````````````````````````                           |
+| cmd                    | 解释                                                         | 参数                                                         |
 | ---------------------- | :----------------------------------------------------------- | ------------------------------------------------------------ |
 | BINDER_WRITE_READ      | 向 Binder 发送读写命令，参数分为写和读两部分，如果 `write_size` 不为 0 则首先将 `write_buffer` 里的数据写入 Binder，其次 `read_size` 不为 0 再从 Binder 中读取数据存入 `read_buffer` 中，`write_consumed` 和 `read_consumed` 表示操作完成时 Binder 驱动实际发送的 | struct binder_write_read<br />{<br />signed long write_size;<br />signed long write_consumed;<br />unsigned long write_buffer;<br />signed long read_size;<br />signed long read_consumed;<br />unsigned long read_buffer;<br />}; |
 | BINDER_SET_MAX_THREADS | 告知 Binder 驱动接收方（Server 端）线程池的最大线程数，Client 告知 Server 端需要开辟多大的线程池为并发请求提供服务，为了让驱动发现线程数达到该值时不要再命令接收端启动新的线程。 | int max_threads;                                             |
@@ -124,7 +124,7 @@ Binder 协议使用 `ioctl(fd, cmd, arg)` 函数实现，fd 为驱动的文件�
 
 `BINDER_WRITE_READ` 命令的数据写入格式为命令+数据，多条命令可连续存放，对应的命令后面写入对应的数据结构，最后将这段内存的指针赋给 `binder_write_read` 结构体的 `write_buffer`。
 
-| 命令                                                        | 解释                                                         | 数据 ``````````````                                          |
+| 命令                                                        | 解释                                                         | 数据                                                         |
 | ----------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | BC_TRANSACTION<br />BC_REPLY                                | 1. `BC_TRANSACTION` 用于 Client 端向 Server 端发送请求。<br />2. `BC_REPLY` 用于 Server 端向 Client 回复数据。<br />3. 命令后面接 `binder_transaction_data` 用于存放数据。 | struct binder<br />transaction<br />_data                    |
 | BC_ACQUIRE_RESULT<br />BC_ATTEMPT_ACQUIRE                   | 暂未实现                                                     | -                                                            |
@@ -156,7 +156,7 @@ Binder 协议使用 `ioctl(fd, cmd, arg)` 函数实现，fd 为驱动的文件�
 
 binder_transaction_data 表示收发数据包结构，使用时将它接在 `TRANSACTION` 和 `RELPY` 命令后面。
 
-| 成员 `````````````````````                                   | 解释                                                         |
+| 成员                                                         | 解释                                                         |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | union {<br />size_t handle;<br />void *ptr;<br />} target;   | 1. 对于发送数据包的一方，该成员指定发送目的地。由于目的地在远端，所以这里填入的是对 Binder 实体的引用，存放在 `target.handle` 中。<br />2. 当数据包到达接收方时，驱动将该成员转换成 Binder 实体，即指向 Binder 对象内存的指针，使用 `target.ptr` 来保存。<br />3. `target.ptr` 指针是接收方在将 Binder 实体传输给其他进程时提交给驱动的，驱动能够自动将发送方填入的引用转换成接收方 Binder 对象的指针，接收方可直接作为对象指针使用。（通常使用 `reinterpret_cast` 转换）。 |
 | void *cookie                                                 | 1. 发送方忽略该成员。<br />2. 接收方收到数据包时，该成员存放的是创建 Binder 实体时由该接收方自定义的任意数值，作为与 Binder 指针相关的额外信息存放在驱动中，驱动基本不关心该数据。 |
@@ -215,7 +215,7 @@ Client 端的 Binder 也需要实现和服务的相同的功能函数的接口�
 
 - Binder 通过 `flat_binder_object` 结构在数据包中进行跨进程传输
 
-| 成员  `````````````````````                                | 解释                                                         |
+| 成员                                                       | 解释                                                         |
 | ---------------------------------------------------------- | ------------------------------------------------------------ |
 | unsigned long type                                         | 表明 Binder 的类型，有如下几种：<br />`BINDER_TYPE_BINDER`：表示传递的是 Binder 实体，并且指向该实体的引用都是强类型。<br />`BINDER_TYPE_WEAK_BINDER`：表示传递的是 Binder 实体，并且指向该实体的引用都是弱引用。<br />`BINDER_TYPE_HANDLE`：表示传递的是 Binder 强引用类型。<br />`BINDER_TYPE_WEAK_HANDLE`，表示传递的是 Binder 弱引用类型。<br />`BINDER_TYPE_FD` 表示传递的是文件形式的 Binder。 |
 | unsigned long flags                                        | 此成员只对首次传递 Binder 有效，因为首次传递，Binder 驱动将在内核中创建 Binder 对应的实体节点，需要从此成员获取值。<br />0-7 位，使用 `FLAT_BINDER_FLAG_PRIORITY_MASK` 取出值，表示处理本实体请求数据包的线程的最低优先级。当一个应用程序提供多个实体时，可以通过该参数调整分配给各个实体的处理能力。<br />第 8 位：代码中用 `FLAT_BINDER_FLAG_ACCEPTS_FDS` 取出值，值为 1 表示该实体可以接收其它进程发过来的文件形式的 Binder，由于接收文件形式的Binder会在本进程中自动打开文件，有些Server可以用该标志禁止该功能，以防打开过多文件。 |
@@ -232,11 +232,11 @@ Client 端的 Binder 也需要实现和服务的相同的功能函数的接口�
 
 - 驱动对 `flat_binder_object` 结构的转换
 
-| Binder 类型（type 成员） ```````````````````````` | 发送方的操作                                                 | 接收方的操作                                                 |
-| ------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| BINDER_TYPE_BINDER<br />BINDER_TYPE_WEAK_BINDER   | 1. 只有实体所在的进程能发送该类型的Binder。<br />2. 如果是第一次发送驱动将创建实体在内核中的节点，并保存`binder`，`cookie` 和 `flag` 成员。 | 1. 如果是第一次接收该 Binder 则创建实体在内核中的引用；将 `handle` 成员替换为新建的引用号；将 `type` 成员替换为 `BINDER_TYPE_HANDLE` 或 `BINDER_TYPE_WEAK_HANDLE`。 |
-| BINDER_TYPE_HANDLE<br />BINDER_TYPE_WEAK_HANDLE   | 1. 获得 Binder 引用的进程都能发送该类型 Binder。<br /><br />2. 驱动根据 `handle` 域提供的引用号查找建立在内核的引用，如果找到说明引用号合法，否则拒绝该发送请求。 | 1. 如果收到的 Binder 实体位于接收进程中：将 `ptr` 成员替换为保存在节点中的 `binder` 值；`cookie` 替换为保存在节点中的 `cookie` 值；`type` 替换为 `BINDER_TYPE_BINDER` 或 `BINDER_TYPE_WEAK_BINDER`。<br />2. 如果收到的 Binder 实体不在接收进程中：如果是第一次接收则创建实体在内核中的引用；将 `handle` 域替换为新建的引用号。 |
-| BINDER_TYPE_FD                                    | 验证 `handle` 成员中提供的打开文件号是否有效，无效则拒绝该发送请求。 | 在接收方创建新的打开文件号并将其与提供的打开文件描述结构绑定。 |
+| Binder 类型（type 成员）                        | 发送方的操作                                                 | 接收方的操作                                                 |
+| ----------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| BINDER_TYPE_BINDER<br />BINDER_TYPE_WEAK_BINDER | 1. 只有实体所在的进程能发送该类型的Binder。<br />2. 如果是第一次发送驱动将创建实体在内核中的节点，并保存`binder`，`cookie` 和 `flag` 成员。 | 1. 如果是第一次接收该 Binder 则创建实体在内核中的引用；将 `handle` 成员替换为新建的引用号；将 `type` 成员替换为 `BINDER_TYPE_HANDLE` 或 `BINDER_TYPE_WEAK_HANDLE`。 |
+| BINDER_TYPE_HANDLE<br />BINDER_TYPE_WEAK_HANDLE | 1. 获得 Binder 引用的进程都能发送该类型 Binder。<br /><br />2. 驱动根据 `handle` 域提供的引用号查找建立在内核的引用，如果找到说明引用号合法，否则拒绝该发送请求。 | 1. 如果收到的 Binder 实体位于接收进程中：将 `ptr` 成员替换为保存在节点中的 `binder` 值；`cookie` 替换为保存在节点中的 `cookie` 值；`type` 替换为 `BINDER_TYPE_BINDER` 或 `BINDER_TYPE_WEAK_BINDER`。<br />2. 如果收到的 Binder 实体不在接收进程中：如果是第一次接收则创建实体在内核中的引用；将 `handle` 域替换为新建的引用号。 |
+| BINDER_TYPE_FD                                  | 验证 `handle` 成员中提供的打开文件号是否有效，无效则拒绝该发送请求。 | 在接收方创建新的打开文件号并将其与提供的打开文件描述结构绑定。 |
 
 - 文件形式的 Binder
 
@@ -256,7 +256,7 @@ Binder 驱动式实现 Binder 进程间通信的核心，它记录了所有 Bind
 
 Binder 实体在驱动中以树的节点的形式存在，使用 `struct binder_node` 结构表示。
 
-| 成员 `````````````````````````````                           | 解释                                                         |
+| 成员                                                         | 解释                                                         |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | int debug_id;                                                | 用于调试                                                     |
 | struct binder_work work;                                     | 当本节点的引用计数发生改变时，需要通知所属进程，通过该成员挂入所属进程的 to-do 队列里，唤醒所属进程执行 Binder 实体引用计数的修改。 |
@@ -278,7 +278,7 @@ Binder 实体在驱动中以树的节点的形式存在，使用 `struct binder_
 
 Binder 引用使用 `binder_ref` 结构表示。
 
-| 成员 `````````````````````````  | 含义                                                         |
+| 成员                            | 含义                                                         |
 | ------------------------------- | ------------------------------------------------------------ |
 | int debug_id                    | 用于调试                                                     |
 | struct rb_node rb_node_desc;    | 每个进程有一棵红黑树，进程所有引用以引用号（即本结构的 `desc` 成员）为索引添入该树中。本成员用做链接到该树的一个节点。 |
