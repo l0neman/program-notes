@@ -1,6 +1,7 @@
 # Android JNI 指南
 
 - [Android JNI 指南](#android-jni-指南)
+- [前言](#前言)
 - [JNI 优化原则](#jni-优化原则)
 - [名词说明](#名词说明)
 - [JavaVM 和 JNIEnv](#javavm-和-jnienv)
@@ -39,6 +40,18 @@
 - [参考](#参考)
 
 
+
+# 前言
+
+编写此文档的用意：
+
+作为 Android NDK 项目开发的参考手册。
+
+对于 NDK 工程的搭建可参考 Android NDK 指南
+
+
+
+# JNI 简介
 
 JNI（Java Native Interface，Java 原生接口），是 Java 和 C++ 组件用以互相通信的接口。
 
@@ -138,6 +151,8 @@ src/main/
       +-- hello.h
 ```
 
+
+
 ```makefile
 # Android.mk
 
@@ -178,6 +193,8 @@ Java_io_l0neman_jniexample_NativeHandler_getString(JNIEnv *env, jclass clazz);
 
 #endif //NDKTPROJECT_MAIN_H
 ```
+
+
 
 ```c++
 // hello.cpp
@@ -953,6 +970,8 @@ jclass globalClass = reinterpret_cast<jclass>(env->NewGlobalRef(localClass));
 final String hello = NativeHandler.testAccessString("hello");
 ```
 
+
+
 ```c++
 // C++ Code
 
@@ -1051,6 +1070,8 @@ int[] array0 = {1, 2, 3, 4, 5};
 String[] array1 = {"a", "b", "c", "d", "e"};
 NativeHandler.testAccessArray(array0, array1);
 ```
+
+
 
 ```c++
 // C++ Code
@@ -1212,6 +1233,8 @@ env->GetByteArrayRegion(array, 0, len, buffer);
 
 NativeHandler.testThread();
 ```
+
+
 
 ```c++
 // C++ Code:

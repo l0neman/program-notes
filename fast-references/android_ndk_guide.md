@@ -1,6 +1,7 @@
 # Android NDK 指南
 
 - [Android NDK 指南](#android-ndk-指南)
+- [前言](#前言)
 - [NDK 工程构建](#ndk-工程构建)
   - [Android.mk](#androidmk)
   - [CMake](#cmake)
@@ -24,6 +25,15 @@
   - [引入静态库](#引入静态库)
   - [CMake](#cmake-2)
 - [参考](#参考)
+
+
+
+# 前言
+
+编写此文档的用意：
+
+1. 作为搭建基础 NDK 工程的教程；
+2. 作为入门 NDK 工程的参考手册。
 
 
 
@@ -89,7 +99,7 @@ LOCAL_MODULE := foo
 LOCAL_SRC_FILES := main.cpp
 
 include $(BUILD_SHARED_LIBRARY)
-````
+```
 
 添加 Application.mk 用于描述 NDK 工程概要设置。
 
@@ -136,6 +146,8 @@ Java_io_l0neman_mkexample_NativeHandler_getHello(JNIEnv *env, jclass clazz);
 
 #endif //NDKTPROJECT_LIBFOO_H
 ```
+
+
 
 ```cpp
 // libfoo.cpp
@@ -328,6 +340,8 @@ APP_ABI := armeabi-v7a arm64-v8a
 NDK_TOOLCHAIN_VERSION := clang-ollvm4.0
 ```
 
+
+
 ```makefile
 # Android.mk
 
@@ -452,6 +466,8 @@ int main(int argv, char **args) {
   return 0;
 }
 ```
+
+
 
 ```makefile
 include $(BUILD_EXECUTABLE)
@@ -602,6 +618,8 @@ LOCAL_CPP_EXTENSION := .cxx .cpp .cc
 # 使用运行时信息
 LOCAL_CPP_FEATURES := rtti
 ```
+
+
 
 ```makefile
 # 使用 C++ 异常
@@ -1176,6 +1194,8 @@ int bar_add(int a, int b);
 #endif //NDKTPROJECT_LIBBAR_H
 ```
 
+
+
 ```cpp
 // libbar.cpp
 #include "libbar.h"
@@ -1184,6 +1204,8 @@ int bar_add(int a, int b) {
   return a + b;
 }
 ```
+
+
 
 ```makefile
 # libbar/src/main/jni/Android.mk
@@ -1197,6 +1219,8 @@ LOCAL_SRC_FILES := libbar.cpp
 
 include $(BUILD_SHARED_LIBRARY)
 ```
+
+
 
 ```makefile
 # libbar/src/main/jni/Application.mk
@@ -1302,6 +1326,8 @@ Java_io_l0neman_mkexample_NativeHandler_test(JNIEnv *env, jclass clazz);
 #endif //NDKTPROJECT_LIBFOO_H
 ```
 
+
+
 ```cpp
 // libfoo.cpp
 
@@ -1331,6 +1357,8 @@ public class NativeHandler {
   public static native void test();
 }
 ```
+
+
 
 ```java
 // MainActivity.java
