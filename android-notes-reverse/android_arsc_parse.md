@@ -29,7 +29,7 @@
 
 ## apk 文件结构
 
-在使用 android sdk 编译 android 工程时，它会将工程的源代码和资源打包为一个 apk 文件，apk 文件实质为一个压缩包，一个未签名的 apk 文件典型结构如下：
+在使用 Android SDK 编译 Android 工程时，它会将工程的源代码和资源打包为一个 apk 文件，apk 文件实质为一个压缩包，一个未签名的 apk 文件典型结构如下：
 
 ```
 apk file:
@@ -41,13 +41,15 @@ resources.arsc  - 资源信息文件
 AndroidManifest.xml - 二进制的清单文件
 ```
 
-在 android 项目的编译过程中，java 代码将会被编译为 classes.dex 文件，jni 代码被编译为 so 文件存放在 lib 目录下，assets 目录和 res/raw 目录中文件的将不会发生变化，对于资源文件中 xml 形式的资源将会被编译为优化过的特定的二进制 xml 格式，而类似于图片这种本身为二进制的类型也不会发生变化，AndroidManifest.xml 清单文件被编译为优化过的二进制格式。
+在 Android 项目的编译过程中，Java 代码将会被编译为 classes.dex 文件，JNI 代码被编译为 .so 文件存放在 lib 目录下，assets 目录和 res/raw 目录中文件的将不会发生变化，对于资源文件中 xml 形式的资源将会被编译为优化过的特定的二进制 xml 格式，而类似于图片这种本身为二进制的类型也不会发生变化，AndroidManifest.xml 清单文件被编译为优化过的二进制格式。
+
+
 
 ## 资源编译过程
 
-在开发 android 项目时，需要在布局中引用资源，当资源在工程中被创建时，IDE 将会使用 android sdk 中的 aapt 工具自动生成 R.java 文件，这时在代码或布局文件中即可使用资源 id 来引用资源。
+在开发 Android 项目时，需要在布局中引用资源，当资源在工程中被创建时，IDE 将会使用 Android SDK 中的 aapt 工具自动生成 R.java 文件，这时在代码或布局文件中即可使用资源 id 来引用资源。
 
-在 aapt 工具生成 R 文件的同时，还同时生成了一个 resources.arsc 文件，它负责记录资源信息，类似于一张表，当 apk 运行在 android 设备时，应用将会首先将 resources.arsc 包含的资源信息映射到内存中的数据结构中，当需要使用资源 id 引用具体资源时，只需要在内存中的数据结构中进行查询，即可得到具体的资源文件路径。
+在 aapt 工具生成 R 文件的同时，还同时生成了一个 resources.arsc 文件，它负责记录资源信息，类似于一张表，当 apk 运行在 Android 设备时，应用将会首先将 resources.arsc 包含的资源信息映射到内存中的数据结构中，当需要使用资源 id 引用具体资源时，只需要在内存中的数据结构中进行查询，即可得到具体的资源文件路径。
 
 一个典型的资源 id 如下：
 
@@ -61,15 +63,21 @@ AndroidManifest.xml - 二进制的清单文件
 2. 次字节为 Type ID，代表资源类型，即 animator、anim、color、drawable、layout、menu、raw、string 和 xml 等类型，每种类型对应一个 id。
 3. 末两个字节为 Entry ID，代表资源在其类型中的次序。
 
-aapt 工具编译资源的过程是比较复杂的，其中的步骤非常细致，在它编译时会将资源逐步保存至一个 ResourceTable 类中，它的源码路径是 `frameworks\base\tools\aapt\ResourceTable`，下面简述资源编译过程（完全参考了老罗博客）。
+aapt 工具编译资源的过程是比较复杂的，其中的步骤非常细致，在它编译时会将资源逐步保存至一个 ResourceTable 类中，它的源码路径是 `frameworks\base\tools\aapt\ResourceTable`，下面简述资源编译过程（参考了罗升阳的博客）。
+
+
 
 ### 1. Parse AndroidManifst.xml
 
 解析 Android 清单文件中的 package 属性，为了提供生成 R 文件的包名。
 
+
+
 ### 2. Add Included Resources
 
 添加被引用的资源包，此时会引用系统资源包，在 android 源码工程的 `out/target/common/obj/APPS/framework-res_intermediates/package-export.apk`，可通过资源 id 引用其中的资源。
+
+
 
 ### 3. Collection Resource Files
 
@@ -88,6 +96,8 @@ drawable     main.png
                                ...
 ```
 
+
+
 ### 4. Add Resources to Resource Table
 
 将资源加入资源表。
@@ -105,6 +115,8 @@ com.xx.xx       anim
                                                ...           ...
 ```
 
+
+
 ### 5. Compile Values Resources
 
 收集 value 下的资源。
@@ -115,6 +127,8 @@ string        app_name          default        TestApp
 string        sub_title         default        SubTitleText
 ...           ...               ...            ...
 ```
+
+
 
 ### 6. Assign Resource ID to Bag
 
@@ -127,6 +141,8 @@ style        orientation            default         -
              layout_horizontal      default         1
              ...                    ...             ...
 ```
+
+
 
 ### 7. Compile Xml Resources
 
@@ -194,9 +210,13 @@ style        orientation            default         -
 
    6. Flatten Nodes（平铺，即将二进制的 xml 文件中的资源全部替换为资源索引）
 
+
+
 ### 8. Add Resource Symbols
 
 添加资源符号，根据资源在其资源类型中的位置，为每个资源分配资源 id。
+
+
 
 ### 9. Write resource.arsc
 
@@ -234,17 +254,25 @@ style        orientation            default         -
 
 7. Write Package Trunk（写入上面收集的 Package 数据块）
 
+
+
 ### 10. Compile AndroidManifest.xml
 
 将 AndroidManifest.xml 编译为二进制。
+
+
 
 ### 11. Write R.java
 
 生成 R 文件。
 
+
+
 ### 12. Write APK
 
 写入 apk 文件。
+
+
 
 ## arsc 文件结构
 
@@ -318,9 +346,13 @@ public class ResChunkHeader {
 }
 ```
 
+
+
 ## arsc 文件解析
 
 为了便于解析，这里使用了我自己写的工具类，参考这里的简介： [ObjectIO](./utils_parse.md)。
+
+
 
 ### 解析方法
 
@@ -359,6 +391,8 @@ public class ArscParser {
     }
 }
 ```
+
+
 
 ### parse RES_TABLE_TYPE
 
@@ -423,6 +457,8 @@ private void parseResTableType(ObjectIO objectIO) {
 resource table header:
 {header={type=2(RES_TABLE_TYPE), headerSize=12, size=6384}, packageCount=1}
 ```
+
+
 
 ### parse RES_STRING_POOL_TYPE
 
@@ -757,6 +793,8 @@ a;href=http://www.cmcm.com/protocol/cmbackup/terms-of-use.html
 a;href=http://www.cmcm.com/protocol/cmbackup/privacy.html
 ```
 
+
+
 ### parse RES_TABLE_PACKAGE_TYPE
 
 下面是资源项元信息的解析，它包含如下几个部分：
@@ -884,6 +922,8 @@ style pool: []
 style detail:
 ```
 
+
+
 ### parse RES_TABLE_TYPE_SPEC_TYPE
 
 类型规范数据块为了描述资源项的配置差异性，通过它可以了解到每类资源的配置情况。
@@ -1004,6 +1044,8 @@ table type spec type:
 table type spec type entry array:
 [0, 0]
 ```
+
+
 
 ### parse RES_TABLE_TYPE_TYPE
 
@@ -1372,9 +1414,13 @@ table map 0:
 {name={ident=0x01000000}, value={size=8, res0=0, dataType=TYPE_INT_DEC, data=1}}
 ```
 
+
+
 ## 源码
 
 [ArscParser](./project/android_arsc_parse)
+
+
 
 ## 参考
 

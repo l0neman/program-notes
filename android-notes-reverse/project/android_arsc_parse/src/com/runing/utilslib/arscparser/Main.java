@@ -10,10 +10,10 @@ public class Main {
   public static void main(String[] args) {
 
     // 解析 arsc 文件。
-    // parseArscFile();
+    parseArscFile();
 
     // 解析二进制 xml 文件。
-    parseBinaryXmlFile();
+    // parseBinaryXmlFile();
   }
 
   private static void parseArscFile() {
