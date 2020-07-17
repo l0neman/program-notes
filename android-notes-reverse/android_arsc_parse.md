@@ -8,7 +8,7 @@
   - [4. Add Resources to Resource Table](#4-add-resources-to-resource-table)
   - [5. Compile Values Resources](#5-compile-values-resources)
   - [6. Assign Resource ID to Bag](#6-assign-resource-id-to-bag)
-  - [7. Compile Xml Resources](#7-compile-xml-resources)
+  - [7. Compile XML Resources](#7-compile-xml-resources)
   - [8. Add Resource Symbols](#8-add-resource-symbols)
   - [9. Write resource.arsc](#9-write-resourcearsc)
   - [10. Compile AndroidManifest.xml](#10-compile-androidmanifestxml)
@@ -75,7 +75,7 @@ aapt 工具编译资源的过程是比较复杂的，其中的步骤非常细致
 
 ### 2. Add Included Resources
 
-添加被引用的资源包，此时会引用系统资源包，在 android 源码工程的 `out/target/common/obj/APPS/framework-res_intermediates/package-export.apk`，可通过资源 id 引用其中的资源。
+添加被引用的资源包，此时会引用系统资源包，在 Android 源码工程的 `out/target/common/obj/APPS/framework-res_intermediates/package-export.apk`，可通过资源 id 引用其中的资源。
 
 
 
@@ -144,18 +144,18 @@ style        orientation            default         -
 
 
 
-### 7. Compile Xml Resources
+### 7. Compile XML Resources
 
 这一步是将 xml 类型的资源编译为优化过后的二进制格式，便于压缩大小和解析时提高性能。有 6 个子步骤。
 
-1. Parser Xml File（解析原始 xml 文件中的节点树）
+1. Parser XML File（解析原始 xml 文件中的节点树）
 
    ```
    XMLNode
-   -elementName   -Xml 元素标签
-   -chars         -Xml 元素的文本内容
-   -attributes    -Xml 元素的属性列表
-   -children      -Xml 的子元素
+   -elementName   -XML 元素标签
+   -chars         -XML 元素的文本内容
+   -attributes    -XML 元素的属性列表
+   -children      -XML 的子元素
    ```
 
 2. Assign Resource IDs（赋予属性名资源 id）
@@ -198,7 +198,7 @@ style        orientation            default         -
       String android  http://schemas.android.com/apk/res/android  LinearLayout ...
       ```
 
-   3. Write Xml header（写入 xml 头部）
+   3. Write XML header（写入 xml 头部）
 
    4. Write String Pool（依 id 次序写入字符串池）
 
@@ -282,9 +282,9 @@ arsc 文件作为资源信息的存储结构，其结构将会遵循上述编译
 
 （图片来自互联网）
 
-arsc 文件的由若干 chunk 结构组成，所有 chunk 在 android 源码中的 `ResourceTypes.h` 头文件中均有定义，路径为 `frameworks\base\include\utils\ResourceTypes.h`。
+arsc 文件的由若干 chunk 结构组成，所有 chunk 在 Android 源码中的 `ResourceTypes.h` 头文件中均有定义，路径为 `frameworks\base\include\utils\ResourceTypes.h`。
 
-对于不同 android 版本的 `ResourceTypes.h` 头文件，为了保证向下兼容性，所以其定义的 chunk 结构相同，不过高版本相对于低版本可能增加了一些配置的常量，例如适配高分辨率设备的 xxhdpi，xxxhdpi 维度选项。
+对于不同 Android 版本的 `ResourceTypes.h` 头文件，为了保证向下兼容性，所以其定义的 chunk 结构相同，不过高版本相对于低版本可能增加了一些配置的常量，例如适配高分辨率设备的 xxhdpi，xxxhdpi 维度选项。
 
 每个 chunk 都会包含一个基础描述类型的对象，它的原始定义如下：
 
@@ -330,7 +330,7 @@ enum {
 
 它表示每种 chunk 的类型，类似于标识文件类型的魔数，而 chunk 大小 `size` 则表示此 chunk 的容量。
 
-下面开始对 arsc 文件的结构进行解析，这里使用 java 语言进行解析，为了方便，对于 `ResourceTypes.h` 中的类型，在 java 中都应该定义对应的类，例如基础描述结构体 `ResChunk_header` 使用 java 定义如下：
+下面开始对 arsc 文件的结构进行解析，这里使用 Java 语言进行解析，为了方便，对于 `ResourceTypes.h` 中的类型，在 Java 中都应该定义对应的类，例如基础描述结构体 `ResChunk_header` 使用 Java 定义如下：
 
 ```java
 /**
@@ -398,7 +398,7 @@ public class ArscParser {
 
 参考上面的 arsc 结构所示，首先解析的是资源表头部，它描述了整个 arsc 文件的大小，以及包含的资源包数量。
 
-它的 `type` 值为 `RES_TABLE_TYPE`，对应的数据结构为 `struct ResTable_header`，java 对应的表示为：
+它的 `type` 值为 `RES_TABLE_TYPE`，对应的数据结构为 `struct ResTable_header`，Java 对应的表示为：
 
 ```java
 /**
@@ -470,7 +470,7 @@ resource table header:
 4. String Content 字符串内容块。
 5. Style Content 字符串样式块。
 
-字符串池的头部使用 `struct ResStringPool_header` 数据结构描述，java 表示为：
+字符串池的头部使用 `struct ResStringPool_header` 数据结构描述，Java 表示为：
 
 ```java
 /**
@@ -503,7 +503,7 @@ public class ResStringPoolHeader implements Struct {
 
 其中 `flags` 包含 `UTF8_FLAG` 表示字符串格式为 utf8， `SORTED_FLAG` 表示已排序。
 
-字符串的偏移数组使用 `struct ResStringPool_ref` 数据结构描述，java 表示为：
+字符串的偏移数组使用 `struct ResStringPool_ref` 数据结构描述，Java 表示为：
 
 ```java
 /**
@@ -515,7 +515,7 @@ public class ResStringPoolRef implements Struct{
 }
 ```
 
-字符串样式则使用 `struct ResStringPool_span` 数据结构描述，java 表示为：
+字符串样式则使用 `struct ResStringPool_span` 数据结构描述，Java 表示为：
 
 ```java
 /**
@@ -805,7 +805,7 @@ a;href=http://www.cmcm.com/protocol/cmbackup/privacy.html
 4. Type Specification Trunk 类型规范数据块，描述资源的配置信息。
 5. Type Info Trunk 类型资源项数据块。
 
-资源项元信息头部使用 `struct ResTable_package` 数据结构描述，使用 java 表示为：
+资源项元信息头部使用 `struct ResTable_package` 数据结构描述，使用 Java 表示为：
 
 ```java
 /**
@@ -928,7 +928,7 @@ style detail:
 
 类型规范数据块为了描述资源项的配置差异性，通过它可以了解到每类资源的配置情况。
 
-类型规范数据块由 `ResTable_typeSpec` 数据结构描述，java 表示为：
+类型规范数据块由 `ResTable_typeSpec` 数据结构描述，Java 表示为：
 
 ```java
 /**
@@ -1051,7 +1051,7 @@ table type spec type entry array:
 
 最后是类型资源项数据块，它用来描述资源项的具体信息，通过它可以了解每一个资源项名称、值和配置等信息。类型资源项数据是按照类型和配置来组织的，也就是说，一个具有 N 个配置的类型一共对应有 N 个类型资源项数据块。
 
-类型资源项数据块使用 `ResTable_type` 数据结构描述，java 表示为：
+类型资源项数据块使用 `ResTable_type` 数据结构描述，Java 表示为：
 
 ```java
 /**
@@ -1087,7 +1087,7 @@ public class ResTableType implements Struct {
 
 `ResTableConfig` 描述了资源的配置信息，内部由多个 Union 联合体构成，由于代码过长，所以具体结构可参考项目源码。
 
-每个资源项通过 `ResTable_entry` 数据结构描述，java 表示为：
+每个资源项通过 `ResTable_entry` 数据结构描述，Java 表示为：
 
 ```java
 /**
@@ -1113,7 +1113,7 @@ public class ResTableEntry implements Struct {
 
 如果其中的 `flags` 的 `FLAG_COMPLEX` 位为 1，那么这个 `struct ResTable_entry` 则是一个 `struct ResTable_map_entry` 类型，然后下面就会跟一个 `struct ResTable_map` 的数组。
 
-`struct ResTable_map_entry`  是 `struct ResTable_entry`  的子结构类型，java 表示为：
+`struct ResTable_map_entry`  是 `struct ResTable_entry`  的子结构类型，Java 表示为：
 
 ```java
 public class ResTableMapEntry extends ResTableEntry {
@@ -1126,7 +1126,7 @@ public class ResTableMapEntry extends ResTableEntry {
 }
 ```
 
-ResTable_map 的 java 表示为：
+ResTable_map 的 Java 表示为：
 
 ```java
 public class ResTableMap implements Struct {

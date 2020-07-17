@@ -1,4 +1,4 @@
-# Android 二进制 Xml 文件解析
+# Android 二进制 XML 文件解析
 
 - [前言](#前言)
 - [Xml 文件结构](#xml-文件结构)
@@ -31,23 +31,23 @@
 
 ## 前言
 
-android sdk 在编译 Android 工程时，将会把诸如资源文件和清单文件之类的相关 xml 文件编译为特定的二进制格式，目的是为了压缩其容量以及优化其在运行时的解析效率。
+Android SDK 在编译 Android 工程时，将会把诸如资源文件和清单文件之类的相关 XML 文件编译为特定的二进制格式，目的是为了压缩其容量以及优化其在运行时的解析效率。
 
-将 Xml 文件编译为二进制的 Xml 文件是 android 编译资源时的一个子步骤，android 在完整的资源编译过程结束后将会生成一个 `resources.arsc` 文件，它是一个资源文件表，应用在运行时会将它映射在内存中，为了资源的查询和引用。编译 Xml 文件为生成 arsc 文件的一个子步骤，如果 Xml 文件中引用了资源，例如字符串资源，那么 Xml 文件中引用字符串的位置将会包含一个全局字串池的索引，通过索引在 arsc 文件中的全局字符串池中即可查询到引用的具体字符串。
+将 XML 文件编译为二进制的 XML 文件是 Android 编译资源时的一个子步骤，Android 在完整的资源编译过程结束后将会生成一个 `resources.arsc` 文件，它是一个资源文件表，应用在运行时会将它映射在内存中，为了资源的查询和引用。编译 Xml 文件为生成 arsc 文件的一个子步骤，如果 Xml 文件中引用了资源，例如字符串资源，那么 Xml 文件中引用字符串的位置将会包含一个全局字串池的索引，通过索引在 arsc 文件中的全局字符串池中即可查询到引用的具体字符串。
 
 有关 arsc 文件的结构和解析方法可参考：[Android arsc 文件解析](./android_arsc_parse.md)。
 
-## Xml 文件结构
+## XML 文件结构
 
 编译后的二进制文件结构如下图：
 
 ![](./image/android_xml_parse/android_xml_struct.png)
 
-和 arsc 文件的构成方式类似，二进制 Xml 文件的结构也是由若干 Chunk 结构组成，且它们在 android 源码中的 `ResourceTypes.h` 头文件中均有对应结构的定义。下面分别说明二进制 Xml 中 4 部分 Chunk 的内容。
+和 arsc 文件的构成方式类似，二进制 XML 文件的结构也是由若干 Chunk 结构组成，且它们在 Android 源码中的 `ResourceTypes.h` 头文件中均有对应结构的定义。下面分别说明二进制 Xml 中 4 部分 Chunk 的内容。
 
-### Xml Chunk Header
+### XML Chunk Header
 
-Xml Chunk Header 描述了 Xml 文件的基本信息，它在 `ResourceTypes.h` 中的结构为 `struct ResXMLTree_header`，这里使用 java 描述为：
+XML Chunk Header 描述了 XML 文件的基本信息，它在 `ResourceTypes.h` 中的结构为 `struct ResXMLTree_header`，这里使用 Java 描述为：
 
 ```java
 public class ResXMLTreeHeader implements Struct {
@@ -62,7 +62,7 @@ public class ResXMLTreeHeader implements Struct {
 }
 ```
 
-其中 `ResChunkHeader` 为资源 Chunk 的基础描述头部结构，对应的定义为 `struct ResChunk_header`，java 表示为：
+其中 `ResChunkHeader` 为资源 Chunk 的基础描述头部结构，对应的定义为 `struct ResChunk_header`，Java 表示为：
 
 ```java
 public class ResChunkHeader implements Struct {
@@ -75,10 +75,10 @@ public class ResChunkHeader implements Struct {
 }
 ```
 
-在 Xml 文件中，此时的 `type` 值为 `0x003`  等于 `ResourceTypes.h` 中定义的 Xml 类型的 type 值：
+在 XML 文件中，此时的 `type` 值为 `0x003`  等于 `ResourceTypes.h` 中定义的 XML 类型的 type 值：
 
 ```java
-// 这里使用 java 描述。
+// 这里使用 Java 描述。
 public class ResourceTypes {
 	public static final short RES_XML_TYPE = 0x0003;
     ...
@@ -87,11 +87,11 @@ public class ResourceTypes {
 
 `headerSize` 为 `ResXMLTreeHeader` 头部结构自身的大小，即 `ResChunkHeader` 的大小，为 8 字节。
 
-`size` 为当前 Chunk 大小，此时为 Xml 文件的大小，包括头结构的大小。
+`size` 为当前 Chunk 大小，此时为 XML 文件的大小，包括头结构的大小。
 
 ### String Pool Chunk
 
-String Pool Chunk 为字符串池结构，它包含了此 Xml 文件中出现的所有字符串内容。它的结构和 arsc 文件中的全局字符串结构完全一致，下面是引用上篇解析 arsc 文件中的字符串池的描述：
+String Pool Chunk 为字符串池结构，它包含了此 XML 文件中出现的所有字符串内容。它的结构和 arsc 文件中的全局字符串结构完全一致，下面是引用上篇解析 arsc 文件中的字符串池的描述：
 
 字符串池包括如下几个部分：
 
@@ -101,7 +101,7 @@ String Pool Chunk 为字符串池结构，它包含了此 Xml 文件中出现的
 4. String Content 字符串内容块。
 5. Style Content 字符串样式块。
 
-字符串池的头部使用 `struct ResStringPool_header` 数据结构描述，java 表示为：
+字符串池的头部使用 `struct ResStringPool_header` 数据结构描述，Java 表示为：
 
 ```java
 /**
@@ -134,7 +134,7 @@ public class ResStringPoolHeader implements Struct {
 
 其中 `flags` 包含 `UTF8_FLAG` 表示字符串格式为 utf8， `SORTED_FLAG` 表示已排序。
 
-字符串的偏移数组使用 `struct ResStringPool_ref` 数据结构描述，java 表示为：
+字符串的偏移数组使用 `struct ResStringPool_ref` 数据结构描述，Java 表示为：
 
 ```java
 /**
@@ -146,7 +146,7 @@ public class ResStringPoolRef implements Struct{
 }
 ```
 
-字符串样式则使用 `struct ResStringPool_span` 数据结构描述，java 表示为：
+字符串样式则使用 `struct ResStringPool_span` 数据结构描述，Java 表示为：
 
 ```java
 /**
@@ -176,13 +176,13 @@ Resource Ids Chunk 包含了 xml 文件中相关的资源 ID，例如 AndroidMan
 
 这里 Resource Ids Chunk 的结构很简单，包含一个 `struct ResChunk_header` 结构的 `header`，然后后面包含一个大小为 `header.size - header.headerSize` 的 int 型 id 数组。
 
-### Xml Content Chunk
+### XML Content Chunk
 
-Xml Content Chunk 是二进制 Xml 的核心块结构，包含了 Xml 的主要内容。
+XML Content Chunk 是二进制 XML 的核心块结构，包含了 XML 的主要内容。
 
 #### ResXMLTree_node
 
-此 Chunk 结构包含多种子 Chunk 结构，它们都有相同的头部结构，使用 `struct ResXMLTree_node` 结构描述，java 表示为：
+此 Chunk 结构包含多种子 Chunk 结构，它们都有相同的头部结构，使用 `struct ResXMLTree_node` 结构描述，Java 表示为：
 
 ```java
 public class ResXMLTreeNode implements Struct {
@@ -202,7 +202,7 @@ public class ResXMLTreeNode implements Struct {
    */
   public ResChunkHeader header;
   /**
-   * 命名空间开始标签在原来文本格式的 Xml 文件出现的行号
+   * 命名空间开始标签在原来文本格式的 XML 文件出现的行号
    */
   public int lineNumber;
   /**
@@ -216,7 +216,7 @@ public class ResXMLTreeNode implements Struct {
 
 Start Namespace Chunk
 
-当一个 Xml 文件包含命名空间时，首次解析到的 Chunk 为 `Start Namespace Chunk`，然后后面解析到和 Xml 命名空间数量一致的 `Start Namespace Chunk`，它们使用 `struct ResXMLTree_namespaceExt ` 结构描述，java 表示为：
+当一个 XML 文件包含命名空间时，首次解析到的 Chunk 为 `Start Namespace Chunk`，然后后面解析到和 XML 命名空间数量一致的 `Start Namespace Chunk`，它们使用 `struct ResXMLTree_namespaceExt ` 结构描述，Java 表示为：
 
 ```java
 public class ResXMLTreeNamespaceExt implements Struct {
@@ -237,7 +237,7 @@ xmlns:http://schemas.android.com/apk/res/android="android"
 
 #### Start Element Chunk
 
-当有 Xml 元素标签出现时，将会解析到 `Start Element Chunk`，它表示一个元素标签的开始，使用 `struct  ResXMLTree_attrExt` 结构描述，java 表示为：
+当有 XML 元素标签出现时，将会解析到 `Start Element Chunk`，它表示一个元素标签的开始，使用 `struct  ResXMLTree_attrExt` 结构描述，Java 表示为：
 
 ```java
 public class ResXMLTreeAttrExt implements Struct {
@@ -278,7 +278,7 @@ public class ResXMLTreeAttrExt implements Struct {
 
 它的 `name` 为 `LinearLayout`，`ns` 为 `null`，`attributeCount` 等于 `5`。
 
-通过 `ResXMLTree_attrExt` 结构给出的元素信息，可以解析出它所包含的属性，属性使用 `struct ResXMLTree_attribute` 结构描述，使用 java 表示为：
+通过 `ResXMLTree_attrExt` 结构给出的元素信息，可以解析出它所包含的属性，属性使用 `struct ResXMLTree_attribute` 结构描述，使用 Java 表示为：
 
 ```java
 public class ResXMLTreeAttribute implements Struct {
@@ -297,7 +297,7 @@ public class ResXMLTreeAttribute implements Struct {
 
 当一个元素标签包含值内容时，将会解析到 CData Chunk 结构。
 
-例如 `<string>abc</string>`，其中的 `CData` 为 abc，CData Chunk 使用 `struct ResXMLTree_cdataExt` 描述，java 表示为：
+例如 `<string>abc</string>`，其中的 `CData` 为 abc，CData Chunk 使用 `struct ResXMLTree_cdataExt` 描述，Java 表示为：
 
 ```java
 public class ResXMLTreeCdataExt implements Struct {
@@ -310,7 +310,7 @@ public class ResXMLTreeCdataExt implements Struct {
 
 #### End Element Chunk
 
-End Element Chunk 表示元素标签的结束，和 Start Element Chunk 对应，它使用 `struct ResXMLTree_endElementExt` 描述，java 表示为：
+End Element Chunk 表示元素标签的结束，和 Start Element Chunk 对应，它使用 `struct ResXMLTree_endElementExt` 描述，Java 表示为：
 
 ```java
 public class ResXMLTreeEndElementExt implements Struct {
@@ -331,7 +331,7 @@ End Element Chunk 表示命名空间的结束符，和 Start Namespace Chunk 对
 
 ```java
 public class ResourceTypes {
-  // Xml Chunk Header.
+  // XML Chunk Header.
   public static final short RES_XML_TYPE = 0x0003;
   // String Pool Chunk.
   public static final short RES_STRING_POOL_TYPE = 0x0001;
@@ -350,13 +350,13 @@ public class ResourceTypes {
 }
 ```
 
-## Xml 文件解析
+## XML 文件解析
 
 为了便于解析，这里使用了我自己写的工具类，参考这里的简介： [ObjectIO](./utils_parse.md)。
 
 ### 解析方法
 
-针对上述二进制 Xml 文件结构，采用如下方式进行解析：
+针对上述二进制 XML 文件结构，采用如下方式进行解析：
 
 1. 定义指针变量标识当前解析的字节位置，每解析完一个 chunk 则向下移动指针 chunk 的大小。
 2. 采用循环解析的方式，通过 chunk 的 `type` 判断将要解析哪种 chunk，解析对应的结构。
@@ -393,9 +393,9 @@ private void parse(ObjectInput objectInput) throws IOException {
 }
 ```
 
-### Xml Chunk Header
+### XML Chunk Header
 
-首先解析 Xml Chunk Header，直接一步就行。
+首先解析 XML Chunk Header，直接一步就行。
 
 ```java
 // AXmlParser.java
@@ -672,9 +672,9 @@ private void parseResourceIds(ObjectInput objectInput) throws IOException {
 }
 ```
 
-### Xml Content Chunk
+### XML Content Chunk
 
-解析来是解析 Xml 内容，每种 Xml Chunk 都包含有相同的头部结构 `struct ResXMLTree_node`，它包含一个 Xml Chunk 块的基本信息和行号，所以需要首先解析它。
+解析来是解析 XML 内容，每种 XML Chunk 都包含有相同的头部结构 `struct ResXMLTree_node`，它包含一个 XML Chunk 块的基本信息和行号，所以需要首先解析它。
 
 #### Start Namespace Chunk
 
@@ -959,15 +959,15 @@ private void parseEndNamespace(ObjectInput objectInput) throws IOException {
 }
 ```
 
-### Xml 文档输出
+### XML 文档输出
 
-上面的解析只是将数值打印出来，看起来，并不直观，所以现在需求是将二进制的 Xml 转化为一个可读且格式标准的 Xml 文档。
+上面的解析只是将数值打印出来，看起来，并不直观，所以现在需求是将二进制的 XML 转化为一个可读且格式标准的 XML 文档。
 
-这里首先定义了一个 `AXmlEditor` 负责将解析的数值输出为一个标准 Xml 文档。
+这里首先定义了一个 `AXmlEditor` 负责将解析的数值输出为一个标准 XML 文档。
 
 ```java
 /**
- * Android Xml 编辑工具。
+ * Android XML 编辑工具。
  */
 class AXmlEditor {
   private static final String ACTION_OPEN = "open";
@@ -1062,7 +1062,7 @@ class AXmlEditor {
 }
 ```
 
-通过使用上面的解析器即可打印出如下形式的 Xml 文档，除了相关资源需要对应的 arsc 文件才能解析出来，输出的文档和标准文档一致。
+通过使用上面的解析器即可打印出如下形式的 XML 文档，除了相关资源需要对应的 arsc 文件才能解析出来，输出的文档和标准文档一致。
 
 实例 AM.xml：
 
