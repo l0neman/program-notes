@@ -145,9 +145,9 @@ protected void measureChild(View child, int parentWidthMeasureSpec,
 
 ### 概述
 
-一个合格的view是拥有多种可设置属性的，包括从java代码和xml布局文件中设置两种方式，Android sdk提供的原生view本身具有丰富的属性，这里实现自定义view的xml属性。
+一个合格的 View 是拥有多种可设置属性的，包括从 Java 代码和 XML 布局文件中设置两种方式，Android SDK 提供的原生 View 本身具有丰富的属性，这里实现自定义 View 的 XML 属性。
 
-- 首先需要创建自定义view的java类型
+- 首先需要创建自定义 View 的 Java 类型
 
 - 然后在 `res/values/` 目录下建立 `attrs.xml`，在其中建立自定义View对应的自定义属性
 
@@ -161,7 +161,7 @@ protected void measureChild(View child, int parentWidthMeasureSpec,
 </resources>
 ```
 
-使用 `<declare-styleable/>` 标签创建view的自定义属性，其中 `name` 最好指定为自定义View的名字，方便和view对应。在内部包含的 `<attr/>` 标签为该view支持的自定义属性列表，包含一个属性名字和引用的类型，定义后即可在布局中使用自定义View的属性，与系统属性所用的 `android`命名空间不同，自定义属性需要使用 `app` 命名空间，自定义属性支持以下的所有format类型。
+使用 `<declare-styleable/>` 标签创建view的自定义属性，其中 `name` 最好指定为自定义View的名字，方便和 View 对应。在内部包含的 `<attr/>` 标签为该 View 支持的自定义属性列表，包含一个属性名字和引用的类型，定义后即可在布局中使用自定义 View 的属性，与系统属性所用的 `android` 命名空间不同，自定义属性需要使用 `app` 命名空间，自定义属性支持以下的所有 Format 类型。
 
 | format类型  | 描述                                       |
 | --------- | ---------------------------------------- |
@@ -327,9 +327,9 @@ array.getFraction(R.styleable.AttrTestView_fractionAttr, 2, 1, 0F);
 array.getFraction(R.styleable.AttrTestView_fractionAttr, 2, 2, 0F);
 ```
 
-### flag类型
+### flag 类型
 
-- 定义，flag可指定一组限制值，定义后，属性只能使用组内的数值，数值类型为数字
+- 定义，flag 可指定一组限制值，定义后，属性只能使用组内的数值，数值类型为数字
 
 ```xml
 <attr name="flagAttr">
@@ -366,7 +366,7 @@ final int flagAttr = array.getInt(R.styleable.AttrTestView_flagAttr, 0);
 </attr>
 ```
 
-- 当组合integer类型时，可直接指定数字，否则和 flag 一样，只能使用组内定义的值
+- 当组合 Integer 类型时，可直接指定数字，否则和 flag 一样，只能使用组内定义的值
 
 ```xml
 <com.example.viewtest.view.AttrTestView
@@ -384,7 +384,7 @@ final int enumAttr = array.getInt(R.styleable.AttrTestView_enumAttr, 0);
 
 ## 自定义 View
 
-- 实现一个自定义View，首先需要定义自身尺寸，然后绘制自身内容，最后提供自定义的View属性。
+- 实现一个自定义 View，首先需要定义自身尺寸，然后绘制自身内容，最后提供自定义的 View 属性。
 
 
 - 首先需要实现 `onMeasure` 测量方法，以指明 View 尺寸，根据 measureSpec 参数中的模式和基础尺寸，确定最终尺寸，下面提供一种通用的实现：
@@ -542,19 +542,19 @@ setFocusable(true);
 
 ## LayoutParams
 
-LayoutParams 是设置在 View 上的与父布局相关属性的映射。一个View在xml文件中设置的属性由两部分组成，一部分属于 VIew 自身的属性，交给View自身处理，另一部分属于LayoutParams，交给所在的 ViewGroup 处理。
+LayoutParams 是设置在 View 上的与父布局相关属性的映射。一个View在xml文件中设置的属性由两部分组成，一部分属于 View 自身的属性，交给 View 自身处理，另一部分属于 LayoutParams，交给所在的 ViewGroup 处理。
 
 系统默认提供了 `ViewGroup.LayoutParams`，它本身拥有丰富的属性，如果需要自定义自己的 LayoutParams，需要实现它的子类。
 
 一般 LayoutParams 的属性都是带有 `layout_` 前缀的属性，例如 `layout_width` ，`layout_Height` ，自定义属性时也许需要遵循这个命名规范。
 
-下面自定义一个简单的 LayoutParams，由于LayoutParams 必须有关联的的 ViewGroup 的支持，所以这里先定义一个空的 ViewGroup。
+下面自定义一个简单的 LayoutParams，由于 LayoutParams 必须有关联的的 ViewGroup 的支持，所以这里先定义一个空的 ViewGroup。
 
 ```java
 public class TestViewGroup extends ViewGroup { ... }
 ```
 
-然后和 View 的自定义属性一样，首先定义 `attrs.xml` 文件，一般 LayoutParams 的 `styleable` 的 `name` 属性定义为 VIewGroup 的名称加 `_Layout` 后缀。
+然后和 View 的自定义属性一样，首先定义 `attrs.xml` 文件，一般 LayoutParams 的 `styleable` 的 `name` 属性定义为 ViewGroup 的名称加 `_Layout` 后缀。
 
 ```xml
 <declare-styleable name="TestViewGroup_Layout">
@@ -586,7 +586,7 @@ public static final class LayoutParams extends LayoutParams {
 }
 ```
 
-最后一步，将这个LayoutParams 与 ViewGroup 相关联，需要重写 ViewGroup 的几个方法：
+最后一步，将这个 LayoutParams 与 ViewGroup 相关联，需要重写 ViewGroup 的几个方法：
 
 ```java
 public class TestViewGroup extends ViewGroup {
@@ -609,7 +609,7 @@ public class TestViewGroup extends ViewGroup {
 }
 ```
 
-实现了这些方法后，LayoutParams 就与 ViewGroup 建立了关联，在 ViewGroup 调用 `addView` 添加子View时，会使用上面重新的方法为每个子 View 建立一个 LayoutParams。
+实现了这些方法后，LayoutParams 就与 ViewGroup 建立了关联，在 ViewGroup 调用 `addView` 添加子 View 时，会使用上面重新的方法为每个子 View 建立一个 LayoutParams。
 
 ```java
 /* ViewGroup.java */
@@ -626,7 +626,7 @@ public void addView(View child, int index) {
    }
 ```
 
-最后在xml布局中使用
+最后在 XML 布局中使用
 
 ```xml
 <com.example.viewtest.view.TestViewGroup
@@ -645,7 +645,7 @@ public void addView(View child, int index) {
 
 ## 自定义 ViewGroup
 
-- 实现一个ViewGroup，除了需要实现 View 的基本的尺寸定义和提供自定义属性，还需要实现对子 View 位置的控制，如果需要更为细致的针对每个子View有不同的处理，则需要实现自定义的 LayoutParams，
+- 实现一个 ViewGroup，除了需要实现 View 的基本的尺寸定义和提供自定义属性，还需要实现对子 View 位置的控制，如果需要更为细致的针对每个子 View 有不同的处理，则需要实现自定义的 LayoutParams，
 
 
 - `onLayout` 方法为必须实现的抽象方法，它是 ViewGroup 的核心，负责控制所有子 View 的位置摆放，具体方法是通过计算子 View 的 left, right, top, bottom 的位置后，调用它们的 `layout` 方法为每个子 View 设置最终位置。
@@ -655,7 +655,7 @@ public void addView(View child, int index) {
 
 ### BorderLayoutSample 实例
 
-下面要定义一个类似Java中的 Border布局的 ViewGroup，它拥有以下特性：
+下面要定义一个类似 Java中的 Border 布局的 ViewGroup，它拥有以下特性：
 
 1. 子 View 可使用 `layout_gravity` 属性设置自身的位置，基本位置属性值包括 `left, right, top, bottom, centerX, centerY, center` ，还可使用按位或  `|`  符号组合属性值使用，例如 `left | bottom` 代表左下方。
 2. 为了简单，一旦放入布局中，所有子 View 的尺寸将统一，默认使用最小宽度和最小高度的子View（宽高不为0dp）的尺寸作为统一子 View 尺寸，可以使用 `requestWidth` 和 `requestHeight` 请求统一的子 view 的宽和高，BorderLayout 的宽高为统一子 View 宽高的3倍（为了给其他方位的子View留出空间），如果默认和请求的子View尺寸的3倍超过尺寸限制（measureSpec包含的 size），则强制另统一子 View 的尺寸为限制尺寸的 1/3。
@@ -998,6 +998,6 @@ void computeScroll();
 
 ## 参考
 
-[https://staticallytyped.wordpress.com/2011/04/16/android-custom-xml-attributes-and-views/](https://staticallytyped.wordpress.com/2011/04/16/android-custom-xml-attributes-and-views/)
+- [https://staticallytyped.wordpress.com/2011/04/16/android-custom-xml-attributes-and-views/](https://staticallytyped.wordpress.com/2011/04/16/android-custom-xml-attributes-and-views/)
 
-[https://developer.android.com/reference/android/view/View.html](https://developer.android.com/reference/android/view/View.html)
+- [https://developer.android.com/reference/android/view/View.html](https://developer.android.com/reference/android/view/View.html)

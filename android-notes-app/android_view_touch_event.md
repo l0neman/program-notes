@@ -1,6 +1,5 @@
-# Android View事件分发机制
+# Android View 事件分发机制
 
-- [Android View事件分发机制](#android-view事件分发机制)
 - [触摸事件处理框架](#触摸事件处理框架)
   - [核心方法](#核心方法)
   - [调用关系](#调用关系)
@@ -21,13 +20,13 @@
 
 # 触摸事件处理框架
 
-Android 的 View 和 ViewGroup 采用了 Composite(组合) 设计模式，View 的组合具有高度动态性，在这种情况下，由于触摸事件是从底层驱动传递至上层 View 对象，如果按照普通对象间传递信息的方式，将会很复杂，很难处理，这里 Android 采用了 Chain of Responsibility(责任链) 设计模式，触摸事件流将通过视图树，使每个 View 对象都有机会处理事件，一旦某个 View 选择接收事件流，那么整个事件将交给它处理，如果 View 选择不处理，那么事件流会继续传递，直到找到最后的处理者，在处理触摸事件时有几个重要的方法，在弄懂 Android 事件分发机制之前，需要先了解这几个方法的作用及关系。
+Android 的 View 和 ViewGroup 采用了 Composite(组合) 设计模式，View 的组合具有高度动态性，在这种情况下，由于触摸事件是从底层驱动传递至上层 View 对象，如果按照普通对象间传递信息的方式，将会很复杂，很难处理，这里 Android 采用了 Chain of Responsibility（责任链） 设计模式，触摸事件流将通过视图树，使每个 View 对象都有机会处理事件，一旦某个 View 选择接收事件流，那么整个事件将交给它处理，如果 View 选择不处理，那么事件流会继续传递，直到找到最后的处理者，在处理触摸事件时有几个重要的方法，在弄懂 Android 事件分发机制之前，需要先了解这几个方法的作用及关系。
 
 ## 核心方法
 
 - ViewGroup 的三个重载方法
 
-> `boolean dispatchEvent(MotionEvent e)` 当触摸事件传递给当前 View 或 ViewGroup时，此方法将会被调用，它会负责事件的分发工作，可能会将事件交给自己的 `onTouchEvent` 方法或子View来处理，返回值为是否消耗事件
+> `boolean dispatchEvent(MotionEvent e)` 当触摸事件传递给当前 View 或 ViewGroup 时，此方法将会被调用，它会负责事件的分发工作，可能会将事件交给自己的 `onTouchEvent` 方法或子View来处理，返回值为是否消耗事件
 >
 > `boolean onIntercepteEvent(MotionEvent e)` 此方法将被 `dispatchEvent` 方法调用，返回的是是否拦截此次事件，如果返回 true，事件将被拦截，事件交给自己的 `onTouchEvent` 处理，子 view 将不能接收到事件，否则交给子view处理，但子 view 可以通过一个方法设置一个标记来阻止事件的拦截。
 >
@@ -35,7 +34,7 @@ Android 的 View 和 ViewGroup 采用了 Composite(组合) 设计模式，View �
 
 - View 中存在两个方法，作用和 ViewGroup 相似
 
-> `boolean dispatchEvent(MotionEvent e)` 作用和 viewgroup 类似，由于 view 一定会处理事件，所以 view 不存在 `onIntercepteEvent` 这个方法，因此 `dispatchEvent` 最终会将事件交给 `onTouchEvent` 方法处理
+> `boolean dispatchEvent(MotionEvent e)` 作用和 ViewGroup 类似，由于 View 一定会处理事件，所以 View 不存在 `onIntercepteEvent` 这个方法，因此 `dispatchEvent` 最终会将事件交给 `onTouchEvent` 方法处理
 >
 > `boolean onTouchEvent(MotionEvent e)` 与 ViewGroup 作用相同
 
@@ -142,7 +141,7 @@ public boolean onInterceptTouchEvent(MotionEvent ev) {
 }
 ```
 
-常用的几个布局,包括 LiearnLayout，RelativeLayout，FrameLayout，都没有重写 `onInterceptTouchEvent` 方法，使用的都是ViewGroup的实现，只有在手指或者鼠标触摸时返回 true 选择拦截事件，其他情况都返回  false，不拦截事件，事件将交给子view处理，当需要拦截事件交给ViewGroup处理的时候，可以重写这个方法，改变它默认的规则。
+常用的几个布局，包括 `LiearnLayout`、`RelativeLayout`、`FrameLayout`，都没有重写 `onInterceptTouchEvent` 方法，使用的都是 ViewGroup 的实现，只有在手指或者鼠标触摸时返回 `true` 选择拦截事件，其他情况都返回  `false`，不拦截事件，事件将交给子 View 处理，当需要拦截事件交给 ViewGroup 处理的时候，可以重写这个方法，改变它默认的规则。
 
 ## View-onTouchEvent
 
@@ -455,22 +454,22 @@ public boolean dispatchTouchEvent(MotionEvent ev) {
 
 第一部分代码
 
-1. 当 DOWN 事件到来时，清空保存的状态，包括 mFirstTouchTarget 和 重置 `FLAG_DISALLOW_INTERCEPT` 标志位。
+1. 当 DOWN 事件到来时，清空保存的状态，包括 `mFirstTouchTarget` 和 重置 `FLAG_DISALLOW_INTERCEPT` 标志位。
 
-2. 当 DOWN 事件到来时 或 mFisrtTouchTarget 不为空时，会调用 `onInterceptTouchEvent` 询问是否拦截事件，如果
+2. 当 DOWN 事件到来时 或 `mFisrtTouchTarget` 不为空时，会调用 `onInterceptTouchEvent` 询问是否拦截事件，如果
    `FLAG_DISALLOW_INTERCEPT` 标志位被设置，则不会拦截事件。
 
-从下一段代码可以获取到，mFisrtTouchTarget 代表是否有子View处理了事件，`FLAG_DISALLOW_INTERCEPT` 标志位可通过在子
+从下一段代码可以获取到，`mFisrtTouchTarget` 代表是否有子View处理了事件，`FLAG_DISALLOW_INTERCEPT` 标志位可通过在子
 View 中调用父 ViewGroup 的 `requestDisallowInterceptTouchEvent()` 方法来设置
 
 第二部分代码
 
 如果 ViewGroup 未拦截事件，那么开始寻找可以处理事件的子View，即利用 `dispatchTransformedTouchEvent` 方法把事件分
-发给子 View，如果子 View 处理了，即子View的 `dispatchTouchEvent` 返回 true，那么将会调用 `addTouchTarget` 方法，将子
-View 加入 TouchTarget 链表中，其中 mFirstTouchTarget 作为链表的头结点，这时 mFirstTouchTarget 被赋值，下次事件，如果
+发给子 View，如果子 View 处理了，即子View的 `dispatchTouchEvent` 返回 `true`，那么将会调用 `addTouchTarget` 方法，将子
+View 加入 `TouchTarget` 链表中，其中 `mFirstTouchTarget` 作为链表的头结点，这时 `mFirstTouchTarget` 被赋值，下次事件，如果
 子 View 设置，`FLAG_DISALLOW_INTERCEPT` 标志，则可以阻止 ViewGroup 拦截事件。
 
-在 `dispatchTransformedTouchEvent` 方法中，如果 child 参数不为空，就会调用子 View 的 `dispatchTouchEvent` 方法
+在 `dispatchTransformedTouchEvent` 方法中，如果 `child` 参数不为空，就会调用子 View 的 `dispatchTouchEvent` 方法
 
 ```java
 private boolean dispatchTransformedTouchEvent(MotionEvent event, boolean cancel,
@@ -518,7 +517,7 @@ private boolean dispatchTransformedTouchEvent(MotionEvent event, boolean cancel,
 }
 ```
 
-第三部分代码则是将事件分发给子 View，如果没有子 View 处理事件，那么交给自己处理，其中如果子View处理过事件，但是下次
+第三部分代码则是将事件分发给子 View，如果没有子 View 处理事件，那么交给自己处理，其中如果子 View 处理过事件，但是下次
 被父 ViewGroup 拦截了，那么 TouchTarget 当前处理事件的这个子 View 节点将被删除，本次会给子 View 分发 CANCEL 事件。
 
 从以上代码分析可得出一些结论；
@@ -608,7 +607,7 @@ public boolean onTouchEvent(MotionEvent event) {
 }
 ```
 
-好，现在上面都是默认情况，TouchParent 和 TouchChild 都默认处理所有事件，开始测试，现在用手指在TouchChild 的绿色区域的位置向TouchParent的白色区域滑动并抬起手指，如下图
+好，现在上面都是默认情况，TouchParent 和 TouchChild 都默认处理所有事件，开始测试，现在用手指在 TouchChild 的绿色区域的位置向 TouchParent 的白色区域滑动并抬起手指，如下图
 
 ![](./image/android_view_touch_event/20170211180255373.jpg)
 
@@ -616,7 +615,7 @@ public boolean onTouchEvent(MotionEvent event) {
 
 ![](./image/android_view_touch_event/20170211180324754.jpg)
 
-2. 现在把TouchParent的 `onIntercepTouchEvent` 方法改一下，让它“只拦截” DOWN 事件，试试
+2. 现在把 TouchParent 的 `onIntercepTouchEvent` 方法改一下，让它“只拦截” DOWN 事件，试试
 
    ```java
    switch (eventMasked) {
@@ -636,7 +635,7 @@ public boolean onTouchEvent(MotionEvent event) {
 
    所以为什么是引号呢，这就验证了前面的，当 ViewGroup 决定拦截 DOWN 时，那么所有的事件都会交给它来处理，不会是表面上的只拦截DOWN事件，`onInterceptTouchEvent` 也将不会再被调用。
 
-3.  在2的基础上，把TouchParent 的 onTouchEvent 的 MOVE 事件改成返回 false，不处理 MOVE 事件看看会怎样
+3.  在 2 的基础上，把 TouchParent 的 onTouchEvent 的 MOVE 事件改成返回 false，不处理 MOVE 事件看看会怎样
 
 ```java
 @Override public boolean onTouchEvent(MotionEvent event) {
@@ -651,7 +650,7 @@ public boolean onTouchEvent(MotionEvent event) {
 
 其中 MOVE 事件由于 TouchParent 没有处理，最终交给了 Activity 处理
 
-4. 现在把TouchParent里的 `onInterceptTouchEvent` 方法改为 DOWN 事件不拦截，MOVE 和 UP 事件拦截
+4. 现在把 TouchParent 里的 `onInterceptTouchEvent` 方法改为 DOWN 事件不拦截，MOVE 和 UP 事件拦截
 
    ```java
    @Override
@@ -669,17 +668,17 @@ public boolean onTouchEvent(MotionEvent event) {
        }
    ```
 
-   然后把TouchChild里的 `onTouchEvent` 方法，在 DOWN 中调用 `getParent().requestDisallowInterceptTouchEvent(true);` 即，阻止 TouchParent 的事件拦截，测试一下：
+   然后把 TouchChild 里的 `onTouchEvent` 方法，在 DOWN 中调用 `getParent().requestDisallowInterceptTouchEvent(true);` 即，阻止 TouchParent 的事件拦截，测试一下：
 
 ![](./image/android_view_touch_event/20170211180420036.jpg)
 
-   可以看到，事件完全被TouchChild处理了，因为TouchChild使用 `requestDisallowInterceptTouchEvent` 阻止了TouchParent的拦截，不过如果 TouchParent在down 事件里选择拦截的话，那么 TouchChild 将无法进行拦截，这里要注意的是 `requestDisallowInterceptTouchEvent` 是在 `onTouchEvent` 里调用的，推荐在 `dispatchTouchEvent` 方法里进行过拦截，`dispatchTouchEvent` 是必然会接受到事件的，而 `onTouchEvent` 可能受到 OnTouchListener 的影响而不被调用。
+   可以看到，事件完全被TouchChild处理了，因为 TouchChild 使用 `requestDisallowInterceptTouchEvent` 阻止了 TouchParent 的拦截，不过如果 TouchParent在down 事件里选择拦截的话，那么 TouchChild 将无法进行拦截，这里要注意的是 `requestDisallowInterceptTouchEvent` 是在 `onTouchEvent` 里调用的，推荐在 `dispatchTouchEvent` 方法里进行过拦截，`dispatchTouchEvent` 是必然会接受到事件的，而 `onTouchEvent` 可能受到 OnTouchListener 的影响而不被调用。
 
-5. 现在再在4的基础上在 TouchChild里面的 `onTouchEvent` 里move事件里调用 `getParent().requestDisallowInterceptTouchEvent(false);` 把事件还给TouchParent会怎样
+5. 现在再在4的基础上在 TouchChild 里面的 `onTouchEvent` 里 MOVE 事件里调用 `getParent().requestDisallowInterceptTouchEvent(false);` 把事件还给TouchParent会怎样
 
 ![](./image/android_view_touch_event/20170211180831881.jpg)
 
-   这里多做了一次move事件，为了看的更清楚，当 TouchChild 在 DOWN 事件里阻拦了TouchParent的时候，TouchChild将会处理下一个 MOVE，在这里TouchChild有把事件交还给TouchParent，这时 TouchParent 拦截了MOVE 事件，事件将会交给 TouchParent 来处理，但是很奇怪为什么会下一个 MOVE 会被 Activity 处理呢，然后才是 TouchParent 处理 MOVE，因为从前面的结论可以知道，上次是 TouchChild 处理的事件，这次被拦截的话，此次的事件将会变成一个 CANCEL 事件并分发给子 view，这里 TouchChild 没有处理 CANCEL 事件，所以最终交给了 activity 处理，现在让 TouchChild 处理 CANCEL
+   这里多做了一次 MOVE 事件，为了看的更清楚，当 TouchChild 在 DOWN 事件里阻拦了 TouchParent 的时候，TouchChild 将会处理下一个 MOVE，在这里TouchChild有把事件交还给 TouchParent，这时 TouchParent 拦截了MOVE 事件，事件将会交给 TouchParent 来处理，但是很奇怪为什么会下一个 MOVE 会被 Activity 处理呢，然后才是 TouchParent 处理 MOVE，因为从前面的结论可以知道，上次是 TouchChild 处理的事件，这次被拦截的话，此次的事件将会变成一个 CANCEL 事件并分发给子 view，这里 TouchChild 没有处理 CANCEL 事件，所以最终交给了 Activity 处理，现在让 TouchChild 处理 CANCEL
 
    ```java
    @Override
@@ -695,16 +694,16 @@ public boolean onTouchEvent(MotionEvent event) {
 
 ![](./image/android_view_touch_event/20170211180903319.jpg)
 
-   好了，事件确实是cancel事件，这次被TouchChild消耗了，activity就不会处理了
+   好了，事件确实是 CANCEL 事件，这次被 TouchChild 消耗了，Activity 就不会处理了
 
    以上测试了几个典型例子，对结论进行了论证，下面是Android事件分发机制在处理事件冲突时的应用。
 
 
 # 触摸事件冲突处理
 
-一般在项目中可能会遇到界面比较复杂的情况，而且可能是可滑动的布局相互嵌套的情况，比如，ScrollView里面有一个 ListView，两个 view 都是纵向划动的，一定会有冲突，还有 ViewPager 里面有 ScrollView，或 ScrollView里面有 ViewPager，这两个是横向和纵向划动的冲突，这种情况可能与用户体验相关，应该根据滑动的动作来决定事件交给哪个View来处理，为了解决这个问题，就需要对事件分发机制有所熟悉。
+一般在项目中可能会遇到界面比较复杂的情况，而且可能是可滑动的布局相互嵌套的情况，比如，ScrollView 里面有一个 ListView，两个 view 都是纵向划动的，一定会有冲突，还有 ViewPager 里面有 ScrollView，或 ScrollView 里面有 ViewPager，这两个是横向和纵向划动的冲突，这种情况可能与用户体验相关，应该根据滑动的动作来决定事件交给哪个 View 来处理，为了解决这个问题，就需要对事件分发机制有所熟悉。
 
-​    例如或 ScrollView 里面有 ViewPager 这种情况，当用户偏向横划的时候，相应的 ViewPager 就要做出内容的偏移，当用户偏向竖划的时后，ScrollView就要滚动里面的内容，针对这种情况，就产生了一个判断条件，就是用户横向或纵向划动，转化为逻辑就是，MOVE 事件时 x和y轴 滑动距离相比较，伪代码如下：
+​    例如或 ScrollView 里面有 ViewPager 这种情况，当用户偏向横划的时候，相应的 ViewPager 就要做出内容的偏移，当用户偏向竖划的时后，ScrollView 就要滚动里面的内容，针对这种情况，就产生了一个判断条件，就是用户横向或纵向划动，转化为逻辑就是，MOVE 事件时 x 和 y 轴 滑动距离相比较，伪代码如下：
 
 ```java
 if (x > y /*横向滑动*/) {
@@ -714,13 +713,13 @@ if (x > y /*横向滑动*/) {
 }
 ```
 
-那就是说，x > y 时，ViewPager会拦截ScrollView的事件，自己来处理，否则ScrollView拦截ViewPager的事件，自己来处理
+那就是说，x > y 时，ViewPager会拦截 ScrollView 的事件，自己来处理，否则 ScrollView 拦截 ViewPager 的事件，自己来处理
 
 针对此情况，一般有两种拦截的方法，也就是触摸事件冲突处理的方法。
 
 ## 外部拦截法
 
-外部拦截法以嵌套布局外层 ViewGroup 为主，重写 `onInterceptTouchEvent` 方法，事件是否拦截，完全由ViewGroup 决定。
+外部拦截法以嵌套布局外层 ViewGroup 为主，重写 `onInterceptTouchEvent` 方法，事件是否拦截，完全由 ViewGroup 决定。
 
 ```java
 public void onInterceptTouch(MotionEvent ev){
@@ -747,11 +746,11 @@ public void onInterceptTouch(MotionEvent ev){
 }
 ```
 
-这种方法的事件决定权完全在外部 ViewGroup 上，其中为什么不拦截 DOWN 事件呢，因为一旦拦截，那么事件就一定会给自己处理了，子 view 就没有选择的余地了。
+这种方法的事件决定权完全在外部 ViewGroup 上，其中为什么不拦截 DOWN 事件呢，因为一旦拦截，那么事件就一定会给自己处理了，子 View 就没有选择的余地了。
 
 ## 内部拦截法
 
-内部拦截法以嵌套布局内层View为主，主要重写子 view 的 `dispatchTouchEvent` 方法，这种方法需要 ViewGroup 不拦截 DOWN 事件，然后通过调用 ViewGroup 的 `requestDisallowInterceptTouchEvent` 来控制事件传递。
+内部拦截法以嵌套布局内层 View 为主，主要重写子 View 的 `dispatchTouchEvent` 方法，这种方法需要 ViewGroup 不拦截 DOWN 事件，然后通过调用 ViewGroup 的 `requestDisallowInterceptTouchEvent` 来控制事件传递。
 
 ```java
 /*子View*/
@@ -806,7 +805,7 @@ case MotionEvent.ACTION_DOWN: {
 }
 ```
 
-会发现在down事件中有一个 `requestParentDisallowInterceptTouchEvent(true)`，这里就是拦截外层view使用的内部拦截法。
+会发现在 DOWN 事件中有一个 `requestParentDisallowInterceptTouchEvent(true)`，这里就是拦截外层 View 使用的内部拦截法。
 
 ```java
 private void requestParentDisallowInterceptTouchEvent(boolean disallowIntercept) {
@@ -821,7 +820,7 @@ private void requestParentDisallowInterceptTouchEvent(boolean disallowIntercept)
 
 # 事件冲突处理实例
 
-这里假设一种情况，ScrollView 里面有一个 ListView，这两个 view 嵌套一定会出现问题，首先正常的在 Activity 里面放上一个 ScrollView 然后在里面放上一个 ListView，其中 ScrollView 是可以滚动的，ListView 高度限制为200dp，内部子元素有20个，代码很简单，核心部分如下：
+这里假设一种情况，ScrollView 里面有一个 ListView，这两个 View 嵌套一定会出现问题，首先正常的在 Activity 里面放上一个 ScrollView 然后在里面放上一个 ListView，其中 ScrollView 是可以滚动的，ListView 高度限制为 200dp，内部子元素有 20 个，代码很简单，核心部分如下：
 
 ```java
 ListView listView = (ListView)findViewById(R.id.lv_content);
@@ -862,9 +861,9 @@ listView.setAdapter(
 
 ![](./image/android_view_touch_event/20170211181000852.gif)
 
-会发现 ListView 根本无法滑动，肯定是 MOVE 事件完全被 ScrollView 拦截了，导致 ListView 接收不到事件，也就无法响应滑动，DOWN事件一般是不会被 ScrollView 拦截的，现在就想办法让ListView滑动，解决它们的冲突
+会发现 ListView 根本无法滑动，肯定是 MOVE 事件完全被 ScrollView 拦截了，导致 ListView 接收不到事件，也就无法响应滑动，DOWN事件一般是不会被 ScrollView 拦截的，现在就想办法让 ListView 滑动，解决它们的冲突
 
-首先需要一个条件，就是什么时候让 ListView 滑动，什么时候再把事件交还给 ScrollView，让它继续滑动，那么现在条件是这样，当手指落在 ListView 上并移动时，ListView 完全处理 MOVE 事件，当ListView达到底部的极限时且手指继续向上滑动 或 当 ListView 达到顶部的极限时且手指继续向下滑动把事件交给 ScrollView 处理，针对这个条件，发现决定事件的主要是 ListView，那么这里采用内部拦截法，重写ListView的事件处理方法，下面是完整代码和实现效果
+首先需要一个条件，就是什么时候让 ListView 滑动，什么时候再把事件交还给 ScrollView，让它继续滑动，那么现在条件是这样，当手指落在 ListView 上并移动时，ListView 完全处理 MOVE 事件，当 ListView 达到底部的极限时且手指继续向上滑动 或 当 ListView 达到顶部的极限时且手指继续向下滑动把事件交给 ScrollView 处理，针对这个条件，发现决定事件的主要是 ListView，那么这里采用内部拦截法，重写 ListView 的事件处理方法，下面是完整代码和实现效果
 
 ```java
 public final class TouchListView extends ListView {
@@ -945,4 +944,4 @@ public final class TouchListView extends ListView {
 
 ![](./image/android_view_touch_event/20170211181046103.gif)
 
-感觉有点别扭，例如当ListView达到底部的极限时且手指继续向上滑动，释放事件，ScrollView继续滚动，但是要再向下滑动时，手指还在ListView上，按自然滑动的规则 ListView 内容应该向下滚动，但这时事件还是 ScrollView 在处理，所以它会跟着手一起滚动，这里可以用另一种比较麻烦的方法，将事件直接通过 ListView 的对象，调用它的 `onTouchEvent` 传递过去，这个问题先留下来。
+感觉有点别扭，例如当 ListView 达到底部的极限时且手指继续向上滑动，释放事件，ScrollView 继续滚动，但是要再向下滑动时，手指还在ListView上，按自然滑动的规则 ListView 内容应该向下滚动，但这时事件还是 ScrollView 在处理，所以它会跟着手一起滚动，这里可以用另一种比较麻烦的方法，将事件直接通过 ListView 的对象，调用它的 `onTouchEvent` 传递过去，这个问题先留下来。
