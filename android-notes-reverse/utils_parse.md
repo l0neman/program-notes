@@ -8,7 +8,7 @@
 
 首先抽象了两个接口，`Struct` 和 `Union`，作为标记型接口，为了符合解析规范，实现 `Struct` 接口的类型可被解析，实现 `Union` 接口的类型成员将使用共用字节的解析方式。
 
-然后定义了工具类：`ObjectInput`，源码 [ObjectInput.java](./src/com/runing/utilslib/arscparser/util/objectio/ObjectInput.java)
+然后定义了工具类：`ObjectInput`，源码 [ObjectInput.java](./project/android_arsc_parse/src/com/runing/utilslib/arscparser/util/objectio/ObjectInput.java)
 
 使用方法为：
 
