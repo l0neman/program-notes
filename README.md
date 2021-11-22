@@ -1,5 +1,7 @@
 # program-notes :blush:
 
+不再更新，已经迁移至 [https://l0neman.github.io/](https://l0neman.github.io/)
+
 ## [android-notes-app](./android-notes-app)
 
 android 应用开发笔记。
